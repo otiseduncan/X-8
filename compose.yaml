@@ -4,6 +4,10 @@ services:
       context: .
       dockerfile: docker/api/Dockerfile
     env_file: .env.example
+    environment:
+      X8_GITHUB_TOKEN: ${X8_GITHUB_TOKEN:-}
+      X8_GITHUB_OWNER: ${X8_GITHUB_OWNER:-otiseduncan}
+      X8_GITHUB_DEFAULT_VISIBILITY: ${X8_GITHUB_DEFAULT_VISIBILITY:-private}
     ports:
       - "${X8_API_PORT:-8080}:8080"
     depends_on:
