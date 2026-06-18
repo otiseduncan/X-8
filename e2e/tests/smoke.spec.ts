@@ -116,9 +116,18 @@ test('inline file viewer card renders without file tree on main screen', async (
 test('inline diff proposal requires approval before mutation', async ({ page }) => {
   await page.goto('/');
   await ask(page, 'propose a README edit');
+  await expect(page.getByTestId('inline-diff-card')).toBeVisible({ timeout: 15000 });
+  await expect(page.getByTestId('inline-approval-card')).toBeVisible({ timeout: 15000 });
+  await expect(page.getByText(/No mutation has happened/i)).toBeVisible();
+});
+
+test('self-build prompt creates plan proposal and approval card without applying', async ({ page }) => {
+  await page.goto('/');
+  await ask(page, 'Self-build test. Inspect README.md and propose a patch that adds a short Self-Build Mode section. Do not apply the patch until I approve. Do not commit.');
+  await expect(page.getByText('Self-build prompt detected')).toBeVisible({ timeout: 15000 });
+  await expect(page.getByText('Self-build patch plan')).toBeVisible();
   await expect(page.getByTestId('inline-diff-card')).toBeVisible();
   await expect(page.getByTestId('inline-approval-card')).toBeVisible();
-  await expect(page.getByText(/No mutation has happened/i)).toBeVisible();
 });
 
 test('inline research and image status cards render honestly', async ({ page }) => {

@@ -128,6 +128,16 @@ export async function createArtifactPreview(title: string, prompt: string) {
   return response.json();
 }
 
+export async function createSelfBuildTask(prompt: string) {
+  const response = await fetch('/api/self-build/tasks', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ user_prompt: prompt, mode: 'patch_proposal', approval_required: true, commit_allowed: false, push_allowed: false })
+  });
+  if (!response.ok) throw new Error('Self-build task failed');
+  return response.json();
+}
+
 export async function uploadAttachment(file: File) {
   const body = new FormData();
   body.append('file', file);

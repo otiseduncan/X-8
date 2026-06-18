@@ -2,12 +2,13 @@ import { Activity, Boxes, Check, ChevronDown, ChevronUp, Code2, Copy, FileText, 
 import { useEffect, useRef, useState } from 'react';
 import { SpeechInputManager, SpeechOutputManager } from '../audio/speechManagers';
 import type { SpeechReceipt, SttStatus, TtsStatus } from '../audio/speechManagers';
-import { applyUpdate, createArtifactPreview, createSpeechReceipt, loadAvatarManifest, loadBridgeStatus, loadCapabilities, loadConfigImportStatus, loadDockerPresets, loadFiles, loadGitHubStatus, loadImageStatus, loadIntegrations, loadMemoryStatus, loadModelStatus, loadReceipts, loadSearchStatus, loadSession, loadSessions, loadSpeechStatus, loadTeam, proposeUpdate, readFile, requestImage, runSearch, scanX7Configs, sendChat, uploadAttachment } from '../services/apiClient';
-import type { AttachmentReference, Capability, FileEntry, IntegrationStatus, PatchProposal, Receipt, SessionDetail, TeamSeat } from '../types/contracts';
+import { applyUpdate, createArtifactPreview, createSelfBuildTask, createSpeechReceipt, loadAvatarManifest, loadBridgeStatus, loadCapabilities, loadConfigImportStatus, loadDockerPresets, loadFiles, loadGitHubStatus, loadImageStatus, loadIntegrations, loadMemoryStatus, loadModelStatus, loadReceipts, loadSearchStatus, loadSession, loadSessions, loadSpeechStatus, loadTeam, proposeUpdate, readFile, requestImage, runSearch, scanX7Configs, sendChat, uploadAttachment } from '../services/apiClient';
+import type { AttachmentReference, Capability, FileEntry, IntegrationStatus, PatchProposal, SessionDetail, TeamSeat } from '../types/contracts';
 import { CodeEditor } from '../components/cockpit/CodeEditor';
 import { StatusPill } from '../components/ui/StatusPill';
 import { AvatarStage, ChatTimeline, InfoDropdown, Panel, PushToTalkButton, TranscriptPreview, messageCopyText, transcriptMarkdown } from './AssistantComponents';
-import type { AvatarRuntimeState, CardKind, ChatCard, ChatMessage, InfoReceipt } from './AssistantComponents';
+import type { AvatarRuntimeState, ChatCard, ChatMessage, InfoReceipt } from './AssistantComponents';
+import { errorCard, mapKernelCard, receiptCards } from './cardHelpers';
 
 const nowId = () => `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   const speechInput = new SpeechInputManager();
@@ -155,6 +156,7 @@ export function App() {
 
   function classifyRequest(text: string) {
     const lower = text.toLowerCase();
+    if (lower.includes('self-build') || (lower.includes('patch') && lower.includes('do not commit')) || (lower.includes('completion rule') && lower.includes('tests'))) return 'self_build';
     if (lower.includes('open') && lower.includes('readme')) return 'file';
     if (lower.includes('propose') && (lower.includes('edit') || lower.includes('diff'))) return 'diff';
     if (lower.includes('website') || lower.includes('preview') || lower.includes('html')) return 'artifact';
@@ -186,6 +188,7 @@ export function App() {
     if (intent === 'research') return createResearchCard(text);
     if (intent === 'image') return createImageCard(text);
     if (intent === 'test') return createTestCard(text);
+    if (intent === 'self_build') return createSelfBuildCards(text);
     return createAssistantReply(text, outgoingAttachments);
   }
 
@@ -409,6 +412,31 @@ export function App() {
     }
   }
 
+  async function createSelfBuildCards(prompt: string) {
+    try {
+      const response = await createSelfBuildTask(prompt);
+      const task = response.data;
+      const proposal = task.proposal || {};
+      setLatestResult('Self-build patch plan created');
+      setLatestReceipt(response.receipts?.[0] || null);
+      appendMessage({
+        id: nowId(),
+        role: 'assistant',
+        text: response.message,
+        cards: [
+          { id: nowId(), type: 'receipt', title: 'Self-build prompt detected', status: response.status, summary: 'XV8 detected a self-build prompt. No files were changed.', payload: { task_id: task.task_id } },
+          { id: nowId(), type: 'receipt', title: 'Self-build patch plan', status: task.plan?.status || 'created', summary: task.plan?.summary || 'Patch plan created.', payload: task.plan, collapsed: false },
+          { id: nowId(), type: 'diff', title: 'Self-build patch proposal', status: proposal.status || 'proposed', summary: `${proposal.changes?.length || 0} proposed file change(s).`, payload: { diff: proposal.changes?.[0]?.unified_diff || '', path: proposal.changes?.[0]?.file_path || '', approvalState: proposal.approval_id ? 'pending_click' : 'blocked' }, collapsed: true },
+          { id: nowId(), type: 'approval', title: 'Approval required before apply', status: proposal.approval_id ? 'pending_click' : 'blocked', summary: 'Applying this patch requires popup approval tied to the exact patch hash.', payload: { approval_id: proposal.approval_id, patch_hash: proposal.patch_hash } }
+        ]
+      });
+      setSpeechState(muted ? 'muted' : 'idle');
+    } catch {
+      setSpeechState('error');
+      appendMessage({ id: nowId(), role: 'assistant', text: 'Self-build planning could not complete.', cards: [errorCard('Self-build failed', 'No files were changed.')] });
+    }
+  }
+
   async function createResearchCard(query: string) {
     try {
       const response = await runSearch(query.replace(/search|searxng/gi, '').trim() || query);
@@ -504,43 +532,6 @@ export function App() {
       ]
     });
     setSpeechState(muted ? 'muted' : 'idle');
-  }
-
-  function mapKernelCard(card: Record<string, unknown>): ChatCard {
-    const kernelType = String(card.type || 'info');
-    const type = ['info', 'status'].includes(kernelType) ? 'receipt' : (kernelType as CardKind);
-    return {
-      id: String(card.id || nowId()),
-      type,
-      title: String(card.title || 'Kernel card'),
-      status: String(card.status || 'ok'),
-      summary: String(card.summary || ''),
-      payload: (card.payload || {}) as Record<string, unknown>,
-      collapsed: kernelType === 'info'
-    };
-  }
-
-  function receiptCards(receipts: Receipt[] = []) {
-    return receipts.map((receipt) => ({
-      id: nowId(),
-      type: 'receipt' as CardKind,
-      title: `Receipt: ${receipt.action}`,
-      status: receipt.status,
-      summary: receipt.summary,
-      receipt,
-      collapsed: true
-    }));
-  }
-
-  function errorCard(title: string, summary: string): ChatCard {
-    return {
-      id: nowId(),
-      type: 'error',
-      title,
-      status: 'error',
-      summary,
-      receipt: { id: nowId(), action: title, status: 'error', summary }
-    };
   }
 
   async function requestApply() {

@@ -80,6 +80,17 @@ function mockRuntime() {
                                     ? { status: 'browser_fallback' }
                                     : String(path).includes('speech/receipt')
                                       ? { ok: true }
+                                      : String(path).includes('self-build/tasks')
+                                        ? {
+                                            task_id: 'sbtask_1',
+                                            plan: { status: 'created', summary: 'Create a guarded patch proposal for README.md.' },
+                                            proposal: {
+                                              status: 'proposed',
+                                              approval_id: 'sbappr_1',
+                                              patch_hash: 'hash_1',
+                                              changes: [{ file_path: 'README.md', unified_diff: '--- a/README.md\n+++ b/README.md\n+## Self-Build Mode' }]
+                                            }
+                                          }
                                       : String(path).includes('attachments')
                                         ? { attachment_id: 'att_test', filename: 'notes.txt', mime_type: 'text/plain', size_bytes: 5, status: 'uploaded', extracted_text: 'hello', content_extractable: true }
                                         : String(path).includes('sessions')
@@ -205,6 +216,15 @@ test('renders inline diff approval without mutating before approval', async () =
   expect(await screen.findByTestId('inline-diff-card')).toBeInTheDocument();
   expect(screen.getByTestId('inline-approval-card')).toBeInTheDocument();
   expect(screen.getByText(/No mutation has happened/i)).toBeInTheDocument();
+});
+
+test('renders self-build plan proposal and approval cards', async () => {
+  render(<App />);
+  await send('Self-build test. Inspect README.md and propose a patch. Do not commit.');
+  expect(await screen.findByText('Self-build prompt detected')).toBeInTheDocument();
+  expect(screen.getByText('Self-build patch plan')).toBeInTheDocument();
+  expect(screen.getByTestId('inline-diff-card')).toBeInTheDocument();
+  expect(screen.getByTestId('inline-approval-card')).toBeInTheDocument();
 });
 
 test('renders inline research and image cards honestly', async () => {

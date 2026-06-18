@@ -17,6 +17,10 @@ from x8.kernel.response_planner import ResponsePlanner
 from x8.managers.model_manager import OllamaAdapter
 from x8.managers.memory_manager import MemoryApprovalDecision, MemoryManager, MemoryProposal
 from x8.managers.model_manager import ModelReadinessManager
+from x8.self_build.contracts import PatchApplyRequest, SelfBuildRequest
+from x8.self_build.manager import SelfBuildManager
+from x8.self_build.prompt_ingestor import BuildPromptIngestor
+from x8.self_build.repo_context import RepoContextReader
 
 
 def client(settings: Settings | None = None) -> TestClient:
@@ -495,3 +499,73 @@ def test_speech_endpoint_has_browser_fallback() -> None:
     response = client().get("/api/speech/status")
     payload = response.json()
     assert payload["status"] in {"browser_fallback", "configured", "unavailable"}
+
+
+def test_self_build_prompt_is_detected() -> None:
+    assert BuildPromptIngestor().is_self_build_prompt("Self-build test. Inspect README.md and propose a patch. Do not commit.")
+
+
+def test_self_build_repo_context_allows_and_blocks_paths(tmp_path) -> None:
+    (tmp_path / "README.md").write_text("XV8\n", encoding="utf-8")
+    (tmp_path / "runtime").mkdir()
+    reader = RepoContextReader(str(tmp_path))
+    assert reader.read_file("README.md").status == "read"
+    assert reader.read_file("runtime/secret.txt").blocked is True
+    assert reader.read_file(".env").blocked is True
+
+
+def test_self_build_plan_and_proposal_do_not_write(tmp_path) -> None:
+    readme = tmp_path / "README.md"
+    readme.write_text("# XV8\n", encoding="utf-8")
+    manager = SelfBuildManager(str(tmp_path))
+    task = manager.create_task(SelfBuildRequest(user_prompt="Self-build test. Inspect README.md and propose a patch that adds Self-Build Mode. Do not commit."))
+    assert task.plan is not None
+    assert task.proposal is not None
+    assert task.proposal.validation.passed is True
+    assert "Self-Build Mode" not in readme.read_text(encoding="utf-8")
+    assert task.proposal.approval_id
+
+
+def test_self_build_apply_requires_approval_and_hash_match(tmp_path) -> None:
+    readme = tmp_path / "README.md"
+    readme.write_text("# XV8\n", encoding="utf-8")
+    manager = SelfBuildManager(str(tmp_path))
+    task = manager.create_task(SelfBuildRequest(user_prompt="Self-build test. Inspect README.md and propose a patch that adds Self-Build Mode. Do not commit."))
+    proposal = task.proposal
+    assert proposal is not None
+    denied = manager.apply_patch(task.task_id, PatchApplyRequest(patch_id=proposal.patch_id, approval_id=proposal.approval_id, patch_hash=proposal.patch_hash, approved=False))
+    assert denied.applied is False
+    mismatch = manager.apply_patch(task.task_id, PatchApplyRequest(patch_id=proposal.patch_id, approval_id=proposal.approval_id, patch_hash="bad", approved=True))
+    assert mismatch.applied is False
+    applied = manager.apply_patch(task.task_id, PatchApplyRequest(patch_id=proposal.patch_id, approval_id=proposal.approval_id, patch_hash=proposal.patch_hash, approved=True))
+    assert applied.applied is True
+    assert "Self-Build Mode" in readme.read_text(encoding="utf-8")
+
+
+def test_self_build_validation_presets_are_allowlisted(tmp_path) -> None:
+    manager = SelfBuildManager(str(tmp_path))
+    result = manager.validation.validate_presets(["architecture_guard", "npm_install"])
+    assert result.passed is False
+    assert "npm_install" in result.reasons[0]
+
+
+def test_self_build_api_creates_task_without_applying(tmp_path) -> None:
+    (tmp_path / "README.md").write_text("# XV8\n", encoding="utf-8")
+    api = client(Settings(workspace_root=str(tmp_path), knowledge_root="/app/knowledge", ollama_base_url="http://127.0.0.1:9", default_chat_model="", fallback_chat_model="", x7_import_root="/missing/x7", x6_import_root="/missing/x6"))
+    response = api.post("/api/self-build/tasks", json={"user_prompt": "Self-build test. Inspect README.md and propose a patch. Do not commit."})
+    payload = response.json()
+    assert payload["status"] == "planned"
+    assert payload["data"]["proposal"]["approval_id"]
+    assert "Self-Build Mode" not in (tmp_path / "README.md").read_text(encoding="utf-8")
+
+
+def test_operator_capabilities_route_reports_scaffold() -> None:
+    payload = client().get("/api/operator/capabilities").json()
+    assert payload["status"] == "ready"
+    assert any(item["capability_id"] == "operator.workspace_read" for item in payload["data"])
+
+
+def test_operator_mutating_task_produces_approval_without_execution() -> None:
+    payload = client().post("/api/operator/tasks", json={"prompt": "edit README.md", "action_type": "write_file", "target_identifier": "README.md"}).json()
+    assert payload["data"]["approvals"]
+    assert payload["data"]["results"] == []

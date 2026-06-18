@@ -52,6 +52,16 @@ class Settings(BaseSettings):
     comfyui_output_dir: str = "/outputs"
     image_default_model: str = "juggernaut"
     docker_preset_workdir: str = "/workspace"
+    operator_enabled: bool = True
+    operator_mutations_enabled: bool = False
+    operator_remote_control_enabled: bool = False
+    operator_external_sends_enabled: bool = False
+    operator_max_runtime_seconds: int = 300
+    operator_max_output_chars: int = 6000
+    operator_max_file_bytes: int = 1000000
+    operator_max_context_chars: int = 12000
+    operator_max_parallel_jobs: int = 2
+    operator_tool_timeout_seconds: int = 60
     speech_enabled: bool = True
     speech_default_provider: str = "google"
     speech_default_locale: str = "en-US"
