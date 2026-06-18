@@ -1,6 +1,9 @@
 import json
+import socket
+import time
 import urllib.error
 import urllib.request
+from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from x8.contracts.chat import ModelStatus
@@ -12,6 +15,23 @@ def normalize_model(model: str, fallback: str = "") -> tuple[str, bool]:
     if model in BLOCKED_MODELS:
         return fallback, True
     return model, False
+
+
+@dataclass
+class GenerateResult:
+    ok: bool
+    content: str = ""
+    failure_reason: str = ""
+    model: str = ""
+    timeout_seconds: float = 0.0
+    timed_out: bool = False
+    total_generation_ms: int = 0
+
+
+def _timed_out(exc: BaseException) -> bool:
+    reason = getattr(exc, "reason", "")
+    text = f"{exc} {reason}".lower()
+    return isinstance(exc, (TimeoutError, socket.timeout)) or "timed out" in text or "timeout" in text
 
 
 class OllamaAdapter:
@@ -28,15 +48,39 @@ class OllamaAdapter:
         except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError) as exc:
             return False, [], str(exc)
 
-    def generate(self, model: str, prompt: str) -> tuple[bool, str, str]:
+    def generate_with_metrics(self, model: str, prompt: str, timeout_seconds: float | None = None) -> GenerateResult:
+        effective_timeout = float(timeout_seconds if timeout_seconds is not None else self.generate_timeout_seconds)
+        started = time.perf_counter()
         body = json.dumps({"model": model, "prompt": prompt, "stream": False}).encode("utf-8")
         try:
             request = urllib.request.Request(f"{self.base_url}/api/generate", data=body, headers={"Content-Type": "application/json"})
-            with urllib.request.urlopen(request, timeout=self.generate_timeout_seconds) as response:
+            with urllib.request.urlopen(request, timeout=effective_timeout) as response:
                 payload = json.loads(response.read().decode("utf-8"))
-            return True, str(payload.get("response", "")).strip(), ""
+            elapsed_ms = int((time.perf_counter() - started) * 1000)
+            return GenerateResult(
+                ok=True,
+                content=str(payload.get("response", "")).strip(),
+                model=model,
+                timeout_seconds=effective_timeout,
+                total_generation_ms=elapsed_ms,
+            )
         except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError) as exc:
-            return False, "", str(exc)
+            elapsed_ms = int((time.perf_counter() - started) * 1000)
+            timed_out = _timed_out(exc)
+            reason = f"Model request timed out after {effective_timeout:g}s." if timed_out else str(exc)
+            return GenerateResult(
+                ok=False,
+                content="",
+                failure_reason=reason,
+                model=model,
+                timeout_seconds=effective_timeout,
+                timed_out=timed_out,
+                total_generation_ms=elapsed_ms,
+            )
+
+    def generate(self, model: str, prompt: str) -> tuple[bool, str, str]:
+        result = self.generate_with_metrics(model, prompt)
+        return result.ok, result.content, result.failure_reason
 
     def embed(self, model: str, text: str) -> tuple[bool, list[float], str]:
         body = json.dumps({"model": model, "prompt": text}).encode("utf-8")
@@ -64,6 +108,7 @@ class ModelReadinessManager:
         code_model: str = "",
         embedding_model: str = "",
         health_prompt: str = "Reply with XV8_READY only.",
+        health_timeout_seconds: float = 20.0,
         embedding_required_for_memory: bool = True,
     ) -> None:
         self.adapter = adapter
@@ -76,6 +121,7 @@ class ModelReadinessManager:
         self.embedding_model, embedding_blocked = normalize_model(embedding_model, "nomic-embed-text:latest")
         self.configured_blocked_models = [model for model, blocked in ((default_model, default_blocked), (reasoning_model, reasoning_blocked), (fallback_model, fallback_blocked), (code_model, code_blocked), (embedding_model, embedding_blocked)) if blocked]
         self.health_prompt = health_prompt
+        self.health_timeout_seconds = health_timeout_seconds
         self.embedding_required_for_memory = embedding_required_for_memory
 
     def status(self, *, probe: bool = True) -> ModelStatus:
@@ -95,8 +141,13 @@ class ModelReadinessManager:
         health_ok = False
         health_reason = ""
         if reachable and selected and probe:
-            health_ok, content, health_reason = self.adapter.generate(selected, self.health_prompt)
-            health_ok = health_ok and "XV8_READY" in content
+            if hasattr(self.adapter, "generate_with_metrics"):
+                health_result = self.adapter.generate_with_metrics(selected, self.health_prompt, timeout_seconds=self.health_timeout_seconds)
+            else:
+                ok, content, health_reason = self.adapter.generate(selected, self.health_prompt)
+                health_result = GenerateResult(ok=ok, content=content, failure_reason=health_reason, model=selected, timeout_seconds=self.health_timeout_seconds)
+            health_ok = health_result.ok and "XV8_READY" in health_result.content
+            health_reason = health_result.failure_reason
             if not health_ok and not health_reason:
                 health_reason = "Model health prompt did not return XV8_READY."
         embedding_ok = bool(self.embedding_model) and self.embedding_model in selectable_models
