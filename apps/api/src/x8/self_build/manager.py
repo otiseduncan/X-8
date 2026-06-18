@@ -23,9 +23,13 @@ class SelfBuildManager:
         self.audit = SelfBuildAuditManager()
         self.tasks: dict[str, SelfBuildTask] = {}
         self.approvals: dict[str, str] = {}
+        self.latest_task_id: str = ""
 
     def detect(self, prompt: str) -> bool:
         return self.ingestor.is_self_build_prompt(prompt)
+
+    def classify_intent(self, prompt: str) -> str:
+        return self.ingestor.classify_intent(prompt)
 
     def create_task(self, request: SelfBuildRequest) -> SelfBuildTask:
         extracted = self.ingestor.extract(request.user_prompt)
@@ -62,10 +66,58 @@ class SelfBuildManager:
             self.approvals[approval_id] = task.proposal.patch_hash
             task.receipts.append(self.receipts.create("patch_approval_requested", "pending", request.request_id, task.task_id, task.proposal.patch_id, approval_id=approval_id))
         self.tasks[task.task_id] = task
+        self.latest_task_id = task.task_id
         return task
 
     def get_task(self, task_id: str) -> SelfBuildTask | None:
         return self.tasks.get(task_id)
+
+    def latest_task(self) -> SelfBuildTask | None:
+        if self.latest_task_id:
+            return self.tasks.get(self.latest_task_id)
+        if not self.tasks:
+            return None
+        return list(self.tasks.values())[-1]
+
+    def proposal_detail(self, task: SelfBuildTask) -> dict[str, object]:
+        proposal = task.proposal
+        if proposal is None:
+            return {}
+        return {
+            "task_id": task.task_id,
+            "patch_id": proposal.patch_id,
+            "approval_id": proposal.approval_id,
+            "patch_hash": proposal.patch_hash,
+            "files_changed_count": len(proposal.changes),
+            "changed_file_paths": [change.file_path for change in proposal.changes],
+            "changes": [
+                {
+                    "file_path": change.file_path,
+                    "before_hash": change.before_hash,
+                    "after_hash": change.after_hash,
+                    "unified_diff": change.unified_diff,
+                }
+                for change in proposal.changes
+            ],
+            "validation_status": proposal.validation.status,
+            "validation_reasons": proposal.validation.reasons,
+            "risk_level": task.plan.risk_level if task.plan else task.risk_level,
+            "rollback_plan": task.plan.rollback_plan if task.plan else "",
+            "apply_safe": bool(proposal.validation.passed and proposal.approval_id and proposal.patch_hash),
+            "message": "No files changed. Approval required before apply.",
+        }
+
+    def latest_proposal_detail(self) -> dict[str, object] | None:
+        task = self.latest_task()
+        if task is None or task.proposal is None:
+            return None
+        return self.proposal_detail(task)
+
+    def latest_validation_report(self) -> SelfBuildValidationReport | None:
+        task = self.latest_task()
+        if task is None or not task.validation_reports:
+            return None
+        return task.validation_reports[-1]
 
     def apply_patch(self, task_id: str, request: PatchApplyRequest):
         task = self.tasks[task_id]

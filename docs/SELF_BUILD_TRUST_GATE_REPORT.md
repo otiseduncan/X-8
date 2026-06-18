@@ -18,21 +18,27 @@ The model status endpoint is light by default. `GET /api/models/status` checks a
 ## Trust Gate Flow
 
 1. User submits a self-build prompt.
-2. XV8 reads only allowlisted repo context.
-3. XV8 creates a plan and patch proposal.
-4. The proposal contains file paths, unified diff, before hash, after hash, patch hash, risk, tests, and rollback expectations.
-5. No files are changed during proposal.
-6. Apply requires `approved=true`, matching `patch_id`, matching `approval_id`, and exact `patch_hash`.
-7. Apply verifies each target file still matches the proposal `before_hash` before any write.
-8. Apply writes exact `proposed_content`, not reconstructed diff text.
-9. Apply stores local runtime backups and restores changed files if a partial write fails.
-10. Validation is limited to allowlisted presets.
+2. XV8 classifies the self-build intent before doing anything else.
+3. Read-only intents such as "show proposal details", "show latest proposal", "show patch hash", "show approval id", "show validation report", "show trust status", "before approval", "do not apply", "do not write anything yet", "no files should be changed", "what is the current proposal", and "list proposal ids" retrieve existing data only.
+4. Create-proposal intent is reserved for prompts that clearly ask to build, change, add, implement, modify, update, refactor, create, or fix project files.
+5. For create-proposal intent, XV8 reads only allowlisted repo context.
+6. XV8 creates a plan and patch proposal.
+7. The proposal contains file paths, unified diff, before hash, after hash, patch hash, risk, tests, and rollback expectations.
+8. No files are changed during proposal.
+9. Apply requires `approved=true`, matching `patch_id`, matching `approval_id`, and exact `patch_hash`.
+10. Apply verifies each target file still matches the proposal `before_hash` before any write.
+11. Apply writes exact `proposed_content`, not reconstructed diff text.
+12. Apply stores local runtime backups and restores changed files if a partial write fails.
+13. Validation is limited to allowlisted presets.
 
 ## API Surface
 
 - `POST /api/self-build/detect`
 - `POST /api/self-build/tasks`
 - `GET /api/self-build/tasks/{task_id}`
+- `POST /api/self-build/prompt`
+- `GET /api/self-build/tasks/latest/proposal`
+- `GET /api/self-build/tasks/latest/validation`
 - `GET /api/self-build/tasks/{task_id}/proposal`
 - `POST /api/self-build/tasks/{task_id}/apply`
 - `POST /api/self-build/tasks/{task_id}/validate`
@@ -41,6 +47,7 @@ The model status endpoint is light by default. `GET /api/models/status` checks a
 ## Safety Rules
 
 - Writes without approval: blocked.
+- Read-only inspection prompts creating new proposals: blocked.
 - Patch hash mismatch: blocked.
 - File changed since proposal: blocked.
 - Path outside allowlist: blocked.
@@ -77,6 +84,8 @@ Focused trust-gate proof:
 - Validation tests prove validation reports are recorded.
 - Trust-status API test proves the runtime reports approval-hash gating and no writes without approval.
 - Model-router test proves a timed-out `qwen3:8b` response can be reported as fallback to `qwen3:1.7b`.
+- Intent tests prove proposal inspection, trust status, and validation report prompts do not create new proposals.
+- Latest proposal tests prove read-only details return the original proposal `task_id`, `patch_id`, `approval_id`, and `patch_hash`.
 
 ## Current Completion Status
 

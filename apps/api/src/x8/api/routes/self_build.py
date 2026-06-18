@@ -16,10 +16,12 @@ def manager(request: Request) -> SelfBuildManager:
     return _managers[root]
 
 
-@router.post("/detect", response_model=ResultEnvelope[dict[str, bool]])
-def detect(payload: dict[str, str], request: Request) -> ResultEnvelope[dict[str, bool]]:
-    detected = manager(request).detect(payload.get("prompt", ""))
-    return ResultEnvelope(ok=True, status="detected" if detected else "not_detected", data={"self_build_prompt": detected}, message="Self-build prompt detection completed.")
+@router.post("/detect", response_model=ResultEnvelope[dict[str, object]])
+def detect(payload: dict[str, str], request: Request) -> ResultEnvelope[dict[str, object]]:
+    mgr = manager(request)
+    prompt = payload.get("prompt", "")
+    detected = mgr.detect(prompt)
+    return ResultEnvelope(ok=True, status="detected" if detected else "not_detected", data={"self_build_prompt": detected, "intent": mgr.classify_intent(prompt)}, message="Self-build prompt detection completed.")
 
 
 @router.post("/tasks", response_model=ResultEnvelope[SelfBuildTask])
@@ -34,6 +36,59 @@ def create_task(payload: SelfBuildRequest, request: Request) -> ResultEnvelope[S
     )
 
 
+@router.post("/prompt", response_model=ResultEnvelope[dict[str, object]])
+def handle_prompt(payload: dict[str, str], request: Request) -> ResultEnvelope[dict[str, object]]:
+    mgr = manager(request)
+    prompt = payload.get("prompt", "")
+    intent = mgr.classify_intent(prompt)
+    if intent == "create_proposal":
+        task = mgr.create_task(SelfBuildRequest(user_prompt=prompt))
+        detail = mgr.proposal_detail(task)
+        return ResultEnvelope(
+            ok=True,
+            status="planned",
+            data={"intent": intent, "task": task.model_dump(mode="json"), "proposal_detail": detail},
+            message="No files changed. Approval required before apply.",
+            receipts=[Receipt(action=item.action_type, status=item.status, summary=f"Self-build step: {item.action_type}", metadata=item.model_dump(mode="json")) for item in task.receipts],
+        )
+    if intent == "inspect_proposal":
+        detail = mgr.latest_proposal_detail()
+        if detail is None:
+            return ResultEnvelope(ok=False, status="missing", data={"intent": intent}, message="No active self-build proposal found.")
+        return ResultEnvelope(ok=True, status="proposed", data={"intent": intent, "proposal_detail": detail}, message="Self-build proposal details loaded.")
+    if intent == "trust_status":
+        return ResultEnvelope(ok=True, status="ready", data={"intent": intent, "trust_status": mgr.trust_status()}, message="Self-build trust gate status loaded.")
+    if intent == "validation_report":
+        report = mgr.latest_validation_report()
+        if report is None:
+            if mgr.latest_task() is None:
+                return ResultEnvelope(ok=False, status="missing", data={"intent": intent}, message="No active self-build proposal found.")
+            return ResultEnvelope(ok=False, status="missing", data={"intent": intent}, message="No active self-build validation report found.")
+        return ResultEnvelope(ok=True, status=report.status, data={"intent": intent, "validation_report": report.model_dump(mode="json")}, message="Self-build validation report loaded.")
+    if intent == "approval_apply":
+        return ResultEnvelope(ok=False, status="approval_required", data={"intent": intent}, message="Use the locked apply endpoint with patch_id, approval_id, exact patch_hash, and approved=true.")
+    return ResultEnvelope(ok=False, status="not_detected", data={"intent": intent}, message="No self-build intent detected.")
+
+
+@router.get("/tasks/latest/proposal", response_model=ResultEnvelope[dict[str, object]])
+def get_latest_proposal(request: Request) -> ResultEnvelope[dict[str, object]]:
+    detail = manager(request).latest_proposal_detail()
+    if detail is None:
+        return ResultEnvelope(ok=False, status="missing", data={}, message="No active self-build proposal found.")
+    return ResultEnvelope(ok=True, status="proposed", data=detail, message="Self-build latest proposal loaded.")
+
+
+@router.get("/tasks/latest/validation", response_model=ResultEnvelope[dict[str, object]])
+def get_latest_validation(request: Request) -> ResultEnvelope[dict[str, object]]:
+    mgr = manager(request)
+    report = mgr.latest_validation_report()
+    if report is None:
+        if mgr.latest_task() is None:
+            return ResultEnvelope(ok=False, status="missing", data={}, message="No active self-build proposal found.")
+        return ResultEnvelope(ok=False, status="missing", data={}, message="No active self-build validation report found.")
+    return ResultEnvelope(ok=True, status=report.status, data=report.model_dump(mode="json"), message="Self-build latest validation report loaded.")
+
+
 @router.get("/tasks/{task_id}", response_model=ResultEnvelope[SelfBuildTask])
 def get_task(task_id: str, request: Request) -> ResultEnvelope[SelfBuildTask]:
     task = manager(request).get_task(task_id)
@@ -42,12 +97,14 @@ def get_task(task_id: str, request: Request) -> ResultEnvelope[SelfBuildTask]:
     return ResultEnvelope(ok=True, status=task.status, data=task, message="Self-build task loaded.")
 
 
-@router.get("/tasks/{task_id}/proposal", response_model=ResultEnvelope[SelfBuildTask])
-def get_task_proposal(task_id: str, request: Request) -> ResultEnvelope[SelfBuildTask]:
+@router.get("/tasks/{task_id}/proposal", response_model=ResultEnvelope[dict[str, object]])
+def get_task_proposal(task_id: str, request: Request) -> ResultEnvelope[dict[str, object]]:
     task = manager(request).get_task(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Self-build task not found.")
-    return ResultEnvelope(ok=task.proposal is not None, status=task.proposal.status if task.proposal else "missing", data=task, message="Self-build patch proposal loaded.")
+    if task.proposal is None:
+        return ResultEnvelope(ok=False, status="missing", data={}, message="No active self-build proposal found.")
+    return ResultEnvelope(ok=True, status=task.proposal.status, data=manager(request).proposal_detail(task), message="Self-build patch proposal loaded.")
 
 
 @router.post("/tasks/{task_id}/apply", response_model=ResultEnvelope[PatchApplyResult])

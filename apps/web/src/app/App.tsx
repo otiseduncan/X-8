@@ -2,7 +2,7 @@ import { Activity, Boxes, Check, ChevronDown, ChevronUp, Code2, Copy, FileText, 
 import { useEffect, useRef, useState } from 'react';
 import { SpeechInputManager, SpeechOutputManager } from '../audio/speechManagers';
 import type { SpeechReceipt, SttStatus, TtsStatus } from '../audio/speechManagers';
-import { applyUpdate, createArtifactPreview, createSelfBuildTask, createSpeechReceipt, loadAvatarManifest, loadBridgeStatus, loadCapabilities, loadConfigImportStatus, loadDockerPresets, loadFiles, loadGitHubStatus, loadImageStatus, loadIntegrations, loadMemoryStatus, loadModelStatus, loadReceipts, loadSearchStatus, loadSession, loadSessions, loadSpeechStatus, loadTeam, proposeUpdate, readFile, requestImage, runSearch, scanX7Configs, sendChat, uploadAttachment } from '../services/apiClient';
+import { applyUpdate, createArtifactPreview, createSpeechReceipt, loadAvatarManifest, loadBridgeStatus, loadCapabilities, loadConfigImportStatus, loadDockerPresets, loadFiles, loadGitHubStatus, loadImageStatus, loadIntegrations, loadMemoryStatus, loadModelStatus, loadReceipts, loadSearchStatus, loadSession, loadSessions, loadSpeechStatus, loadTeam, proposeUpdate, readFile, requestImage, runSearch, runSelfBuildPrompt, scanX7Configs, sendChat, uploadAttachment } from '../services/apiClient';
 import type { AttachmentReference, Capability, FileEntry, IntegrationStatus, PatchProposal, SessionDetail, TeamSeat } from '../types/contracts';
 import { CodeEditor } from '../components/cockpit/CodeEditor';
 import { StatusPill } from '../components/ui/StatusPill';
@@ -415,20 +415,34 @@ export function App() {
 
   async function createSelfBuildCards(prompt: string) {
     try {
-      const response = await createSelfBuildTask(prompt);
-      const task = response.data;
-      const proposal = task.proposal || {};
-      setLatestResult('Self-build patch plan created');
+      const response = await runSelfBuildPrompt(prompt);
+      const detail = response.data?.proposal_detail || {};
+      const task = response.data?.task || {};
+      const intent = response.data?.intent || 'create_proposal';
+      const changes = detail.changes || task.proposal?.changes || [];
+      const changedPaths = detail.changed_file_paths || changes.map((change: { file_path?: string }) => change.file_path).filter(Boolean);
+      const firstChange = changes[0] || {};
+      setLatestResult(intent === 'create_proposal' ? 'Self-build patch plan created' : `Self-build ${response.status}`);
       setLatestReceipt(response.receipts?.[0] || null);
+      if (!detail.patch_hash) {
+        appendMessage({
+          id: nowId(),
+          role: 'assistant',
+          text: response.message,
+          cards: [{ id: nowId(), type: 'receipt', title: 'Self-build status', status: response.status, summary: response.message, payload: response.data, collapsed: false }]
+        });
+        setSpeechState(muted ? 'muted' : 'idle');
+        return;
+      }
       appendMessage({
         id: nowId(),
         role: 'assistant',
-        text: response.message,
+        text: detail.message || 'No files changed. Approval required before apply.',
         cards: [
-          { id: nowId(), type: 'receipt', title: 'Self-build prompt detected', status: response.status, summary: 'XV8 detected a self-build prompt. No files were changed.', payload: { task_id: task.task_id } },
-          { id: nowId(), type: 'receipt', title: 'Self-build patch plan', status: task.plan?.status || 'created', summary: task.plan?.summary || 'Patch plan created.', payload: task.plan, collapsed: false },
-          { id: nowId(), type: 'diff', title: 'Self-build patch proposal', status: proposal.status || 'proposed', summary: `${proposal.changes?.length || 0} proposed file change(s).`, payload: { diff: proposal.changes?.[0]?.unified_diff || '', path: proposal.changes?.[0]?.file_path || '', approvalState: proposal.approval_id ? 'pending_click' : 'blocked' }, collapsed: true },
-          { id: nowId(), type: 'approval', title: 'Approval required before apply', status: proposal.approval_id ? 'pending_click' : 'blocked', summary: 'Applying this patch requires popup approval tied to the exact patch hash.', payload: { approval_id: proposal.approval_id, patch_hash: proposal.patch_hash } }
+          { id: nowId(), type: 'receipt', title: 'Self-build prompt detected', status: response.status, summary: 'No files changed. Approval required before apply.', payload: { task_id: detail.task_id, patch_id: detail.patch_id, approval_id: detail.approval_id, patch_hash: detail.patch_hash } },
+          { id: nowId(), type: 'receipt', title: 'Self-build patch plan', status: detail.validation_status || task.plan?.status || 'created', summary: `${detail.files_changed_count || changedPaths.length || 0} file change(s): ${changedPaths.join(', ') || 'none'}`, payload: { ...detail, risk_level: detail.risk_level, validation_status: detail.validation_status }, collapsed: false },
+          { id: nowId(), type: 'diff', title: 'Self-build patch proposal', status: detail.validation_status || 'proposed', summary: `${detail.files_changed_count || changedPaths.length || 0} proposed file change(s).`, payload: { diff: firstChange.unified_diff || '', path: firstChange.file_path || changedPaths[0] || '', approvalState: detail.approval_id ? 'pending_click' : 'blocked', before_hash: firstChange.before_hash, after_hash: firstChange.after_hash }, collapsed: true },
+          { id: nowId(), type: 'approval', title: 'Approval required before apply', status: detail.approval_id ? 'pending_click' : 'blocked', summary: 'Applying this patch requires popup approval tied to the exact patch hash.', payload: { task_id: detail.task_id, patch_id: detail.patch_id, approval_id: detail.approval_id, patch_hash: detail.patch_hash } }
         ]
       });
       setSpeechState(muted ? 'muted' : 'idle');

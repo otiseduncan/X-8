@@ -80,15 +80,20 @@ function mockRuntime() {
                                     ? { status: 'browser_fallback' }
                                     : String(path).includes('speech/receipt')
                                       ? { ok: true }
-                                      : String(path).includes('self-build/tasks')
+                                      : String(path).includes('self-build/prompt')
                                         ? {
-                                            task_id: 'sbtask_1',
-                                            plan: { status: 'created', summary: 'Create a guarded patch proposal for README.md.' },
-                                            proposal: {
-                                              status: 'proposed',
+                                            intent: 'create_proposal',
+                                            proposal_detail: {
+                                              task_id: 'sbtask_1',
+                                              patch_id: 'patch_1',
                                               approval_id: 'sbappr_1',
                                               patch_hash: 'hash_1',
-                                              changes: [{ file_path: 'README.md', unified_diff: '--- a/README.md\n+++ b/README.md\n+## Self-Build Mode' }]
+                                              files_changed_count: 1,
+                                              changed_file_paths: ['README.md'],
+                                              validation_status: 'passed',
+                                              risk_level: 'normal_mutation',
+                                              message: 'No files changed. Approval required before apply.',
+                                              changes: [{ file_path: 'README.md', before_hash: 'before_1', after_hash: 'after_1', unified_diff: '--- a/README.md\n+++ b/README.md\n+## Self-Build Mode' }]
                                             }
                                           }
                                       : String(path).includes('attachments')

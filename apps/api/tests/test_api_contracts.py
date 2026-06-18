@@ -540,6 +540,8 @@ def test_speech_endpoint_has_browser_fallback() -> None:
 
 def test_self_build_prompt_is_detected() -> None:
     assert BuildPromptIngestor().is_self_build_prompt("Self-build test. Inspect README.md and propose a patch. Do not commit.")
+    assert BuildPromptIngestor().classify_intent("Show the full self-build patch proposal details before approval") == "inspect_proposal"
+    assert BuildPromptIngestor().classify_intent("Self-build test. Inspect README.md and add a Self-Build Mode section. Do not commit.") == "create_proposal"
 
 
 def test_self_build_repo_context_allows_and_blocks_paths(tmp_path) -> None:
@@ -574,6 +576,8 @@ def test_self_build_apply_requires_approval_and_hash_match(tmp_path) -> None:
     assert denied.applied is False
     mismatch = manager.apply_patch(task.task_id, PatchApplyRequest(patch_id=proposal.patch_id, approval_id=proposal.approval_id, patch_hash="bad", approved=True))
     assert mismatch.applied is False
+    bad_approval = manager.apply_patch(task.task_id, PatchApplyRequest(patch_id=proposal.patch_id, approval_id="wrong", patch_hash=proposal.patch_hash, approved=True))
+    assert bad_approval.applied is False
     applied = manager.apply_patch(task.task_id, PatchApplyRequest(patch_id=proposal.patch_id, approval_id=proposal.approval_id, patch_hash=proposal.patch_hash, approved=True))
     assert applied.applied is True
     assert "Self-Build Mode" in readme.read_text(encoding="utf-8")
@@ -630,6 +634,52 @@ def test_self_build_api_creates_task_without_applying(tmp_path) -> None:
     assert payload["status"] == "planned"
     assert payload["data"]["proposal"]["approval_id"]
     assert "Self-Build Mode" not in (tmp_path / "README.md").read_text(encoding="utf-8")
+
+
+def test_self_build_prompt_route_read_only_inspects_latest_without_creating(tmp_path) -> None:
+    (tmp_path / "README.md").write_text("# XV8\n", encoding="utf-8")
+    api = client(Settings(workspace_root=str(tmp_path), knowledge_root="/app/knowledge", ollama_base_url="http://127.0.0.1:9", default_chat_model="", fallback_chat_model="", x7_import_root="/missing/x7", x6_import_root="/missing/x6"))
+
+    created = api.post("/api/self-build/prompt", json={"prompt": "Self-build test. Inspect README.md and add a Self-Build Mode section. Do not commit."}).json()
+    assert created["status"] == "planned"
+    original_task_id = created["data"]["proposal_detail"]["task_id"]
+    original_patch_hash = created["data"]["proposal_detail"]["patch_hash"]
+    assert created["data"]["proposal_detail"]["patch_id"]
+    assert created["data"]["proposal_detail"]["approval_id"]
+    assert created["data"]["proposal_detail"]["message"] == "No files changed. Approval required before apply."
+
+    inspected = api.post("/api/self-build/prompt", json={"prompt": "Show the full self-build patch proposal details before approval"}).json()
+    assert inspected["status"] == "proposed"
+    assert inspected["data"]["intent"] == "inspect_proposal"
+    assert inspected["data"]["proposal_detail"]["task_id"] == original_task_id
+    assert inspected["data"]["proposal_detail"]["patch_hash"] == original_patch_hash
+    assert inspected["data"]["proposal_detail"]["changed_file_paths"] == ["README.md"]
+    assert inspected["data"]["proposal_detail"]["changes"][0]["before_hash"]
+    assert inspected["data"]["proposal_detail"]["changes"][0]["after_hash"]
+    assert inspected["data"]["proposal_detail"]["changes"][0]["unified_diff"]
+    assert inspected["data"]["proposal_detail"]["validation_status"] == "passed"
+    assert inspected["data"]["proposal_detail"]["apply_safe"] is True
+
+    latest = api.get("/api/self-build/tasks/latest/proposal").json()
+    assert latest["data"]["task_id"] == original_task_id
+    assert latest["data"]["patch_hash"] == original_patch_hash
+
+
+def test_self_build_read_only_status_prompts_do_not_create_proposals(tmp_path) -> None:
+    (tmp_path / "README.md").write_text("# XV8\n", encoding="utf-8")
+    api = client(Settings(workspace_root=str(tmp_path), knowledge_root="/app/knowledge", ollama_base_url="http://127.0.0.1:9", default_chat_model="", fallback_chat_model="", x7_import_root="/missing/x7", x6_import_root="/missing/x6"))
+
+    trust = api.post("/api/self-build/prompt", json={"prompt": "Show trust status"}).json()
+    assert trust["status"] == "ready"
+    assert trust["data"]["intent"] == "trust_status"
+
+    validation = api.post("/api/self-build/prompt", json={"prompt": "Show validation report"}).json()
+    assert validation["status"] == "missing"
+    assert validation["message"] == "No active self-build proposal found."
+
+    latest = api.get("/api/self-build/tasks/latest/proposal").json()
+    assert latest["status"] == "missing"
+    assert latest["message"] == "No active self-build proposal found."
 
 
 def test_self_build_api_reports_trust_status(tmp_path) -> None:

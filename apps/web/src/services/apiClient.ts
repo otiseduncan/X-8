@@ -138,6 +138,16 @@ export async function createSelfBuildTask(prompt: string) {
   return response.json();
 }
 
+export async function runSelfBuildPrompt(prompt: string) {
+  const response = await fetch('/api/self-build/prompt', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ prompt })
+  });
+  if (!response.ok) throw new Error('Self-build prompt failed');
+  return response.json();
+}
+
 export async function uploadAttachment(file: File) {
   const body = new FormData();
   body.append('file', file);
