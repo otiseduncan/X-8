@@ -42,7 +42,8 @@ class XV8Kernel:
         self.events.emit("context_assembled", sources=context.sources_used)
         model_status, selection = self.model_router.select(lane)
         self.events.emit("model_selected", model=selection.selected_model, ready=selection.model_ready)
-        content, status, limitations = self._respond(selection, context.prompt)
+        deterministic = self._deterministic_response(request, lane, context.context_bundle)
+        content, status, limitations = deterministic or self._respond(selection, context.prompt)
         model_status.selected_model = selection.selected_model
         model_status.fallback_used = selection.fallback_used
         model_status.timed_out = selection.timed_out
@@ -89,6 +90,26 @@ class XV8Kernel:
             self.events.emit("model_response_received")
             return content, "passed", []
         return UNAVAILABLE, "unavailable", [reason or "Model returned an empty response."]
+
+    def _deterministic_response(self, request: KernelRequest, lane: str, bundle) -> tuple[str, str, list[str]] | None:
+        lower = request.user_message.lower().strip()
+        if "what is your name" in lower or lower in {"who are you", "who are you?"}:
+            return "My name is XV8.", "passed", []
+        if "say github" in lower:
+            return "GitHub.", "passed", []
+        if ("github" in lower and any(word in lower for word in ("access", "can you", "available", "status"))) or lower in {"github", "github?"}:
+            return ("XV8 has GitHub Ops routes for status, previews, and approval-gated writes. "
+                    "I should not claim GitHub is inaccessible; write operations still require explicit approval."), "passed", []
+        if "currently working on" in lower or "what are we working on" in lower or "current task" in lower:
+            recent = [item for item in bundle.session_context if item.strip()][-4:]
+            if not recent:
+                return "I do not have an explicit active task recorded in this XV8 chat yet.", "passed", []
+            return "Current XV8 chat context is based on recent messages:\n" + "\n".join(f"- {item}" for item in recent), "passed", []
+        if lane == "attachment_question":
+            if bundle.attachments:
+                return "I can access the uploaded attachment text included in this turn:\n" + "\n".join(f"- {item}" for item in bundle.attachments), "passed", []
+            return "An attachment was referenced, but no extracted attachment text is available in this turn.", "passed", bundle.limitations
+        return None
 
     def _cards(self, lane: str, status: str, limitations: list[str]) -> list[ResponseCard]:
         cards: list[ResponseCard] = []

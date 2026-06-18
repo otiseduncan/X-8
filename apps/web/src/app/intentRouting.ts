@@ -42,7 +42,9 @@ export function isGitHubCreateRepoRequest(lower: string) {
 }
 
 export function isGitHubRequest(lower: string) {
-  return lower.includes('github')
+  return lower.includes('check github')
+    || lower.includes('github status')
+    || lower.includes('github ops')
     || lower.includes('push this repo')
     || lower.includes('pull latest')
     || lower.includes('prepare to push')

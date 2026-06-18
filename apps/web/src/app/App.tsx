@@ -1,21 +1,21 @@
-import { Activity, Boxes, Check, ChevronDown, ChevronUp, Code2, Copy, FileText, GitBranch, Image, Info, Mic, MicOff, Paperclip, Pause, Play, Search, Send, Server, Settings, ShieldCheck, Square, Users, Volume2, VolumeX, X } from 'lucide-react';
+import { Activity, Boxes, Check, ChevronDown, ChevronUp, Code2, Copy, FileText, GitBranch, Image, Info, Mic, MicOff, Paperclip, Pause, Play, Search, Send, Server, Settings, ShieldCheck, Square, Users, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { SpeechInputManager, SpeechOutputManager } from '../audio/speechManagers';
 import type { SpeechReceipt, SttStatus, TtsStatus } from '../audio/speechManagers';
-import { applySelfBuildPatch, applyUpdate, connectGitHubRemote, createArtifactPreview, createGitHubRepo, createSpeechReceipt, loadAvatarManifest, loadBridgeStatus, loadCapabilities, loadConfigImportStatus, loadDockerPresets, loadFiles, loadGitHubOpsAuthStatus, loadGitHubOpsStatus, loadGitHubStatus, loadImageStatus, loadIntegrations, loadMemoryStatus, loadModelStatus, loadReceipts, loadSearchStatus, loadSession, loadSessions, loadSpeechStatus, loadTeam, previewGitHubPull, previewGitHubPush, proposeUpdate, readFile, requestImage, runGitHubOperation, runSearch, runSelfBuildPrompt, loadSelfBuildTrustStatus, scanX7Configs, sendChat, uploadAttachment } from '../services/apiClient';
+import { CHAT_TIMEOUT_MS, applySelfBuildPatch, applyUpdate, connectGitHubRemote, createArtifactPreview, createGitHubRepo, createSpeechReceipt, loadAvatarManifest, loadBridgeStatus, loadCapabilities, loadConfigImportStatus, loadDockerPresets, loadFiles, loadGitHubOpsAuthStatus, loadGitHubOpsStatus, loadGitHubStatus, loadImageStatus, loadIntegrations, loadMemoryStatus, loadModelStatus, loadReceipts, loadSearchStatus, loadSession, loadSessions, loadSpeechStatus, loadTeam, previewGitHubPull, previewGitHubPush, proposeUpdate, readFile, requestImage, runGitHubOperation, runSearch, runSelfBuildPrompt, loadSelfBuildTrustStatus, scanX7Configs, sendChat, uploadAttachment } from '../services/apiClient';
 import type { AttachmentReference, Capability, FileEntry, IntegrationStatus, PatchProposal, SessionDetail, TeamSeat } from '../types/contracts';
 import { CodeEditor } from '../components/cockpit/CodeEditor';
 import { StatusPill } from '../components/ui/StatusPill';
-import { AvatarStage, ChatTimeline, InfoDropdown, Panel, PushToTalkButton, TranscriptPreview, messageCopyText, transcriptMarkdown } from './AssistantComponents';
+import { AvatarPresencePanel, ChatTimeline, InfoDropdown, Panel, PushToTalkButton, TranscriptPreview, messageCopyText, transcriptMarkdown } from './AssistantComponents';
 import type { AvatarRuntimeState, ChatCard, ChatMessage, InfoReceipt } from './AssistantComponents';
 import { errorCard, mapKernelCard, receiptCards } from './cardHelpers';
 import { DeveloperCockpit } from './DeveloperCockpit';
 import { classifyRequest, isGitHubCreateRepoRequest, parseGitHubCreateRepo } from './intentRouting';
-
+import { useAudioLifecycleDiagnostics } from './useAudioLifecycleDiagnostics';
+import { useVoiceSelection } from './useVoiceSelection';
 const nowId = () => `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   const speechInput = new SpeechInputManager();
 const speechOutput = new SpeechOutputManager();
-
 export function App() {
   const userInteracted = useRef(false);
   const [capabilities, setCapabilities] = useState<Capability[]>([]);
@@ -44,7 +44,6 @@ export function App() {
   const [muted, setMuted] = useState(false);
   const [volume, setVolume] = useState(() => Number(window.localStorage.getItem('x8.voiceVolume') || '80'));
   const [previousVolume, setPreviousVolume] = useState(() => Number(window.localStorage.getItem('x8.voicePreviousVolume') || '80'));
-  const [voiceName, setVoiceName] = useState('US Google female');
   const [audioReceipts, setAudioReceipts] = useState<SpeechReceipt[]>([]);
   const [latestReceipt, setLatestReceipt] = useState<InfoReceipt>(null);
   const [latestResult, setLatestResult] = useState('Ready.');
@@ -71,7 +70,25 @@ export function App() {
     }
   ]);
   const [error, setError] = useState('');
-
+  const voiceSelection = useVoiceSelection(speechOutput.tts);
+  const voiceName = voiceSelection.displayVoiceName;
+  const audioLifecycle = useAudioLifecycleDiagnostics({
+    speechState,
+    setSpeechState,
+    voiceStatus,
+    voiceDetails: {
+      requestedVoiceLabel: voiceSelection.requestedVoiceLabel,
+      actualVoiceName: voiceSelection.actualVoiceName,
+      actualVoiceURI: voiceSelection.actualVoiceURI,
+      actualVoiceLang: voiceSelection.actualVoiceLang,
+      actualVoiceMatched: voiceSelection.actualVoiceMatched,
+      voiceFallbackReason: voiceSelection.voiceFallbackReason
+    },
+    muted,
+    volume,
+    speechSynthesisAvailable: speechOutput.tts.supported()
+  });
+  const { chatPending, setChatPending, lastApiStatus, setLastApiStatus, setLastApiError, setLastTimeoutReason, setStage, startSpeechAttempt, markSpeechUnavailable, recordSpeechReceipt } = audioLifecycle;
   useEffect(() => {
     Promise.all([loadCapabilities(), loadIntegrations(), loadTeam(), loadFiles(), loadDockerPresets(), loadGitHubStatus(), loadSearchStatus(), loadImageStatus(), loadBridgeStatus(), loadConfigImportStatus(), loadAvatarManifest(), loadSpeechStatus(), loadGitHubOpsAuthStatus(), loadGitHubOpsStatus()])
       .then(([caps, ints, seats, fileList, presets, github, search, image, bridge, configImport, avatar, speech, githubAuthStatus, githubOpsStatus]) => {
@@ -156,13 +173,12 @@ export function App() {
   function appendMessage(message: ChatMessage) {
     setMessages((current) => [...current, message]);
   }
-
   function appendAudioReceipt(receipt: SpeechReceipt) {
     setAudioReceipts((current) => [receipt, ...current].slice(0, 8));
     setLatestReceipt(receipt);
     setLatestResult(`Audio: ${receipt.status}`);
+    recordSpeechReceipt(receipt);
   }
-
   function updateCard(cardId: string, patch: Partial<ChatCard>) {
     setMessages((current) =>
       current.map((message) => ({
@@ -181,11 +197,18 @@ export function App() {
     setEntry('');
     setAttachments([]);
     setError('');
-    setSpeechState('thinking');
+    setChatPending(true);
+    setLastApiStatus('pending');
+    setLastApiError('');
+    setLastTimeoutReason('');
+    setStage('thinking');
     appendMessage({ id: nowId(), role: 'user', text: text || 'Attached files for reference.', attachments: outgoingAttachments });
-    return handleUserText(text || 'Attached files for reference.', outgoingAttachments);
+    try {
+      await handleUserText(text || 'Attached files for reference.', outgoingAttachments);
+    } finally {
+      setChatPending(false);
+    }
   }
-
   async function handleUserText(text: string, outgoingAttachments: AttachmentReference[] = []) {
     const intent = classifyRequest(text);
     if (intent === 'file') return openFileCard('README.md');
@@ -198,11 +221,10 @@ export function App() {
     if (intent === 'self_build') return createSelfBuildCards(text);
     return createAssistantReply(text, outgoingAttachments);
   }
-
   function startMicrophone() {
     if (!speechInput.supported()) {
       setMicStatus('unavailable');
-      setSpeechState('error');
+      setStage('error');
       appendMessage({
         id: nowId(),
         role: 'assistant',
@@ -213,13 +235,13 @@ export function App() {
     }
     setTranscript('');
     speechInput.transcript.clear();
-    setSpeechState('listening');
+    setStage('listening');
     speechInput.recognition.start({
       onStatus: (status) => {
         setMicStatus(status);
-        if (status === 'listening') setSpeechState('listening');
-        if (status === 'transcribing') setSpeechState('thinking');
-        if (status === 'permission_denied' || status === 'error') setSpeechState('error');
+        if (status === 'listening') setStage('listening');
+        if (status === 'transcribing') setStage('thinking');
+        if (status === 'permission_denied' || status === 'error') setStage('error');
         if (status === 'permission_denied') {
           appendMessage({
             id: nowId(),
@@ -230,19 +252,18 @@ export function App() {
         }
       },
       onTranscript: (value) => {
-        setSpeechState('thinking');
+        setStage('thinking');
         setTranscript(speechInput.transcript.set(value));
       },
       onReceipt: appendAudioReceipt
     });
   }
-
   function cancelTranscript() {
     speechInput.recognition.stop();
     speechInput.transcript.clear();
     setTranscript('');
     setMicStatus(speechInput.supported() ? 'ready' : 'unavailable');
-    setSpeechState(muted ? 'muted' : 'idle');
+    setStage(muted ? 'muted' : 'idle');
     appendAudioReceipt({
       receipt_id: nowId(),
       provider: speechInput.supported() ? 'browser_web_speech_api' : 'unavailable',
@@ -254,7 +275,6 @@ export function App() {
       transcript_length: transcript.length
     });
   }
-
   function sendTranscript() {
     const value = transcript.trim();
     if (!value) return;
@@ -272,19 +292,23 @@ export function App() {
     setTranscript('');
     speechInput.transcript.clear();
     setMicStatus(speechInput.supported() ? 'ready' : 'unavailable');
-      appendMessage({ id: nowId(), role: 'user', text: value });
-      setSpeechState('thinking');
-      void handleUserText(value);
+    appendMessage({ id: nowId(), role: 'user', text: value });
+    setStage('thinking');
+    setChatPending(true);
+    void handleUserText(value).finally(() => setChatPending(false));
   }
-
   async function createAssistantReply(text: string, outgoingAttachments: AttachmentReference[] = []) {
     try {
       setLatestResult('Model warming/responding...');
+      setLastApiStatus('pending');
+      setLastApiError('');
+      setLastTimeoutReason('');
       const response = await sendChat(text, outgoingAttachments, sessionId);
       setSessionId(response.data.session_id);
       window.localStorage.setItem('x8.activeSessionId', response.data.session_id);
       setLatestReceipt(response.data.receipt || response.receipts?.[0] || null);
       setLatestResult(outgoingAttachments.length ? `Attachments processed: ${response.status}` : response.status);
+      setLastApiStatus(response.status || 'ok');
       appendMessage({
         id: response.data.message_id || nowId(),
         role: 'assistant',
@@ -292,13 +316,17 @@ export function App() {
         attachments: response.data.attachments,
         cards: response.data.assistant_message.cards.map(mapKernelCard)
       });
-      setSpeechState(muted ? 'muted' : 'idle');
-    } catch {
-      setSpeechState('error');
-      appendMessage({ id: nowId(), role: 'assistant', text: 'The chat request could not complete.', cards: [errorCard('Chat request failed', 'API request failed.')] });
+      setStage(muted ? 'muted' : 'idle');
+    } catch (exc) {
+      const timedOut = exc instanceof DOMException && exc.name === 'AbortError';
+      const reason = timedOut ? `Chat request timed out after ${CHAT_TIMEOUT_MS}ms.` : exc instanceof Error ? exc.message : 'API request failed.';
+      setLastApiStatus(timedOut ? 'timeout' : 'error');
+      setLastApiError(reason);
+      if (timedOut) setLastTimeoutReason(reason);
+      setStage('error');
+      appendMessage({ id: nowId(), role: 'assistant', text: timedOut ? 'The chat request timed out.' : 'The chat request could not complete.', cards: [errorCard(timedOut ? 'Chat timeout' : 'Chat request failed', reason)] });
     }
   }
-
   async function openFileCard(path: string) {
     try {
       const response = await readFile(path);
@@ -322,13 +350,12 @@ export function App() {
           }
         ]
       });
-      setSpeechState(muted ? 'muted' : 'idle');
+      setStage(muted ? 'muted' : 'idle');
     } catch {
-      setSpeechState('error');
+      setStage('error');
       appendMessage({ id: nowId(), role: 'assistant', text: `I could not open ${path}.`, cards: [errorCard('File read failed', 'The workspace read endpoint returned an error.')] });
     }
   }
-
   async function proposeDiffCard(path: string) {
     try {
       const current = await readFile(path);
@@ -381,13 +408,12 @@ export function App() {
           }
         ]
       });
-      setSpeechState(muted ? 'muted' : 'idle');
+      setStage(muted ? 'muted' : 'idle');
     } catch {
-      setSpeechState('error');
+      setStage('error');
       appendMessage({ id: nowId(), role: 'assistant', text: `I could not prepare a diff for ${path}.`, cards: [errorCard('Diff proposal failed', 'No repository mutation was attempted.')] });
     }
   }
-
   async function createArtifactCard(prompt: string) {
     try {
       const response = await createArtifactPreview('Inline website preview', prompt);
@@ -413,13 +439,12 @@ export function App() {
           }
         ]
       });
-      setSpeechState(muted ? 'muted' : 'idle');
+      setStage(muted ? 'muted' : 'idle');
     } catch {
-      setSpeechState('error');
+      setStage('error');
       appendMessage({ id: nowId(), role: 'assistant', text: 'The artifact preview could not be generated.', cards: [errorCard('Artifact preview failed', 'No files were written.')] });
     }
   }
-
   async function createSelfBuildCards(prompt: string) {
     try {
       const response = await runSelfBuildPrompt(prompt);
@@ -438,7 +463,7 @@ export function App() {
           text: response.message,
           cards: [{ id: nowId(), type: 'receipt', title: 'Self-build status', status: response.status, summary: response.message, payload: response.data, collapsed: false }]
         });
-        setSpeechState(muted ? 'muted' : 'idle');
+        setStage(muted ? 'muted' : 'idle');
         return;
       }
       const canApplySelfBuild = detail.apply_safe === true && Boolean(detail.task_id) && Boolean(detail.patch_id) && Boolean(detail.approval_id) && Boolean(detail.patch_hash) && detail.validation_status !== 'failed';
@@ -453,13 +478,12 @@ export function App() {
           ...(canApplySelfBuild ? [{ id: nowId(), type: 'approval' as const, title: 'Approval required before apply', status: 'pending_click', summary: 'Applying this patch calls the locked self-build endpoint with the exact approval payload.', payload: { task_id: detail.task_id, patch_id: detail.patch_id, approval_id: detail.approval_id, patch_hash: detail.patch_hash, changed_file_paths: changedPaths, apply_safe: detail.apply_safe, validation_status: detail.validation_status, validation_passed: detail.validation_status === 'passed' } }] : [])
         ]
       });
-      setSpeechState(muted ? 'muted' : 'idle');
+      setStage(muted ? 'muted' : 'idle');
     } catch {
-      setSpeechState('error');
+      setStage('error');
       appendMessage({ id: nowId(), role: 'assistant', text: 'Self-build planning could not complete.', cards: [errorCard('Self-build failed', 'No files were changed.')] });
     }
   }
-
   async function createResearchCard(query: string) {
     try {
       const response = await runSearch(query.replace(/search|searxng/gi, '').trim() || query);
@@ -487,9 +511,9 @@ export function App() {
           }
         ]
       });
-      setSpeechState(muted ? 'muted' : 'idle');
+      setStage(muted ? 'muted' : 'idle');
     } catch {
-      setSpeechState('error');
+      setStage('error');
       appendMessage({
         id: nowId(),
         role: 'assistant',
@@ -498,7 +522,6 @@ export function App() {
       });
     }
   }
-
   async function createImageCard(prompt: string) {
     try {
       const response = await requestImage(prompt);
@@ -524,9 +547,9 @@ export function App() {
           }
         ]
       });
-      setSpeechState(muted ? 'muted' : 'idle');
+      setStage(muted ? 'muted' : 'idle');
     } catch {
-      setSpeechState('error');
+      setStage('error');
       appendMessage({
         id: nowId(),
         role: 'assistant',
@@ -535,7 +558,6 @@ export function App() {
       });
     }
   }
-
   async function createGitHubCards(text: string) {
     const lower = text.toLowerCase();
     try {
@@ -565,7 +587,6 @@ export function App() {
       appendMessage({ id: nowId(), role: 'assistant', text: 'GitHub operation could not be prepared.', cards: [errorCard('GitHub Ops unavailable', 'No GitHub write occurred.')] });
     }
   }
-
   function githubCreateRepoApprovalCard(repo: { repo_name: string; owner: string; visibility: string }): ChatCard {
     return githubApprovalCard('create-repo', 'GitHub create-repo', {
       repo_name: repo.repo_name,
@@ -578,7 +599,6 @@ export function App() {
       approved: false
     });
   }
-
   function githubApprovalCard(operation: string, title: string, preview: Record<string, unknown>): ChatCard {
     return {
       id: nowId(),
@@ -598,20 +618,17 @@ export function App() {
       collapsed: false
     };
   }
-
   async function refreshGitHubOps() {
     const [auth, status] = await Promise.all([loadGitHubOpsAuthStatus(), loadGitHubOpsStatus()]);
     setGithubAuth(auth.data || {});
     setGithubOps(status.data || {});
     setGithubOpsResult(status.message);
   }
-
   async function previewGitHubOp(kind: 'pull' | 'push') {
     const response = kind === 'pull' ? await previewGitHubPull() : await previewGitHubPush();
     setGithubOpsResult(response.message);
     setGithubOps({ ...githubOps, [`${kind}_preview`]: response.data });
   }
-
   function createTestCard(text: string) {
     setLatestResult('Test run queued for approval');
     appendMessage({
@@ -630,9 +647,8 @@ export function App() {
         }
       ]
     });
-    setSpeechState(muted ? 'muted' : 'idle');
+    setStage(muted ? 'muted' : 'idle');
   }
-
   async function requestApply(card?: ChatCard) {
     const payload = card?.payload || {};
     if (card?.type === 'approval' && payload.provider === 'github_ops' && payload.operation) {
@@ -674,7 +690,6 @@ export function App() {
     setProposal(response.data);
     setApprovalOpen(true);
   }
-
   async function approveApply() {
     const response = await applyUpdate(selectedPath, code, true);
     setProposal(response.data);
@@ -697,7 +712,6 @@ export function App() {
       ]
     });
   }
-
   async function attachFiles(fileList: FileList | null) {
     if (!fileList) return;
     for (const file of Array.from(fileList)) {
@@ -720,11 +734,9 @@ export function App() {
       }
     }
   }
-
   function removeAttachment(attachmentId: string) {
     setAttachments((current) => current.filter((attachment) => attachment.attachment_id !== attachmentId));
   }
-
   async function submitConfigScan() {
     const response = await scanX7Configs();
     setImportStatus(`X7 ${response.data.x7_files_found} files, X6 ${response.data.x6_files_found} files`);
@@ -732,17 +744,30 @@ export function App() {
     setX6ImportStatus(`${response.data.x6_import_status.import_status} / ${response.data.x6_files_found} files`);
     setLegacySignals(`${response.data.providers_found.length} providers, ${response.data.secrets_detected_redacted.length} redacted secrets`);
   }
-
-  async function readAloud() {
-    const latest = [...messages].reverse().find((message) => message.role === 'assistant')?.text || 'XV8 is ready.';
-    if (muted) {
+  function resetStage() {
+    speechOutput.playback.stop();
+    setChatPending(false);
+    setVoiceStatus(muted ? 'muted' : speechOutput.tts.supported() ? 'ready' : 'unavailable');
+    setStage(muted ? 'muted' : 'idle');
+    setLastTimeoutReason('');
+    setLastApiError('');
+    setLatestResult('Stage reset.');
+  }
+  async function unlockTestVoice() { await readAloud('XV8 voice test.'); }
+  async function readAloud(textOverride = '') {
+    const latest = textOverride || [...messages].reverse().find((message) => message.role === 'assistant')?.text || 'XV8 is ready.';
+    startSpeechAttempt(latest);
+    const outputMuted = muted || volume <= 0;
+    if (outputMuted) {
       setVoiceStatus('muted');
-      setSpeechState('muted');
+      setStage('muted');
+      appendAudioReceipt(speechOutput.tts.outputReceipt('speech_output_skipped', 'muted', new Date().toISOString(), voiceName, 'Muted state prevented speech playback.'));
       return;
     }
     if (!speechOutput.tts.supported()) {
       setVoiceStatus('unavailable');
-      setSpeechState('error');
+      markSpeechUnavailable('Speech synthesis is unavailable.');
+      setStage('idle');
       appendMessage({
         id: nowId(),
         role: 'assistant',
@@ -754,18 +779,13 @@ export function App() {
     speechOutput.tts.speak(latest, {
       onStatus: (status) => {
         setVoiceStatus(status);
-        setSpeechState(status === 'speaking' ? 'speaking' : status === 'error' ? 'error' : 'idle');
+        setStage(status === 'speaking' ? 'speaking' : status === 'error' ? 'idle' : 'idle');
       },
-      onVoice: setVoiceName,
+      onVoice: voiceSelection.recordResolvedVoice,
       onReceipt: appendAudioReceipt
-    }, volume / 100);
-    try {
-      await createSpeechReceipt();
-    } catch {
-      appendAudioReceipt(speechOutput.tts.outputReceipt('speech_output_failed', 'receipt_error', new Date().toISOString(), voiceName, 'Backend speech receipt endpoint failed.'));
-    }
+    }, volume / 100, 20000, voiceSelection.selectedVoiceURI);
+    try { await createSpeechReceipt(); } catch { appendAudioReceipt(speechOutput.tts.outputReceipt('speech_output_failed', 'receipt_error', new Date().toISOString(), voiceName, 'Backend speech receipt endpoint failed.')); }
   }
-
   function toggleMute() {
     const next = !muted;
     setMuted(next);
@@ -776,7 +796,7 @@ export function App() {
       }
       speechOutput.playback.stop();
       setVoiceStatus('muted');
-      setSpeechState('muted');
+      setStage('muted');
       appendAudioReceipt(speechOutput.tts.outputReceipt('speech_output_stopped', 'muted', new Date().toISOString(), voiceName));
     } else {
       if (volume === 0) {
@@ -784,10 +804,9 @@ export function App() {
         window.localStorage.setItem('x8.voiceVolume', String(previousVolume || 80));
       }
       setVoiceStatus(speechOutput.tts.supported() ? 'ready' : 'unavailable');
-      setSpeechState('idle');
+      setStage('idle');
     }
   }
-
   function changeVolume(value: number) {
     const next = Math.max(0, Math.min(100, value));
     setVolume(next);
@@ -798,21 +817,18 @@ export function App() {
       if (muted) {
         setMuted(false);
         setVoiceStatus(speechOutput.tts.supported() ? 'ready' : 'unavailable');
-        setSpeechState('idle');
+        setStage('idle');
       }
     } else {
       setMuted(true);
       speechOutput.playback.stop();
       setVoiceStatus('muted');
-      setSpeechState('muted');
+      setStage('muted');
     }
   }
 
   async function writeClipboard(text: string) {
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(text);
-      return;
-    }
+    if (navigator.clipboard?.writeText) { await navigator.clipboard.writeText(text); return; }
     const textarea = document.createElement('textarea');
     textarea.value = text;
     textarea.setAttribute('readonly', 'true');
@@ -824,10 +840,7 @@ export function App() {
     textarea.remove();
   }
 
-  async function copyMessage(message: ChatMessage) {
-    await writeClipboard(messageCopyText(message));
-    setLatestResult('Copied message.');
-  }
+  async function copyMessage(message: ChatMessage) { await writeClipboard(messageCopyText(message)); setLatestResult('Copied message.'); }
 
   function copyTranscript(includeReceipts = false) {
     void writeClipboard(transcriptMarkdown(messages, includeReceipts));
@@ -845,57 +858,37 @@ export function App() {
     setLatestResult('Downloaded transcript.');
   }
 
-  function pauseSpeech() {
-    speechOutput.playback.pause();
-    setVoiceStatus('paused');
-    setSpeechState('idle');
-    appendAudioReceipt(speechOutput.tts.outputReceipt('speech_output_paused', 'paused', new Date().toISOString(), voiceName));
-  }
-
-  function resumeSpeech() {
-    speechOutput.playback.resume();
-    setVoiceStatus('speaking');
-    setSpeechState('speaking');
-    appendAudioReceipt(speechOutput.tts.outputReceipt('speech_output_resumed', 'speaking', new Date().toISOString(), voiceName));
-  }
-
-  function stopSpeech() {
-    speechOutput.playback.stop();
-    setVoiceStatus(muted ? 'muted' : 'ready');
-    setSpeechState(muted ? 'muted' : 'idle');
-    appendAudioReceipt(speechOutput.tts.outputReceipt('speech_output_stopped', 'stopped', new Date().toISOString(), voiceName));
-  }
+  function pauseSpeech() { speechOutput.playback.pause(); setVoiceStatus('paused'); setStage('idle'); appendAudioReceipt(speechOutput.tts.outputReceipt('speech_output_paused', 'paused', new Date().toISOString(), voiceName)); }
+  function resumeSpeech() { speechOutput.playback.resume(); setVoiceStatus('speaking'); setStage('speaking'); appendAudioReceipt(speechOutput.tts.outputReceipt('speech_output_resumed', 'speaking', new Date().toISOString(), voiceName)); }
+  function stopSpeech() { speechOutput.playback.stop(); setVoiceStatus(muted ? 'muted' : 'ready'); setStage(muted ? 'muted' : 'idle'); appendAudioReceipt(speechOutput.tts.outputReceipt('speech_output_stopped', 'stopped', new Date().toISOString(), voiceName)); }
 
   return (
     <main className="shell" data-theme="neon-blue">
       <section className="assistantFrame" aria-label="Assistant Mode">
-        <aside className="avatarPresence" aria-label="Avatar presence">
-          <AvatarStage
-            state={speechState}
-            fallbackSrc={avatarAsset}
-            controls={
-              <>
-                <button className="ghost iconButton speakerButton" aria-label={muted ? 'Unmute voice' : 'Mute voice'} onClick={toggleMute}>
-                  {muted ? <VolumeX size={18} /> : <Volume2 size={18} />}
-                </button>
-                <label className="volumeControl">
-                  <span>Voice</span>
-                  <input aria-label="Voice volume" type="range" min="0" max="100" value={muted ? 0 : volume} onChange={(event) => changeVolume(Number(event.target.value))} />
-                </label>
-                <span className="voiceMiniStatus">Voice: {voiceStatus} / {muted ? 0 : volume}%</span>
-              </>
-            }
-          />
-          <div className="assistantIdentityCard">
-            <p className="eyebrow">Xoduz XV8</p>
-            <h1>Assistant conversation</h1>
-            <p className="avatarState">State: {speechState}</p>
-          </div>
-          <div className="compactStatus">
-            <span>Mic: {micStatus}</span>
-            <span>Voice: {voiceStatus}</span>
-          </div>
-        </aside>
+        <AvatarPresencePanel
+          state={speechState}
+          fallbackSrc={avatarAsset}
+          muted={muted}
+          volume={volume}
+          voices={voiceSelection.voices}
+          selectedVoiceURI={voiceSelection.selectedVoiceURI}
+          voiceStatus={voiceStatus}
+          requestedVoiceLabel={voiceSelection.requestedVoiceLabel}
+          actualVoiceName={voiceSelection.actualVoiceName}
+          voiceFallbackReason={voiceSelection.voiceFallbackReason}
+          micStatus={micStatus}
+          chatDiagnostics={audioLifecycle.chatDiagnostics}
+          audioDiagnostics={audioLifecycle.audioDiagnostics}
+          avatarDiagnostics={audioLifecycle.avatarDiagnostics}
+          onToggleMute={toggleMute}
+          onVolumeChange={changeVolume}
+          onVoiceSelect={voiceSelection.selectVoice}
+          onRefreshVoices={() => void voiceSelection.refreshVoices()}
+          onPreviewSelectedVoice={() => void readAloud('XV8 selected voice preview.')}
+          onResetStage={resetStage}
+          onStopAudio={stopSpeech}
+          onUnlockTestVoice={() => void unlockTestVoice()}
+        />
 
         <section className="conversationPane">
           <header className="conversationHeader">

@@ -15,6 +15,10 @@ let recognitionInstance: {
   onerror: ((event: { error: string }) => void) | null;
   onend: (() => void) | null;
 };
+let spokenUtterance: Record<string, unknown> | null = null;
+
+const femaleVoice = { name: 'Microsoft Zira Desktop', voiceURI: 'zira-uri', lang: 'en-US' };
+const maleVoice = { name: 'Google US English Male', voiceURI: 'male-uri', lang: 'en-US' };
 
 function mockRuntime() {
   vi.stubGlobal('fetch', vi.fn((path: string, options?: { body?: BodyInit }) => {
@@ -142,6 +146,7 @@ function mockRuntime() {
 
 beforeEach(() => {
   window.localStorage.clear();
+  spokenUtterance = null;
   Object.assign(navigator, { clipboard: { writeText: vi.fn().mockResolvedValue(undefined) } });
   mockRuntime();
   recognitionInstance = { onstart: null, onresult: null, onerror: null, onend: null };
@@ -167,10 +172,11 @@ beforeEach(() => {
     this.text = text;
   }));
   vi.stubGlobal('speechSynthesis', {
-    getVoices: () => [{ name: 'Google US English Female', lang: 'en-US' }],
-    speak: (utterance: { onstart?: () => void; onend?: () => void }) => {
+    getVoices: () => [maleVoice, femaleVoice],
+    speak: vi.fn((utterance: { onstart?: () => void; onend?: () => void }) => {
+      spokenUtterance = utterance as unknown as Record<string, unknown>;
       utterance.onstart?.();
-    },
+    }),
     pause: vi.fn(),
     resume: vi.fn(),
     cancel: vi.fn()
@@ -179,12 +185,19 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
 async function send(text: string) {
   fireEvent.change(screen.getByLabelText('Message XV8'), { target: { value: text } });
   fireEvent.click(screen.getByRole('button', { name: /send/i }));
+}
+
+function openAudioControls() {
+  const section = screen.getByLabelText('Audio controls') as HTMLDetailsElement;
+  if (!section.open) fireEvent.click(within(section).getByText('Audio controls'));
+  return screen.getByLabelText('Avatar audio controls');
 }
 
 test('renders assistant mode without permanent dashboard panels', async () => {
@@ -201,8 +214,18 @@ test('renders assistant mode without permanent dashboard panels', async () => {
   expect(screen.getByPlaceholderText('Ask XV8 anything...')).toBeInTheDocument();
   expect(screen.getByLabelText('Attach file')).toBeInTheDocument();
   expect(screen.getByRole('button', { name: /push to talk/i })).toBeInTheDocument();
-  expect(within(screen.getByLabelText('Avatar audio controls')).getByRole('button', { name: /mute voice/i })).toBeInTheDocument();
-  expect(within(screen.getByLabelText('Avatar audio controls')).getByLabelText('Voice volume')).toBeInTheDocument();
+  expect(within(screen.getByTestId('avatar-stage')).queryByRole('button')).not.toBeInTheDocument();
+  expect((screen.getByLabelText('Audio controls') as HTMLDetailsElement).open).toBe(false);
+  expect((screen.getByLabelText('Audio diagnostics') as HTMLDetailsElement).open).toBe(false);
+  const controls = openAudioControls();
+  expect(within(controls).getByRole('button', { name: /mute voice/i })).toBeInTheDocument();
+  expect(within(controls).getByLabelText('Voice volume')).toBeInTheDocument();
+  expect(within(controls).getByLabelText('Voice selector')).toBeInTheDocument();
+  expect(within(controls).getByRole('button', { name: /refresh voices/i })).toBeInTheDocument();
+  expect(within(controls).getByRole('button', { name: /preview selected voice/i })).toBeInTheDocument();
+  expect(within(controls).getByRole('button', { name: /reset stage/i })).toBeInTheDocument();
+  expect(within(controls).getByRole('button', { name: /stop audio/i })).toBeInTheDocument();
+  expect(within(controls).getByRole('button', { name: /unlock\/test voice/i })).toBeInTheDocument();
   expect(screen.queryByRole('button', { name: /^Mute$/i })).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: /^Read aloud$/i })).not.toBeInTheDocument();
   expect(screen.getAllByRole('button', { name: /^Info/i })).toHaveLength(1);
@@ -232,6 +255,74 @@ test('renders GitHub Ops panel without exposing token values', async () => {
   expect(screen.queryByText(/ghp_/i)).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: /push preview/i }));
   await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/github/ops/push-preview', expect.objectContaining({ method: 'POST' })));
+});
+
+test('audio controls stay outside the avatar media frame and collapse', async () => {
+  render(<App />);
+  const stage = await screen.findByTestId('avatar-stage');
+  expect(within(stage).queryByRole('button', { name: /reset stage/i })).not.toBeInTheDocument();
+  expect(within(stage).queryByRole('button', { name: /unlock\/test voice/i })).not.toBeInTheDocument();
+  const controlsSection = screen.getByLabelText('Audio controls') as HTMLDetailsElement;
+  expect(controlsSection.open).toBe(false);
+  fireEvent.click(within(controlsSection).getByText('Audio controls'));
+  expect(controlsSection.open).toBe(true);
+  expect(within(screen.getByLabelText('Avatar audio controls')).getByRole('button', { name: /reset stage/i })).toBeInTheDocument();
+});
+
+test('voice dropdown uses real voices, persists voiceURI, and assigns the selected voice object', async () => {
+  render(<App />);
+  const controls = openAudioControls();
+  const selector = within(controls).getByLabelText('Voice selector') as HTMLSelectElement;
+  await waitFor(() => expect(selector.value).toBe('zira-uri'));
+  expect(within(controls).getByText(/Microsoft Zira Desktop/i)).toBeInTheDocument();
+  expect(within(controls).getByText(/Google US English Male/i)).toBeInTheDocument();
+  fireEvent.change(selector, { target: { value: 'zira-uri' } });
+  expect(window.localStorage.getItem('x8.voiceURI')).toBe('zira-uri');
+  fireEvent.click(within(controls).getByRole('button', { name: /preview selected voice/i }));
+  await waitFor(() => expect(speechSynthesis.speak).toHaveBeenCalled());
+  expect(spokenUtterance?.voice).toBe(femaleVoice);
+  const diagnostics = screen.getByLabelText('Audio diagnostics');
+  expect(await within(diagnostics).findByText('Microsoft Zira Desktop')).toBeInTheDocument();
+  expect(within(diagnostics).getByText('zira-uri')).toBeInTheDocument();
+});
+
+test('persisted voiceURI restores and unavailable persisted URI reports fallback', async () => {
+  window.localStorage.setItem('x8.voiceURI', 'zira-uri');
+  render(<App />);
+  let selector = within(openAudioControls()).getByLabelText('Voice selector') as HTMLSelectElement;
+  await waitFor(() => expect(selector.value).toBe('zira-uri'));
+
+  cleanup();
+  mockRuntime();
+  window.localStorage.setItem('x8.voiceURI', 'missing-uri');
+  render(<App />);
+  selector = within(openAudioControls()).getByLabelText('Voice selector') as HTMLSelectElement;
+  expect(selector.value).toBe('male-uri');
+  expect(await within(screen.getByLabelText('Audio diagnostics')).findByText(/Persisted voice unavailable/i)).toBeInTheDocument();
+});
+
+test('known male voice is not selected while a known female voice is available', async () => {
+  render(<App />);
+  await waitFor(() => expect(within(screen.getByLabelText('Audio diagnostics')).getByText('Microsoft Zira Desktop')).toBeInTheDocument());
+  expect(within(screen.getByLabelText('Audio diagnostics')).queryByText('Google US English Male')).not.toBeInTheDocument();
+  expect(within(screen.getByLabelText('Audio diagnostics')).getAllByText('true').length).toBeGreaterThan(0);
+});
+
+test('diagnostics report fallback honestly when only a male voice is available', async () => {
+  vi.stubGlobal('speechSynthesis', {
+    getVoices: () => [maleVoice],
+    speak: vi.fn((utterance: { onstart?: () => void }) => { spokenUtterance = utterance as unknown as Record<string, unknown>; utterance.onstart?.(); }),
+    pause: vi.fn(),
+    resume: vi.fn(),
+    cancel: vi.fn()
+  });
+  render(<App />);
+  const diagnostics = screen.getByLabelText('Audio diagnostics');
+  expect(await within(diagnostics).findByText('Google US English Male')).toBeInTheDocument();
+  expect(within(diagnostics).getByText('male-uri')).toBeInTheDocument();
+  expect(within(diagnostics).getByText(/Female voice unavailable/i)).toBeInTheDocument();
+  expect(within(diagnostics).queryByText('US Google female', { selector: 'span' })).toBeInTheDocument();
+  expect(within(diagnostics).getAllByText('false').length).toBeGreaterThan(0);
 });
 
 test('renders GitHub operation approval cards before writes', async () => {
@@ -302,6 +393,22 @@ test('routes GitHub create-repo chat prompt to approval card without push or sta
   expect(within(approvalCard).getByText('private')).toBeInTheDocument();
   expect(within(approvalCard).getAllByText('true').length).toBeGreaterThan(0);
   expect(within(approvalCard).getAllByText('false').length).toBeGreaterThanOrEqual(3);
+});
+
+test('literal GitHub chat text is not stolen by GitHub Ops routing', async () => {
+  render(<App />);
+  await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/github/ops/status'));
+  const statusCallsBefore = (fetch as ReturnType<typeof vi.fn>).mock.calls.filter(([path]) => String(path).includes('/api/github/ops/status')).length;
+  const pushPreviewCallsBefore = (fetch as ReturnType<typeof vi.fn>).mock.calls.filter(([path]) => String(path).includes('/api/github/ops/push-preview')).length;
+
+  await send('can you say GitHub');
+
+  expect(await screen.findByText('Echo: can you say GitHub')).toBeInTheDocument();
+  expect(screen.queryByText('GitHub status loaded without mutation.')).not.toBeInTheDocument();
+  expect(screen.queryByText('Push preview loaded. No push occurred.')).not.toBeInTheDocument();
+  expect(screen.queryByTestId('inline-approval-card')).not.toBeInTheDocument();
+  expect((fetch as ReturnType<typeof vi.fn>).mock.calls.filter(([path]) => String(path).includes('/api/github/ops/status')).length).toBe(statusCallsBefore);
+  expect((fetch as ReturnType<typeof vi.fn>).mock.calls.filter(([path]) => String(path).includes('/api/github/ops/push-preview')).length).toBe(pushPreviewCallsBefore);
 });
 
 test('existing GitHub push and status routing stay intact without token exposure', async () => {
@@ -444,13 +551,110 @@ test('shows permission denied and unavailable speech states honestly', async () 
 test('TTS can speak, creates receipts, and mute stops output', async () => {
   render(<App />);
   fireEvent.click(screen.getByRole('button', { name: /settings/i }));
-  fireEvent.click(await screen.findByRole('button', { name: /test voice/i }));
+  fireEvent.click(await screen.findByRole('button', { name: /^Test voice$/i }));
   expect(screen.getByTestId('avatar-stage')).toHaveAttribute('data-avatar-state', 'speaking');
   fireEvent.click(screen.getByRole('button', { name: /^Info/i }));
   expect((await screen.findAllByText(/speech_output_started/i)).length).toBeGreaterThan(0);
-  fireEvent.click(within(screen.getByLabelText('Avatar audio controls')).getByRole('button', { name: /mute voice/i }));
+  fireEvent.click(within(openAudioControls()).getByRole('button', { name: /mute voice/i }));
   await waitFor(() => expect(screen.getAllByText(/speech_output_stopped/i).length).toBeGreaterThan(0));
   expect(screen.getByTestId('avatar-stage')).toHaveAttribute('data-avatar-state', 'muted');
+});
+
+test('chat send exits pending on success and API error', async () => {
+  render(<App />);
+  await send('hello XV8');
+  await screen.findByText(/Echo: hello XV8/i);
+  const diagnostics = screen.getByLabelText('Audio diagnostics');
+  expect(within(diagnostics).getByText('chat pending')).toBeInTheDocument();
+  expect(within(diagnostics).getAllByText('false').length).toBeGreaterThan(0);
+  expect(screen.getByTestId('avatar-stage')).toHaveAttribute('data-avatar-state', 'idle');
+
+  const original = vi.mocked(fetch).getMockImplementation();
+  vi.mocked(fetch).mockImplementation((path: string, options?: { body?: BodyInit }) => {
+    if (String(path).includes('/api/chat')) return Promise.resolve({ ok: false, json: () => Promise.resolve({}) } as Response);
+    return original?.(path, options) as ReturnType<typeof fetch>;
+  });
+  await send('force API error');
+  expect(await screen.findByText('The chat request could not complete.')).toBeInTheDocument();
+  expect(screen.getByTestId('avatar-stage')).toHaveAttribute('data-avatar-state', 'error');
+  expect(within(screen.getByLabelText('Audio diagnostics')).getByText('Chat request failed')).toBeInTheDocument();
+});
+
+test('chat send exits pending on timeout', async () => {
+  try {
+    render(<App />);
+    await screen.findByTestId('avatar-video');
+    vi.useFakeTimers();
+    const original = vi.mocked(fetch).getMockImplementation();
+    vi.mocked(fetch).mockImplementation((path: string, options?: { body?: BodyInit; signal?: AbortSignal }) => {
+      if (!String(path).includes('/api/chat')) return original?.(path, options) as ReturnType<typeof fetch>;
+      return new Promise((_, reject) => {
+        if (options?.signal?.aborted) reject(new DOMException('Aborted', 'AbortError'));
+        options?.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
+      }) as ReturnType<typeof fetch>;
+    });
+    await send('timeout please');
+    await vi.advanceTimersByTimeAsync(45000);
+    vi.useRealTimers();
+    expect(await screen.findByText('The chat request timed out.')).toBeInTheDocument();
+    expect(within(screen.getByLabelText('Audio diagnostics')).getByText('timeout')).toBeInTheDocument();
+    expect(screen.getByTestId('avatar-stage')).toHaveAttribute('data-avatar-state', 'error');
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test('reset stage clears stuck thinking state', async () => {
+  render(<App />);
+  fireEvent.mouseDown(screen.getByRole('button', { name: /push to talk/i }));
+  recognitionInstance.onresult?.({ results: [[{ transcript: 'still thinking' }]] });
+  await waitFor(() => expect(screen.getByTestId('avatar-stage')).toHaveAttribute('data-avatar-state', 'thinking'));
+  fireEvent.click(screen.getByRole('button', { name: /reset stage/i }));
+  expect(screen.getByTestId('avatar-stage')).toHaveAttribute('data-avatar-state', 'idle');
+});
+
+test('muted, unavailable, error, and timeout speech paths report honestly', async () => {
+  render(<App />);
+  const controls = openAudioControls();
+  fireEvent.click(within(controls).getByRole('button', { name: /mute voice/i }));
+  await waitFor(() => expect(screen.getByTestId('avatar-stage')).toHaveAttribute('data-avatar-state', 'muted'));
+  fireEvent.click(within(controls).getByRole('button', { name: /unlock\/test voice/i }));
+  expect(await within(screen.getByLabelText('Audio diagnostics')).findByText('Muted state prevented speech playback.')).toBeInTheDocument();
+  expect(speechSynthesis.speak).not.toHaveBeenCalled();
+  expect(within(screen.getByLabelText('Audio diagnostics')).getAllByText('false').length).toBeGreaterThan(0);
+
+  cleanup();
+  mockRuntime();
+  vi.stubGlobal('speechSynthesis', undefined);
+  render(<App />);
+  fireEvent.click(screen.getByRole('button', { name: /unlock\/test voice/i }));
+  expect(await screen.findByText(/Text-to-speech is unavailable/i)).toBeInTheDocument();
+  expect(within(screen.getByLabelText('Audio diagnostics')).getByText('Speech synthesis is unavailable.')).toBeInTheDocument();
+
+  cleanup();
+  mockRuntime();
+  vi.stubGlobal('speechSynthesis', { getVoices: () => [], speak: vi.fn((utterance: { onerror?: () => void }) => utterance.onerror?.()), pause: vi.fn(), resume: vi.fn(), cancel: vi.fn() });
+  render(<App />);
+  fireEvent.click(screen.getByRole('button', { name: /unlock\/test voice/i }));
+  expect(await within(screen.getByLabelText('Audio diagnostics')).findByText('Speech playback failed.')).toBeInTheDocument();
+  expect(screen.getByTestId('avatar-stage')).toHaveAttribute('data-avatar-state', 'idle');
+});
+
+test('speech never firing onend times out and returns avatar idle', async () => {
+  try {
+    render(<App />);
+    await screen.findByTestId('avatar-video');
+    vi.useFakeTimers();
+    fireEvent.click(screen.getByRole('button', { name: /unlock\/test voice/i }));
+    expect(screen.getByTestId('avatar-stage')).toHaveAttribute('data-avatar-state', 'speaking');
+    await vi.advanceTimersByTimeAsync(20000);
+    vi.useRealTimers();
+    expect(await within(screen.getByLabelText('Audio diagnostics')).findByText('Speech playback timed out after 20000ms.')).toBeInTheDocument();
+    expect(screen.getByTestId('avatar-stage')).toHaveAttribute('data-avatar-state', 'idle');
+    expect(within(screen.getByLabelText('Audio diagnostics')).getAllByText('true').length).toBeGreaterThan(0);
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 test('copy controls write individual messages and transcripts', async () => {
@@ -471,7 +675,7 @@ test('copy controls write individual messages and transcripts', async () => {
 
 test('avatar speaker and volume controls update muted volume preference', async () => {
   render(<App />);
-  const controls = screen.getByLabelText('Avatar audio controls');
+  const controls = openAudioControls();
   fireEvent.change(within(controls).getByLabelText('Voice volume'), { target: { value: '42' } });
   expect(window.localStorage.getItem('x8.voiceVolume')).toBe('42');
   fireEvent.change(within(controls).getByLabelText('Voice volume'), { target: { value: '0' } });
