@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { useEffect, useMemo, useState } from 'react';
-import { Activity, ChevronDown, ChevronUp, Code2, Copy, FileText, GitBranch, Image, Info, Mic, MicOff, Pause, Play, Search, Send, ShieldCheck, Square, Trash2, Volume2, VolumeX, X } from 'lucide-react';
+import { Activity, ChevronDown, ChevronUp, Code2, Copy, FileText, GitBranch, Image, Info, Mic, MicOff, Pause, Play, Search, ShieldCheck, Square, Trash2, Volume2, VolumeX, X } from 'lucide-react';
 import type { SpeechReceipt, SttStatus, TtsStatus } from '../audio/speechManagers';
 import type { VoiceOption } from '../audio/speechManagers';
 import { CodeEditor } from '../components/cockpit/CodeEditor';
@@ -490,26 +490,12 @@ export function MicrophoneButton({ status, onStart }: { status: SttStatus; onSta
   );
 }
 
-export function PushToTalkButton({ onStart }: { onStart: () => void }) {
+export function PushToTalkButton({ status, onToggle }: { status: SttStatus; onToggle: () => void }) {
+  const listening = status === 'listening';
   return (
-    <button className="ghost" aria-label="Push to talk" onMouseDown={onStart}>
-      <Mic size={18} /> Push to talk
+    <button className="ghost" aria-label={listening ? 'Listening...' : 'Push to talk'} onMouseDown={onToggle} type="button">
+      <Mic size={18} /> {listening ? 'Listening...' : 'Push to talk'}
     </button>
-  );
-}
-
-export function TranscriptPreview({ transcript, onCancel, onSend }: { transcript: string; onCancel: () => void; onSend: () => void }) {
-  return (
-    <section className="transcriptPreview" aria-label="Transcript preview">
-      <div>
-        <p className="cardMeta">STT transcript preview</p>
-        <p>{transcript}</p>
-      </div>
-      <div className="inlineActions">
-        <CancelTranscriptButton onCancel={onCancel} />
-        <SendTranscriptButton onSend={onSend} />
-      </div>
-    </section>
   );
 }
 
@@ -518,14 +504,6 @@ export function MicrophoneStatusBadge({ status }: { status: SttStatus }) {
     ? 'Microphone permission was denied. Speech input is unavailable until permission is granted.'
     : `Mic: ${status}`;
   return <span className="statusText">{text}</span>;
-}
-
-function CancelTranscriptButton({ onCancel }: { onCancel: () => void }) {
-  return <button className="chipButton" onClick={onCancel}><X size={14} /> Cancel transcript</button>;
-}
-
-function SendTranscriptButton({ onSend }: { onSend: () => void }) {
-  return <button className="chipButton" onClick={onSend}><Send size={14} /> Send transcript</button>;
 }
 
 export function MuteToggle({ muted, onToggle }: { muted: boolean; onToggle: () => void }) {

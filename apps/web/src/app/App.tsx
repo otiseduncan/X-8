@@ -6,7 +6,7 @@ import { CHAT_TIMEOUT_MS, applySelfBuildPatch, applyUpdate, connectGitHubRemote,
 import type { AttachmentReference, Capability, FileEntry, IntegrationStatus, PatchProposal, SessionDetail, TeamSeat } from '../types/contracts';
 import { CodeEditor } from '../components/cockpit/CodeEditor';
 import { StatusPill } from '../components/ui/StatusPill';
-import { AvatarPresencePanel, ChatHistoryPanel, ChatTimeline, InfoDropdown, PushToTalkButton, ThinkingIndicator, TranscriptPreview, messageCopyText, transcriptMarkdown } from './AssistantComponents';
+import { AvatarPresencePanel, ChatHistoryPanel, ChatTimeline, InfoDropdown, PushToTalkButton, ThinkingIndicator, messageCopyText, transcriptMarkdown } from './AssistantComponents';
 import type { AvatarRuntimeState, ChatCard, ChatMessage, InfoReceipt } from './AssistantComponents';
 import { errorCard, mapKernelCard, receiptCards } from './cardHelpers';
 import { DeveloperCockpit } from './DeveloperCockpit';
@@ -26,6 +26,8 @@ export function App() {
   const userInteracted = useRef(false);
   const requestStartedAt = useRef(0);
   const speechRun = useRef(0);
+  const entryRef = useRef<HTMLTextAreaElement>(null);
+  const sttBaseEntryRef = useRef('');
   const timelineScrollRef = useRef<HTMLDivElement>(null);
   const timelineEndRef = useRef<HTMLDivElement>(null);
   const stickToLatestRef = useRef(true);
@@ -51,7 +53,7 @@ export function App() {
   const [speechState, setSpeechState] = useState<AvatarRuntimeState>('idle');
   const [micStatus, setMicStatus] = useState<SttStatus>('permission_required');
   const [voiceStatus, setVoiceStatus] = useState<TtsStatus>('ready');
-  const [transcript, setTranscript] = useState('');
+  const [sttError, setSttError] = useState('');
   const [muted, setMuted] = useState(false);
   const [volume, setVolume] = useState(() => Number(window.localStorage.getItem('x8.voiceVolume') || '80'));
   const [previousVolume, setPreviousVolume] = useState(() => Number(window.localStorage.getItem('x8.voicePreviousVolume') || '80'));
@@ -229,46 +231,55 @@ export function App() {
     return createAssistantReply(text, outgoingAttachments);
   }
   function startMicrophone() {
+    if (micStatus === 'listening') {
+      stopSpeechInput();
+      return;
+    }
     if (!speechInput.supported()) {
       setMicStatus('unavailable');
       setStage('error');
-      appendMessage({
-        id: nowId(),
-        role: 'assistant',
-        text: 'Speech input is unavailable in this browser.',
-        cards: [errorCard('STT unavailable', 'Browser Web Speech API is unavailable. No transcription was invented.')]
-      });
+      setSttError('Speech input is unavailable in this browser.');
+      entryRef.current?.focus();
       return;
     }
-    setTranscript('');
+    setSttError('');
+    sttBaseEntryRef.current = entry;
     speechInput.transcript.clear();
     setStage('listening');
     speechInput.recognition.start({
       onStatus: (status) => {
         setMicStatus(status);
         if (status === 'listening') setStage('listening');
-        if (status === 'transcribing') setStage('thinking');
+        if (status === 'transcribing') setStage(muted ? 'muted' : 'idle');
         if (status === 'permission_denied' || status === 'error') setStage('error');
         if (status === 'permission_denied') {
-          appendMessage({
-            id: nowId(),
-            role: 'assistant',
-            text: 'Microphone permission was denied. Speech input is unavailable until permission is granted.',
-            cards: [errorCard('Microphone permission denied', 'Microphone permission was denied. Speech input is unavailable until permission is granted.')]
-          });
+          setSttError('Microphone permission was denied.');
+        }
+        if (status === 'error') {
+          setSttError('Speech recognition failed.');
         }
       },
       onTranscript: (value) => {
-        setStage('thinking');
-        setTranscript(speechInput.transcript.set(value));
+        const transcriptValue = speechInput.transcript.set(value);
+        setEntry(mergeComposerText(sttBaseEntryRef.current, transcriptValue));
+        setStage(muted ? 'muted' : 'idle');
+        window.requestAnimationFrame(() => entryRef.current?.focus());
       },
       onReceipt: appendAudioReceipt
     });
   }
-  function cancelTranscript() {
+
+  function mergeComposerText(base: string, dictated: string) {
+    const cleanBase = base.trimEnd();
+    const cleanDictated = dictated.trim();
+    if (!cleanBase) return cleanDictated;
+    if (!cleanDictated) return cleanBase;
+    return `${cleanBase} ${cleanDictated}`;
+  }
+
+  function stopSpeechInput() {
     speechInput.recognition.stop();
     speechInput.transcript.clear();
-    setTranscript('');
     setMicStatus(speechInput.supported() ? 'ready' : 'unavailable');
     setStage(muted ? 'muted' : 'idle');
     appendAudioReceipt({
@@ -279,33 +290,9 @@ export function App() {
       completed_at: new Date().toISOString(),
       locale: 'en-US',
       permission_status: micStatus,
-      transcript_length: transcript.length
+      transcript_length: speechInput.transcript.current().length
     });
-  }
-  function sendTranscript() {
-    const value = transcript.trim();
-    if (!value) return;
-    appendAudioReceipt({
-      receipt_id: nowId(),
-      provider: 'browser_web_speech_api',
-      status: 'speech_input_sent',
-      started_at: new Date().toISOString(),
-      completed_at: new Date().toISOString(),
-      locale: 'en-US',
-      permission_status: micStatus,
-      transcript_length: value.length
-    });
-    setEntry('');
-    setTranscript('');
-    speechInput.transcript.clear();
-    setMicStatus(speechInput.supported() ? 'ready' : 'unavailable');
-    appendMessage({ id: nowId(), role: 'user', text: value });
-    requestStartedAt.current = Date.now();
-    setStage('thinking');
-    setChatPending(true);
-    stickToLatestRef.current = true;
-    setUserAwayFromLatest(false);
-    void handleUserText(value).finally(() => setChatPending(false));
+    entryRef.current?.focus();
   }
   async function createAssistantReply(text: string, outgoingAttachments: AttachmentReference[] = []) {
     try {
@@ -958,7 +945,7 @@ export function App() {
     setMessages([]);
     setEntry('');
     setAttachments([]);
-    setTranscript('');
+    setSttError('');
     setSessionId(undefined);
     setLocalChatId(nextId);
     setLatestResult(result);
@@ -1020,14 +1007,16 @@ export function App() {
                 ))}
               </div>
             )}
-            {transcript && <TranscriptPreview transcript={transcript} onCancel={cancelTranscript} onSend={sendTranscript} />}
             <div className="inputDock">
               <label className="ghost iconButton attachButton" aria-label="Attach file">
                 <Paperclip size={18} />
                 <input aria-label="Attach file input" type="file" multiple onChange={(event) => attachFiles(event.target.files)} />
               </label>
-              <textarea aria-label="Message XV8" value={entry} onChange={(event) => setEntry(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void submitMessage(); } }} placeholder="Ask XV8 anything..." />
-              <PushToTalkButton onStart={startMicrophone} />
+              <textarea ref={entryRef} aria-label="Message XV8" value={entry} onChange={(event) => { setEntry(event.target.value); setSttError(''); }} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void submitMessage(); } }} placeholder="Ask XV8 anything..." />
+              <div className="speechInputSlot">
+                <PushToTalkButton status={micStatus} onToggle={startMicrophone} />
+                {sttError && <span className="compactSttError" role="status">{sttError}</span>}
+              </div>
               <button className="primary" type="submit" disabled={!entry.trim() && attachments.length === 0}>
                 <Send size={18} /> Send
               </button>

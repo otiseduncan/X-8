@@ -692,30 +692,53 @@ test('frontend source keeps cyan accent vocabulary and blocks old cool-purple to
   expect(hits).toEqual([]);
 });
 
-test('reviews transcript before sending and sends it as normal chat', async () => {
+test('push-to-talk final transcript inserts text into composer without preview send flow', async () => {
   render(<App />);
   fireEvent.mouseDown(screen.getByRole('button', { name: /push to talk/i }));
   expect(screen.getByTestId('avatar-stage')).toHaveAttribute('data-avatar-state', 'listening');
+  expect(screen.getByRole('button', { name: /listening/i })).toBeInTheDocument();
   recognitionInstance.onresult?.({ results: [[{ transcript: 'open README.md' }]] });
-  await waitFor(() => expect(screen.getByTestId('avatar-stage')).toHaveAttribute('data-avatar-state', 'thinking'));
-  expect(await screen.findByLabelText('Transcript preview')).toBeInTheDocument();
-  expect(screen.getByText('open README.md')).toBeInTheDocument();
-  fireEvent.click(screen.getByRole('button', { name: /send transcript/i }));
+  const composer = screen.getByLabelText('Message XV8') as HTMLTextAreaElement;
+  await waitFor(() => expect(composer.value).toBe('open README.md'));
+  expect(document.activeElement).toBe(composer);
+  expect(screen.queryByLabelText('Transcript preview')).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: /send transcript/i })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: /^Send$/i }));
   expect(await screen.findByTestId('inline-file-card')).toBeInTheDocument();
+});
+
+test('dictated text appends to existing composer text and can be edited before normal send', async () => {
+  render(<App />);
+  const composer = screen.getByLabelText('Message XV8') as HTMLTextAreaElement;
+  fireEvent.change(composer, { target: { value: 'please' } });
+  fireEvent.mouseDown(screen.getByRole('button', { name: /push to talk/i }));
+  recognitionInstance.onresult?.({ results: [[{ transcript: 'check status' }]] });
+  await waitFor(() => expect(composer.value).toBe('please check status'));
+  fireEvent.change(composer, { target: { value: 'please check status now' } });
+  fireEvent.click(screen.getByRole('button', { name: /^Send$/i }));
+  expect(await screen.findByText('please check status now')).toBeInTheDocument();
+  expect(await screen.findByText(/Echo: please check status now/i)).toBeInTheDocument();
 });
 
 test('shows permission denied and unavailable speech states honestly', async () => {
   render(<App />);
+  const composer = screen.getByLabelText('Message XV8') as HTMLTextAreaElement;
+  fireEvent.change(composer, { target: { value: 'keep this draft' } });
   fireEvent.mouseDown(screen.getByRole('button', { name: /push to talk/i }));
   recognitionInstance.onerror?.({ error: 'not-allowed' });
-  expect((await screen.findAllByText(/Microphone permission was denied/i)).length).toBeGreaterThan(0);
+  expect(await screen.findByText('Microphone permission was denied.')).toBeInTheDocument();
+  expect(composer.value).toBe('keep this draft');
+  expect(screen.queryByLabelText('Transcript preview')).not.toBeInTheDocument();
 
+  cleanup();
+  mockRuntime();
   vi.stubGlobal('SpeechRecognition', undefined);
   vi.stubGlobal('webkitSpeechRecognition', undefined);
   render(<App />);
   const pttButtons = screen.getAllByRole('button', { name: /push to talk/i });
   fireEvent.mouseDown(pttButtons[pttButtons.length - 1]);
-  expect((await screen.findAllByText(/Browser Web Speech API is unavailable/i)).length).toBeGreaterThan(0);
+  expect(await screen.findByText('Speech input is unavailable in this browser.')).toBeInTheDocument();
+  expect(screen.queryByText(/Browser Web Speech API is unavailable/i)).not.toBeInTheDocument();
 });
 
 test('TTS can speak, creates receipts, and mute stops output', async () => {
@@ -774,12 +797,11 @@ test('chat send exits pending on timeout', async () => {
   }
 });
 
-test('reset stage clears stuck thinking state', async () => {
+test('reset stage clears active listening state', async () => {
   render(<App />);
   fireEvent.mouseDown(screen.getByRole('button', { name: /push to talk/i }));
-  recognitionInstance.onresult?.({ results: [[{ transcript: 'still thinking' }]] });
-  await waitFor(() => expect(screen.getByTestId('avatar-stage')).toHaveAttribute('data-avatar-state', 'thinking'));
-  fireEvent.click(screen.getByRole('button', { name: /reset stage/i }));
+  expect(screen.getByTestId('avatar-stage')).toHaveAttribute('data-avatar-state', 'listening');
+  fireEvent.click(within(openAudioControls()).getByRole('button', { name: /reset stage/i }));
   expect(screen.getByTestId('avatar-stage')).toHaveAttribute('data-avatar-state', 'idle');
 });
 
