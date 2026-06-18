@@ -52,7 +52,7 @@ class RepoContextReader:
                     return values
         return sorted(values)
 
-    def read_file(self, relative_path: str, max_chars: int = 20000) -> FileReadResult:
+    def read_file(self, relative_path: str, max_chars: int = 100000) -> FileReadResult:
         try:
             target = self.resolve(relative_path)
         except ValueError as exc:

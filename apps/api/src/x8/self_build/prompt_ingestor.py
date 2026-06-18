@@ -123,8 +123,8 @@ class BuildPromptIngestor:
         tests = [name for name in ("architecture_guard", "api_tests", "web_tests", "e2e_tests", "web_build", "compose_config") if name.replace("_", " ") in lower or name in lower]
         if not tests and ("architecture guard" in lower or "validation" in lower):
             tests = ["architecture_guard"]
-        if not tests and task_type == "ui_feature":
-            tests = ["web_tests", "architecture_guard"]
+        if task_type == "ui_feature":
+            tests = self._dedupe([*tests, "architecture_guard", "web_tests", "web_build"])
         return {
             "goal": text.strip().splitlines()[0][:240] if text.strip() else "Self-build task",
             "task_type": task_type,
@@ -166,3 +166,10 @@ class BuildPromptIngestor:
         if task_type == "config_change":
             return [".env.example"]
         return []
+
+    def _dedupe(self, values: list[str]) -> list[str]:
+        result: list[str] = []
+        for value in values:
+            if value not in result:
+                result.append(value)
+        return result

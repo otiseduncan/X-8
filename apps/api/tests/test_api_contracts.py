@@ -574,6 +574,8 @@ function Panel(props: { icon: React.ReactNode; title: string; children: React.Re
   return <section>{props.title}{props.children}</section>;
 }
 
+const largeFrontendBody = `PADDING_MARKER`;
+
 export function App() {
   const [memoryDetails, setMemoryDetails] = useState<Record<string, unknown>>({});
   const [selectedPath, setSelectedPath] = useState('README.md');
@@ -591,6 +593,8 @@ export function App() {
 """,
         encoding="utf-8",
     )
+    app_fixture = app_dir / "App.tsx"
+    app_fixture.write_text(app_fixture.read_text(encoding="utf-8").replace("PADDING_MARKER", "x" * 22000), encoding="utf-8")
     (services_dir / "apiClient.ts").write_text(
         """import type { ResultEnvelope } from '../types/contracts';
 
@@ -768,12 +772,16 @@ def test_self_build_build_prompt_mentions_trust_status_but_creates_one_proposal(
     assert "README.md" not in original["changed_file_paths"]
     assert any(path.startswith("apps/web/src/") for path in original["changed_file_paths"])
     assert original["task_type"] == "ui_feature"
-    assert original["tests_to_run"]
+    assert "architecture_guard" in original["tests_to_run"]
+    assert "web_tests" in original["tests_to_run"]
+    assert "web_build" in original["tests_to_run"]
     assert all(change["before_hash"] and change["after_hash"] and change["before_hash"] != change["after_hash"] and change["unified_diff"] for change in original["changes"])
     assert all(change["proposed_content_preview"] for change in original["changes"])
     assert "loadSelfBuildTrustStatus" in "\n".join(change["unified_diff"] for change in original["changes"])
-    assert "Self-Build Trust" in "\n".join(change["unified_diff"] for change in original["changes"])
-    assert "Self-Build Trust" not in (tmp_path / "apps" / "web" / "src" / "app" / "App.tsx").read_text(encoding="utf-8")
+    assert "Self-build trust gate" in "\n".join(change["unified_diff"] for change in original["changes"])
+    assert "Validation preset count" in "\n".join(change["unified_diff"] for change in original["changes"])
+    assert "#22d3ee" in "\n".join(change["unified_diff"] for change in original["changes"])
+    assert "Self-build trust gate" not in (tmp_path / "apps" / "web" / "src" / "app" / "App.tsx").read_text(encoding="utf-8")
     manager = SelfBuildManager(str(tmp_path))
     task = manager.create_task(SelfBuildRequest(user_prompt=build_prompt))
     assert task.proposal is not None
@@ -813,6 +821,22 @@ def test_self_build_noop_proposal_is_blocked_without_approval(tmp_path) -> None:
     assert any("No code changes were generated" in reason for reason in task.proposal.validation.reasons)
     assert detail["apply_safe"] is False
     assert detail["message"] == "No code changes were generated."
+
+
+def test_self_build_ui_feature_without_visible_render_is_blocked(tmp_path) -> None:
+    create_ui_workspace(tmp_path)
+    manager = SelfBuildManager(str(tmp_path))
+    manager.proposals._add_trust_status_card = lambda before: before  # type: ignore[method-assign]
+
+    task = manager.create_task(SelfBuildRequest(user_prompt="Self-build task: Add a small UI label or dashboard card that displays the current self-build trust status using the existing trust-status endpoint. Proposal only first."))
+    detail = manager.proposal_detail(task)
+
+    assert task.proposal is not None
+    assert task.proposal.status == "blocked"
+    assert task.proposal.approval_id == ""
+    assert task.proposal.validation.status == "failed"
+    assert "UI feature proposal did not generate visible Self-build trust gate JSX." in task.proposal.validation.reasons
+    assert detail["apply_safe"] is False
 
 
 def test_self_build_exact_approval_applies_ui_proposed_content(tmp_path) -> None:

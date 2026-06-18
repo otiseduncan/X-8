@@ -22,7 +22,7 @@ class PatchProposalManager:
                 continue
             after = self._proposed_content(path, before.content, task.request.user_prompt, plan.task_type)
             diff = "".join(difflib.unified_diff(before.content.splitlines(True), after.splitlines(True), fromfile=f"a/{path}", tofile=f"b/{path}"))
-            if after == before:
+            if after == before.content:
                 continue
             changes.append(
                 PatchFileChange(
@@ -38,6 +38,7 @@ class PatchProposalManager:
             )
         patch_hash = self.hash_changes(changes)
         validation = self.validation.validate(changes)
+        self._add_task_specific_validation(plan, task, changes, validation)
         return PatchProposal(task_id=task.task_id, plan_id=plan.plan_id, changes=changes, patch_hash=patch_hash, validation=validation, status="proposed" if validation.passed else "blocked")
 
     def hash_changes(self, changes: list[PatchFileChange]) -> str:
@@ -81,7 +82,7 @@ class PatchProposalManager:
             state_anchor = "  const [memoryDetails, setMemoryDetails] = useState<Record<string, unknown>>({});\n"
             state_block = "  const [selfBuildTrustStatus, setSelfBuildTrustStatus] = useState<Record<string, unknown>>({});\n  const [selfBuildTrustSummary, setSelfBuildTrustSummary] = useState('checking');\n"
             after = after.replace(state_anchor, state_anchor + state_block, 1)
-        if "loadSelfBuildTrustStatus().then" not in after:
+        if "setSelfBuildTrustStatus(response.data" not in after:
             effect_anchor = "  useEffect(() => {\n    readFile(selectedPath)\n"
             effect_block = """  useEffect(() => {
     loadSelfBuildTrustStatus()
@@ -94,16 +95,18 @@ class PatchProposalManager:
 
 """
             after = after.replace(effect_anchor, effect_block + effect_anchor, 1)
-        if 'title="Self-Build Trust"' not in after:
+        if "Self-build trust gate" not in after:
             panel_anchor = '          <Panel icon={<Activity />} title="Model + Runtime">\n'
-            panel = """          <Panel icon={<ShieldCheck />} title="Self-Build Trust">
-            <div className="list dense">
-              <div className="row split"><strong>Trust gate</strong><StatusPill label={selfBuildTrustSummary} status={selfBuildTrustSummary} /></div>
+            panel = """          <Panel icon={<ShieldCheck />} title="Self-build trust gate">
+            <div className="list dense selfBuildTrustCard" style={{ borderColor: '#22d3ee' }}>
+              <div className="row split"><strong>Self-build trust gate</strong><StatusPill label={selfBuildTrustSummary === 'checking' ? 'loading' : selfBuildTrustSummary} status={selfBuildTrustSummary} /></div>
+              {selfBuildTrustSummary === 'unavailable' && <div className="row"><strong>Status</strong><span>Trust status unavailable. Check the API route.</span></div>}
               <div className="row split"><strong>Approval required</strong><span>{String(selfBuildTrustStatus.approval_required ?? 'unknown')}</span></div>
               <div className="row split"><strong>Hash approval required</strong><span>{String(selfBuildTrustStatus.approval_hash_required ?? 'unknown')}</span></div>
               <div className="row split"><strong>Writes without approval</strong><span>{String(selfBuildTrustStatus.writes_without_approval ?? 'unknown')}</span></div>
               <div className="row split"><strong>Commit default</strong><span>{String(selfBuildTrustStatus.commit_allowed_by_default ?? 'unknown')}</span></div>
               <div className="row split"><strong>Push default</strong><span>{String(selfBuildTrustStatus.push_allowed_by_default ?? 'unknown')}</span></div>
+              <div className="row split"><strong>Validation preset count</strong><span>{Array.isArray(selfBuildTrustStatus.validation_presets) ? selfBuildTrustStatus.validation_presets.length : 'unknown'}</span></div>
               <div className="row"><strong>Validation presets</strong><span>{Array.isArray(selfBuildTrustStatus.validation_presets) ? selfBuildTrustStatus.validation_presets.join(', ') : 'unknown'}</span></div>
               <div className="row split"><strong>Allowed paths</strong><span>{Array.isArray(selfBuildTrustStatus.allowed_paths) ? selfBuildTrustStatus.allowed_paths.length : 'unknown'}</span></div>
               <div className="row split"><strong>Blocked paths</strong><span>{Array.isArray(selfBuildTrustStatus.blocked_paths) ? selfBuildTrustStatus.blocked_paths.length : 'unknown'}</span></div>
@@ -115,3 +118,14 @@ class PatchProposalManager:
             else:
                 after = after.replace('<Panel icon={<Activity />} title="Model + Runtime">', panel + '      <Panel icon={<Activity />} title="Model + Runtime">', 1)
         return after
+
+    def _add_task_specific_validation(self, plan: SelfBuildPlan, task: SelfBuildTask, changes: list[PatchFileChange], validation) -> None:
+        lower_prompt = task.request.user_prompt.lower()
+        if plan.task_type == "ui_feature" and "trust status" in lower_prompt:
+            app_changes = [change for change in changes if change.file_path == "apps/web/src/app/App.tsx"]
+            has_visible_render = any("Self-build trust gate" in change.proposed_content and "Validation preset count" in change.proposed_content for change in app_changes)
+            if not has_visible_render:
+                validation.reasons.append("UI feature proposal did not generate visible Self-build trust gate JSX.")
+            if validation.reasons:
+                validation.passed = False
+                validation.status = "failed"

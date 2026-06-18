@@ -56,7 +56,9 @@ For the supported trust-status UI feature, the proposal targets:
 - `apps/web/src/services/apiClient.ts`
 - `apps/web/src/app/App.tsx`
 
-The generated patch adds a `loadSelfBuildTrustStatus()` API helper and a `Self-Build Trust` runtime card that displays approval gating, hash gating, write/commit/push defaults, validation presets, and allowed/blocked path counts. The patch remains proposal-only until exact approval.
+The generated patch adds a `loadSelfBuildTrustStatus()` API helper and a visible `Self-build trust gate` runtime card that displays approval gating, hash gating, write/commit/push defaults, validation preset count, validation presets, and allowed/blocked path counts. The patch remains proposal-only until exact approval.
+
+For trust-status UI prompts, proposal validation now requires visible JSX containing `Self-build trust gate` and `Validation preset count`. API fetch/state wiring without visible render output is blocked and receives no approval id.
 
 ## No-Op Proposal Rejection
 
@@ -66,12 +68,15 @@ A proposal is invalid if no real code changes are generated. Validation fails wh
 - a change has an empty unified diff
 - `before_hash` equals `after_hash`
 - `proposed_content` matches the current file content
+- a UI feature wires API/state but does not render a visible card or label
 
 No-op proposals are blocked, receive no `approval_id`, set `apply_safe=false`, and return the message `No code changes were generated.` The UI does not render an Apply approval card for blocked/no-op proposals.
 
 ## Real Proposed Content Requirement
 
 Patch hashes are computed from file path, before hash, after hash, unified diff, and proposed content. Latest proposal details include safe proposed-content previews so Otis can inspect what would be written before approving the exact hash.
+
+UI feature proposals include frontend validation presets by default: `architecture_guard`, `web_tests`, and `web_build`.
 
 ## Task Classification
 
@@ -157,7 +162,7 @@ Frontend primary accent styling is cyan/neon blue. The old purple/violet/fuchsia
 Current-run validation on June 18, 2026:
 
 - `docker compose build api-tests x8-api x8-web`: passed.
-- `docker compose run --rm api-tests`: passed, 58 tests.
+- `docker compose run --rm api-tests`: passed, 65 tests.
 - `docker compose run --rm architecture-guard`: passed with preferred-size warnings for `apps/api/tests/test_api_contracts.py`, `apps/web/src/styles.css`, and `apps/web/src/app/App.tsx`.
 - `docker compose run --rm web-tests`: passed, 13 tests.
 - `docker compose run --rm e2e-tests`: passed, 11 tests.
@@ -175,12 +180,13 @@ Live proof after app restart on June 18, 2026:
 
 Current hardening live proof after restart on June 18, 2026:
 
-- Build prompt for a trust-status UI feature returned `intent=create_proposal`, `task_id=task_80a5037a1e8b`, `patch_id=patch_2fc4555311b4`, `approval_id=sbappr_88892ae36c68`, and `patch_hash=88892ae36c685dd3797464f656d3668e990c7cb5ee88bb021cbb0df9e2795220`.
+- Build prompt for a trust-status UI feature returned `intent=create_proposal`, `task_type=ui_feature`, `task_id=task_b3fd89695011`, and `patch_id=patch_705d541b4c89`; `approval_id` and `patch_hash` were present.
 - Changed paths were `apps/web/src/app/App.tsx` and `apps/web/src/services/apiClient.ts`; `README.md` was not targeted.
-- The proposal was `task_type=ui_feature`, `validation_status=passed`, and `apply_safe=true`.
-- Read-only latest proposal inspection returned the same `task_id`, `patch_id`, `approval_id`, and `patch_hash`.
-- `apps/web/src/app/App.tsx` and `apps/web/src/services/apiClient.ts` hashes were unchanged by proposal creation and inspection.
-- Direct prompt "Show self-build trust status." returned `intent=trust_status`, `approval_required=true`, `approval_hash_required=true`, `writes_without_approval=false`, `commit_allowed_by_default=false`, and `push_allowed_by_default=false`.
+- The proposal returned `validation_status=passed`, `apply_safe=true`, `tests_to_run=architecture_guard, web_tests, web_build`, non-empty diffs, and `before_hash != after_hash` for every changed file.
+- The proposed diff included visible JSX containing `Self-build trust gate` and `Validation preset count`.
+- The proposed diff included cyan styling through `#22d3ee` and did not include purple/violet/fuchsia/indigo tokens.
+- `GET http://localhost:8080/api/self-build/tasks/latest/proposal` returned the same `task_id` and `patch_id`, non-empty diffs, changed hashes, visible JSX, and `apply_safe=true`.
+- Actual `apps/web/src/app/App.tsx` did not contain `Self-build trust gate` after proposal creation; no source file was written before approval.
 
 No-op rejection live proof after restart on June 18, 2026:
 
@@ -204,6 +210,7 @@ Focused trust-gate proof:
 - Latest proposal tests prove read-only details return the original proposal `task_id`, `patch_id`, `approval_id`, and `patch_hash`.
 - Proposal-generation tests prove the trust-status UI feature targets `apps/web/src/`, does not target `README.md`, and includes non-empty code diffs.
 - No-op tests prove empty/equal-content proposals are blocked, not apply-safe, and do not receive an approval id.
+- No-visible-render tests prove UI feature proposals are blocked when they only add API/state wiring.
 - Patch-hash tests prove changing proposed content changes the computed patch hash.
 - Apply tests prove exact approval writes exact proposed content in a temp workspace.
 - Web tests prove proposal cards expose metadata and frontend source is free of blocked cool-purple tokens.
