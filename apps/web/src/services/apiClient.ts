@@ -138,6 +138,10 @@ export async function createSelfBuildTask(prompt: string) {
   return response.json();
 }
 
+export function loadSelfBuildTrustStatus() {
+  return getJson<ResultEnvelope<Record<string, unknown>>>('/api/self-build/trust-status');
+}
+
 export async function runSelfBuildPrompt(prompt: string) {
   const response = await fetch('/api/self-build/prompt', {
     method: 'POST',

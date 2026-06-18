@@ -2,7 +2,7 @@ import { Activity, Boxes, Check, ChevronDown, ChevronUp, Code2, Copy, FileText, 
 import { useEffect, useRef, useState } from 'react';
 import { SpeechInputManager, SpeechOutputManager } from '../audio/speechManagers';
 import type { SpeechReceipt, SttStatus, TtsStatus } from '../audio/speechManagers';
-import { applyUpdate, createArtifactPreview, createSpeechReceipt, loadAvatarManifest, loadBridgeStatus, loadCapabilities, loadConfigImportStatus, loadDockerPresets, loadFiles, loadGitHubStatus, loadImageStatus, loadIntegrations, loadMemoryStatus, loadModelStatus, loadReceipts, loadSearchStatus, loadSession, loadSessions, loadSpeechStatus, loadTeam, proposeUpdate, readFile, requestImage, runSearch, runSelfBuildPrompt, scanX7Configs, sendChat, uploadAttachment } from '../services/apiClient';
+import { applyUpdate, createArtifactPreview, createSpeechReceipt, loadAvatarManifest, loadBridgeStatus, loadCapabilities, loadConfigImportStatus, loadDockerPresets, loadFiles, loadGitHubStatus, loadImageStatus, loadIntegrations, loadMemoryStatus, loadModelStatus, loadReceipts, loadSearchStatus, loadSession, loadSessions, loadSpeechStatus, loadTeam, proposeUpdate, readFile, requestImage, runSearch, runSelfBuildPrompt, loadSelfBuildTrustStatus, scanX7Configs, sendChat, uploadAttachment } from '../services/apiClient';
 import type { AttachmentReference, Capability, FileEntry, IntegrationStatus, PatchProposal, SessionDetail, TeamSeat } from '../types/contracts';
 import { CodeEditor } from '../components/cockpit/CodeEditor';
 import { StatusPill } from '../components/ui/StatusPill';
@@ -47,6 +47,8 @@ export function App() {
   const [modelDetails, setModelDetails] = useState<Record<string, unknown>>({});
   const [memoryStatus, setMemoryStatus] = useState('checking');
   const [memoryDetails, setMemoryDetails] = useState<Record<string, unknown>>({});
+  const [selfBuildTrustStatus, setSelfBuildTrustStatus] = useState<Record<string, unknown>>({});
+  const [selfBuildTrustSummary, setSelfBuildTrustSummary] = useState('checking');
   const [sessionId, setSessionId] = useState<string | undefined>(undefined);
   const [selectedPath, setSelectedPath] = useState('README.md');
   const [code, setCode] = useState('');
@@ -130,6 +132,15 @@ export function App() {
       setLatestResult(`Session restored: ${String(latest.status || 'ok')}`);
     }
   }
+  useEffect(() => {
+    loadSelfBuildTrustStatus()
+      .then((response) => {
+        setSelfBuildTrustStatus(response.data || {});
+        setSelfBuildTrustSummary(String(response.status || 'ready'));
+      })
+      .catch(() => setSelfBuildTrustSummary('unavailable'));
+  }, []);
+
   useEffect(() => {
     readFile(selectedPath)
       .then((response) => setCode(response.data.content))
@@ -885,6 +896,21 @@ export function App() {
               <div className="row split"><strong>Image</strong><StatusPill label={imageStatus} status={imageStatus} /></div>
               <div className="row split"><strong>Model</strong><span>Juggernaut</span></div>
               <div className="row"><strong>Workflow</strong><span>ComfyUI default</span></div>
+            </div>
+          </Panel>
+          <Panel icon={<ShieldCheck />} title="Self-build trust gate">
+            <div className="list dense selfBuildTrustCard" style={{ borderColor: '#22d3ee' }}>
+              <div className="row split"><strong>Self-build trust gate</strong><StatusPill label={selfBuildTrustSummary === 'checking' ? 'loading' : selfBuildTrustSummary} status={selfBuildTrustSummary} /></div>
+              {selfBuildTrustSummary === 'unavailable' && <div className="row"><strong>Status</strong><span>Trust status unavailable. Check the API route.</span></div>}
+              <div className="row split"><strong>Approval required</strong><span>{String(selfBuildTrustStatus.approval_required ?? 'unknown')}</span></div>
+              <div className="row split"><strong>Hash approval required</strong><span>{String(selfBuildTrustStatus.approval_hash_required ?? 'unknown')}</span></div>
+              <div className="row split"><strong>Writes without approval</strong><span>{String(selfBuildTrustStatus.writes_without_approval ?? 'unknown')}</span></div>
+              <div className="row split"><strong>Commit default</strong><span>{String(selfBuildTrustStatus.commit_allowed_by_default ?? 'unknown')}</span></div>
+              <div className="row split"><strong>Push default</strong><span>{String(selfBuildTrustStatus.push_allowed_by_default ?? 'unknown')}</span></div>
+              <div className="row split"><strong>Validation preset count</strong><span>{Array.isArray(selfBuildTrustStatus.validation_presets) ? selfBuildTrustStatus.validation_presets.length : 'unknown'}</span></div>
+              <div className="row"><strong>Validation presets</strong><span>{Array.isArray(selfBuildTrustStatus.validation_presets) ? selfBuildTrustStatus.validation_presets.join(', ') : 'unknown'}</span></div>
+              <div className="row split"><strong>Allowed paths</strong><span>{Array.isArray(selfBuildTrustStatus.allowed_paths) ? selfBuildTrustStatus.allowed_paths.length : 'unknown'}</span></div>
+              <div className="row split"><strong>Blocked paths</strong><span>{Array.isArray(selfBuildTrustStatus.blocked_paths) ? selfBuildTrustStatus.blocked_paths.length : 'unknown'}</span></div>
             </div>
           </Panel>
           <Panel icon={<Activity />} title="Model + Runtime">
