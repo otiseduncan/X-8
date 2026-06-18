@@ -94,6 +94,7 @@ function mockRuntime() {
                                               changed_file_paths: ['README.md'],
                                               validation_status: 'passed',
                                               risk_level: 'normal_mutation',
+                                              apply_safe: true,
                                               message: 'No files changed. Approval required before apply.',
                                               changes: [{ file_path: 'README.md', before_hash: 'before_1', after_hash: 'after_1', unified_diff: '--- a/README.md\n+++ b/README.md\n+## Self-Build Mode' }]
                                             }

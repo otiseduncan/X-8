@@ -17,7 +17,7 @@ from x8.kernel.response_planner import ResponsePlanner
 from x8.managers.model_manager import OllamaAdapter
 from x8.managers.memory_manager import MemoryApprovalDecision, MemoryManager, MemoryProposal
 from x8.managers.model_manager import ModelReadinessManager
-from x8.self_build.contracts import PatchApplyRequest, SelfBuildRequest
+from x8.self_build.contracts import PatchApplyRequest, PatchFileChange, SelfBuildRequest
 from x8.self_build.manager import SelfBuildManager
 from x8.self_build.prompt_ingestor import BuildPromptIngestor
 from x8.self_build.repo_context import RepoContextReader
@@ -671,6 +671,28 @@ def test_self_build_validation_presets_are_allowlisted(tmp_path) -> None:
     assert "npm_install" in result.reasons[0]
 
 
+def test_self_build_noop_change_fails_validation(tmp_path) -> None:
+    readme = tmp_path / "README.md"
+    readme.write_text("# XV8\n", encoding="utf-8")
+    manager = SelfBuildManager(str(tmp_path))
+    current = readme.read_text(encoding="utf-8")
+    digest = manager.proposals._hash_text(current)
+    result = manager.validation.validate(
+        [
+            PatchFileChange(
+                file_path="README.md",
+                before_hash=digest,
+                after_hash=digest,
+                proposed_content=current,
+                unified_diff="",
+            )
+        ]
+    )
+    assert result.passed is False
+    assert result.status == "failed"
+    assert any("No code changes were generated" in reason for reason in result.reasons)
+
+
 def test_self_build_validate_task_records_report(tmp_path, monkeypatch) -> None:
     (tmp_path / "README.md").write_text("# XV8\n", encoding="utf-8")
     manager = SelfBuildManager(str(tmp_path))
@@ -747,10 +769,17 @@ def test_self_build_build_prompt_mentions_trust_status_but_creates_one_proposal(
     assert any(path.startswith("apps/web/src/") for path in original["changed_file_paths"])
     assert original["task_type"] == "ui_feature"
     assert original["tests_to_run"]
-    assert all(change["before_hash"] and change["after_hash"] and change["unified_diff"] for change in original["changes"])
+    assert all(change["before_hash"] and change["after_hash"] and change["before_hash"] != change["after_hash"] and change["unified_diff"] for change in original["changes"])
+    assert all(change["proposed_content_preview"] for change in original["changes"])
     assert "loadSelfBuildTrustStatus" in "\n".join(change["unified_diff"] for change in original["changes"])
     assert "Self-Build Trust" in "\n".join(change["unified_diff"] for change in original["changes"])
     assert "Self-Build Trust" not in (tmp_path / "apps" / "web" / "src" / "app" / "App.tsx").read_text(encoding="utf-8")
+    manager = SelfBuildManager(str(tmp_path))
+    task = manager.create_task(SelfBuildRequest(user_prompt=build_prompt))
+    assert task.proposal is not None
+    original_hash = task.proposal.patch_hash
+    task.proposal.changes[0].proposed_content += "\n// hash check\n"
+    assert manager.proposals.hash_changes(task.proposal.changes) != original_hash
 
     inspected = api.post("/api/self-build/prompt", json={"prompt": "Show the full latest self-build patch proposal details before approval. Do not create a new proposal. Do not apply. Do not write anything."}).json()
     assert inspected["status"] == "proposed"
@@ -763,6 +792,27 @@ def test_self_build_build_prompt_mentions_trust_status_but_creates_one_proposal(
     assert latest["data"]["task_id"] == original["task_id"]
     assert latest["data"]["patch_id"] == original["patch_id"]
     assert latest["data"]["patch_hash"] == original["patch_hash"]
+    assert all(change["unified_diff"] and change["before_hash"] != change["after_hash"] for change in latest["data"]["changes"])
+
+
+def test_self_build_noop_proposal_is_blocked_without_approval(tmp_path) -> None:
+    create_ui_workspace(tmp_path)
+    app = tmp_path / "apps" / "web" / "src" / "app" / "App.tsx"
+    client_file = tmp_path / "apps" / "web" / "src" / "services" / "apiClient.ts"
+    app.write_text(SelfBuildManager(str(tmp_path)).proposals._add_trust_status_card(app.read_text(encoding="utf-8")), encoding="utf-8")
+    client_file.write_text(SelfBuildManager(str(tmp_path)).proposals._add_trust_status_client(client_file.read_text(encoding="utf-8")), encoding="utf-8")
+    manager = SelfBuildManager(str(tmp_path))
+
+    task = manager.create_task(SelfBuildRequest(user_prompt="Self-build task: Add a small UI label or dashboard card that displays the current self-build trust status using the existing trust-status endpoint. Proposal only first."))
+    detail = manager.proposal_detail(task)
+
+    assert task.proposal is not None
+    assert task.proposal.status == "blocked"
+    assert task.proposal.approval_id == ""
+    assert task.proposal.validation.status == "failed"
+    assert any("No code changes were generated" in reason for reason in task.proposal.validation.reasons)
+    assert detail["apply_safe"] is False
+    assert detail["message"] == "No code changes were generated."
 
 
 def test_self_build_exact_approval_applies_ui_proposed_content(tmp_path) -> None:

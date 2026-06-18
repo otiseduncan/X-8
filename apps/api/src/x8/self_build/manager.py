@@ -84,6 +84,7 @@ class SelfBuildManager:
         proposal = task.proposal
         if proposal is None:
             return {}
+        apply_safe = bool(proposal.validation.passed and proposal.approval_id and proposal.patch_hash and proposal.changes)
         return {
             "task_id": task.task_id,
             "patch_id": proposal.patch_id,
@@ -97,6 +98,7 @@ class SelfBuildManager:
                     "before_hash": change.before_hash,
                     "after_hash": change.after_hash,
                     "unified_diff": change.unified_diff,
+                    "proposed_content_preview": change.proposed_content[:4000],
                 }
                 for change in proposal.changes
             ],
@@ -106,8 +108,8 @@ class SelfBuildManager:
             "tests_to_run": task.plan.tests_to_run if task.plan else task.required_tests,
             "risk_level": task.plan.risk_level if task.plan else task.risk_level,
             "rollback_plan": task.plan.rollback_plan if task.plan else "",
-            "apply_safe": bool(proposal.validation.passed and proposal.approval_id and proposal.patch_hash),
-            "message": "No files changed. Approval required before apply.",
+            "apply_safe": apply_safe,
+            "message": "No files changed. Approval required before apply." if apply_safe else "No code changes were generated.",
         }
 
     def latest_proposal_detail(self) -> dict[str, object] | None:

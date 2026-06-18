@@ -22,10 +22,17 @@ class PatchValidationManager:
     def validate(self, changes: list[PatchFileChange]) -> PatchValidationResult:
         reasons: list[str] = []
         if not changes:
-            reasons.append("No file changes were proposed.")
+            reasons.append("No code changes were generated.")
         for change in changes:
             if not self.reader.is_allowed(change.file_path):
                 reasons.append(f"Blocked path: {change.file_path}")
+            if not change.unified_diff.strip():
+                reasons.append(f"No code changes were generated for {change.file_path}: empty unified diff.")
+            if change.before_hash and change.after_hash and change.before_hash == change.after_hash:
+                reasons.append(f"No code changes were generated for {change.file_path}: before_hash equals after_hash.")
+            current = self.reader.read_file(change.file_path)
+            if not current.blocked and change.proposed_content == current.content:
+                reasons.append(f"No code changes were generated for {change.file_path}: proposed content matches current file.")
             lower_diff = change.unified_diff.lower()
             for phrase in BLOCKED_DIFF_PHRASES:
                 if phrase in lower_diff:

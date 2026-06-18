@@ -58,6 +58,21 @@ For the supported trust-status UI feature, the proposal targets:
 
 The generated patch adds a `loadSelfBuildTrustStatus()` API helper and a `Self-Build Trust` runtime card that displays approval gating, hash gating, write/commit/push defaults, validation presets, and allowed/blocked path counts. The patch remains proposal-only until exact approval.
 
+## No-Op Proposal Rejection
+
+A proposal is invalid if no real code changes are generated. Validation fails when:
+
+- no changes are present
+- a change has an empty unified diff
+- `before_hash` equals `after_hash`
+- `proposed_content` matches the current file content
+
+No-op proposals are blocked, receive no `approval_id`, set `apply_safe=false`, and return the message `No code changes were generated.` The UI does not render an Apply approval card for blocked/no-op proposals.
+
+## Real Proposed Content Requirement
+
+Patch hashes are computed from file path, before hash, after hash, unified diff, and proposed content. Latest proposal details include safe proposed-content previews so Otis can inspect what would be written before approving the exact hash.
+
 ## Task Classification
 
 Self-build create requests are classified as:
@@ -167,6 +182,15 @@ Current hardening live proof after restart on June 18, 2026:
 - `apps/web/src/app/App.tsx` and `apps/web/src/services/apiClient.ts` hashes were unchanged by proposal creation and inspection.
 - Direct prompt "Show self-build trust status." returned `intent=trust_status`, `approval_required=true`, `approval_hash_required=true`, `writes_without_approval=false`, `commit_allowed_by_default=false`, and `push_allowed_by_default=false`.
 
+No-op rejection live proof after restart on June 18, 2026:
+
+- Controlled trust-status UI prompt returned `intent=create_proposal`, `task_type=ui_feature`, `task_id=task_82549e07fe2c`, `patch_id=patch_62571ddc2f67`, `approval_id=sbappr_88892ae36c68`, and `patch_hash=88892ae36c685dd3797464f656d3668e990c7cb5ee88bb021cbb0df9e2795220`.
+- Changed paths were `apps/web/src/app/App.tsx` and `apps/web/src/services/apiClient.ts`.
+- All proposal changes had `before_hash != after_hash`.
+- All proposal changes had non-empty unified diffs.
+- Latest proposal endpoint returned the same non-empty diffs and changed hashes.
+- Actual `apps/web/src/app/App.tsx` and `apps/web/src/services/apiClient.ts` file hashes stayed unchanged before approval.
+
 Focused trust-gate proof:
 
 - Self-build proposal tests prove proposal creation does not write files.
@@ -179,6 +203,8 @@ Focused trust-gate proof:
 - Intent tests prove a build prompt that mentions trust status as the feature still creates a proposal.
 - Latest proposal tests prove read-only details return the original proposal `task_id`, `patch_id`, `approval_id`, and `patch_hash`.
 - Proposal-generation tests prove the trust-status UI feature targets `apps/web/src/`, does not target `README.md`, and includes non-empty code diffs.
+- No-op tests prove empty/equal-content proposals are blocked, not apply-safe, and do not receive an approval id.
+- Patch-hash tests prove changing proposed content changes the computed patch hash.
 - Apply tests prove exact approval writes exact proposed content in a temp workspace.
 - Web tests prove proposal cards expose metadata and frontend source is free of blocked cool-purple tokens.
 
