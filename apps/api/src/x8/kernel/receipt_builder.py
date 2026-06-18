@@ -14,10 +14,18 @@ class KernelReceiptBuilder:
         attachments: list[str],
         tools: list[str],
         limitations: list[str],
+        fallback_used: bool = False,
+        timed_out: bool = False,
+        timeout_seconds: float = 0.0,
+        failure_reason: str = "",
     ) -> KernelReceipt:
         return KernelReceipt(
             kernel_lane=lane,
             model_selected=model,
+            fallback_used=fallback_used,
+            timed_out=timed_out,
+            timeout_seconds=timeout_seconds,
+            failure_reason=failure_reason,
             context_sources_used=context_sources,
             attachments_used=attachments,
             tools_called=tools,

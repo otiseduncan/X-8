@@ -26,6 +26,10 @@ class KernelReceipt(BaseModel):
     action_type: str = "kernel.prompt_round_trip"
     kernel_lane: str
     model_selected: str = ""
+    fallback_used: bool = False
+    timed_out: bool = False
+    timeout_seconds: float = 0.0
+    failure_reason: str = ""
     context_sources_used: list[str] = Field(default_factory=list)
     attachments_used: list[str] = Field(default_factory=list)
     tools_called: list[str] = Field(default_factory=list)
@@ -64,6 +68,8 @@ class KernelContext(BaseModel):
 class ModelSelection(BaseModel):
     selected_model: str = ""
     fallback_used: bool = False
+    timed_out: bool = False
+    timeout_seconds: float = 0.0
     model_ready: bool = False
     reason_if_unavailable: str = ""
     available_models: list[str] = Field(default_factory=list)

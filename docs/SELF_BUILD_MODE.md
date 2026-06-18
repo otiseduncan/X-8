@@ -16,7 +16,10 @@ API:
 - `POST /api/self-build/detect`
 - `POST /api/self-build/tasks`
 - `GET /api/self-build/tasks/{task_id}`
+- `GET /api/self-build/tasks/{task_id}/proposal`
 - `POST /api/self-build/tasks/{task_id}/apply`
+- `POST /api/self-build/tasks/{task_id}/validate`
+- `GET /api/self-build/trust-status`
 
 Allowed validation presets:
 
@@ -32,8 +35,10 @@ Current implementation status:
 - Prompt detection: implemented.
 - Safe repo context reader: implemented.
 - Patch plan: implemented.
-- Patch proposal: implemented as deterministic scaffold output.
-- Approval-bound apply: implemented for exact patch hash.
+- Patch proposal: implemented as deterministic scaffold output with before/after file hashes.
+- Approval-bound apply: implemented for exact patch hash and current-file hash match.
+- Validation report: implemented through allowlisted Docker/test presets.
+- Rollback: implemented for partial write failures during apply.
 - Commit/push: not enabled.
 - Arbitrary shell: not enabled.
 - Broad remote control: not enabled.

@@ -156,6 +156,8 @@ class ModelReadinessManager:
         missing = [model for model in configured if model and model not in selectable_models]
         health_ok = False
         health_reason = ""
+        timed_out = False
+        timeout_seconds = 0.0
         if reachable and selected and probe:
             if hasattr(self.adapter, "generate_with_metrics"):
                 health_result = self.adapter.generate_with_metrics(selected, self.health_prompt, timeout_seconds=self.health_timeout_seconds)
@@ -164,6 +166,8 @@ class ModelReadinessManager:
                 health_result = GenerateResult(ok=ok, content=content, failure_reason=health_reason, model=selected, timeout_seconds=self.health_timeout_seconds)
             health_ok = health_result.ok and "XV8_READY" in health_result.content
             health_reason = health_result.failure_reason
+            timed_out = health_result.timed_out
+            timeout_seconds = health_result.timeout_seconds
             if not health_ok and not health_reason:
                 health_reason = "Model health prompt did not return XV8_READY."
         embedding_ok = bool(self.embedding_model) and self.embedding_model in selectable_models
@@ -191,6 +195,8 @@ class ModelReadinessManager:
             last_checked_at=datetime.now(timezone.utc),
             failure_reason=failure,
             fallback_used=fallback_used,
+            timed_out=timed_out,
+            timeout_seconds=timeout_seconds,
             reason_if_unavailable=failure,
             health_prompt_succeeded=health_ok,
             embedding_ready=embedding_ok,

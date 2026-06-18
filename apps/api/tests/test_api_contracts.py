@@ -178,6 +178,40 @@ def test_model_router_maps_qwen_roles() -> None:
     assert router.select("fast")[1].selected_model == "qwen3:1.7b"
 
 
+def test_model_router_records_timeout_fallback_to_light_model() -> None:
+    from x8.managers.model_manager import GenerateResult
+
+    class Adapter:
+        base_url = "http://host.docker.internal:11434"
+
+        def __init__(self) -> None:
+            self.last_generation_result = GenerateResult(ok=False)
+
+        def models(self):
+            return True, ["qwen3:8b", "qwen3:1.7b"], ""
+
+        def generate(self, model: str, prompt: str):
+            self.last_generation_result = GenerateResult(
+                ok=True,
+                content="fallback response",
+                model="qwen3:1.7b",
+                timed_out=True,
+                timeout_seconds=120,
+                fallback_used=True,
+                failure_reason="Primary model qwen3:8b timed out after 120s. Fallback model qwen3:1.7b responded.",
+            )
+            return True, "fallback response", self.last_generation_result.failure_reason
+
+    router = ModelRouter(Adapter(), ModelProfileManager("qwen3:8b", "qwen3:1.7b"))  # type: ignore[arg-type]
+    _, selection = router.select("normal_chat")
+    ok, content, _ = router.generate(selection, "hello")
+    assert ok is True
+    assert content == "fallback response"
+    assert selection.selected_model == "qwen3:1.7b"
+    assert selection.fallback_used is True
+    assert selection.timed_out is True
+
+
 def test_blocked_qwen_coder_is_never_selected() -> None:
     class Adapter:
         def models(self):
@@ -543,6 +577,24 @@ def test_self_build_apply_requires_approval_and_hash_match(tmp_path) -> None:
     applied = manager.apply_patch(task.task_id, PatchApplyRequest(patch_id=proposal.patch_id, approval_id=proposal.approval_id, patch_hash=proposal.patch_hash, approved=True))
     assert applied.applied is True
     assert "Self-Build Mode" in readme.read_text(encoding="utf-8")
+    assert applied.validation_passed is True
+
+
+def test_self_build_apply_blocks_if_file_changed_since_proposal(tmp_path) -> None:
+    readme = tmp_path / "README.md"
+    readme.write_text("# XV8\n", encoding="utf-8")
+    manager = SelfBuildManager(str(tmp_path))
+    task = manager.create_task(SelfBuildRequest(user_prompt="Self-build test. Inspect README.md and propose a patch that adds Self-Build Mode. Do not commit."))
+    proposal = task.proposal
+    assert proposal is not None
+    readme.write_text("# XV8\n\nChanged outside proposal.\n", encoding="utf-8")
+
+    result = manager.apply_patch(task.task_id, PatchApplyRequest(patch_id=proposal.patch_id, approval_id=proposal.approval_id, patch_hash=proposal.patch_hash, approved=True))
+
+    assert result.applied is False
+    assert result.status == "blocked"
+    assert "changed since proposal" in result.reason
+    assert "Self-Build Mode" not in readme.read_text(encoding="utf-8")
 
 
 def test_self_build_validation_presets_are_allowlisted(tmp_path) -> None:
@@ -550,6 +602,24 @@ def test_self_build_validation_presets_are_allowlisted(tmp_path) -> None:
     result = manager.validation.validate_presets(["architecture_guard", "npm_install"])
     assert result.passed is False
     assert "npm_install" in result.reasons[0]
+
+
+def test_self_build_validate_task_records_report(tmp_path, monkeypatch) -> None:
+    (tmp_path / "README.md").write_text("# XV8\n", encoding="utf-8")
+    manager = SelfBuildManager(str(tmp_path))
+    task = manager.create_task(SelfBuildRequest(user_prompt="Self-build test. Inspect README.md and propose a patch. Do not commit.", test_presets=["architecture_guard"]))
+
+    def fake_run_presets(presets):
+        from x8.self_build.contracts import SelfBuildTestRun
+
+        return [SelfBuildTestRun(preset=presets[0], ran=True, passed=True, command=["docker", "compose"], exit_code=0, status="passed")]
+
+    monkeypatch.setattr(manager.validation, "run_presets", fake_run_presets)
+    report = manager.validate_task(task.task_id)
+
+    assert report.validation_passed is True
+    assert report.validation_runs[0].preset == "architecture_guard"
+    assert task.validation_reports[0].report_id == report.report_id
 
 
 def test_self_build_api_creates_task_without_applying(tmp_path) -> None:
@@ -560,6 +630,14 @@ def test_self_build_api_creates_task_without_applying(tmp_path) -> None:
     assert payload["status"] == "planned"
     assert payload["data"]["proposal"]["approval_id"]
     assert "Self-Build Mode" not in (tmp_path / "README.md").read_text(encoding="utf-8")
+
+
+def test_self_build_api_reports_trust_status(tmp_path) -> None:
+    api = client(Settings(workspace_root=str(tmp_path), knowledge_root="/app/knowledge", ollama_base_url="http://127.0.0.1:9", default_chat_model="", fallback_chat_model="", x7_import_root="/missing/x7", x6_import_root="/missing/x6"))
+    payload = api.get("/api/self-build/trust-status").json()
+    assert payload["status"] == "ready"
+    assert payload["data"]["approval_hash_required"] is True
+    assert payload["data"]["writes_without_approval"] is False
 
 
 def test_operator_capabilities_route_reports_scaffold() -> None:

@@ -1,5 +1,7 @@
+from pathlib import Path
+
 from x8.self_build.audit import SelfBuildAuditManager
-from x8.self_build.contracts import PatchApplyRequest, SelfBuildRequest, SelfBuildTask
+from x8.self_build.contracts import PatchApplyRequest, SelfBuildRequest, SelfBuildTask, SelfBuildValidationReport
 from x8.self_build.patch_applier import SafePatchApplier
 from x8.self_build.patch_plan import PatchPlanManager
 from x8.self_build.patch_proposal import PatchProposalManager
@@ -16,7 +18,7 @@ class SelfBuildManager:
         self.plans = PatchPlanManager()
         self.proposals = PatchProposalManager(self.reader)
         self.validation = PatchValidationManager(self.reader)
-        self.applier = SafePatchApplier(self.reader)
+        self.applier = SafePatchApplier(self.reader, str(Path(workspace_root) / "runtime" / "self-build-backups"))
         self.receipts = SelfBuildReceiptManager()
         self.audit = SelfBuildAuditManager()
         self.tasks: dict[str, SelfBuildTask] = {}
@@ -82,6 +84,57 @@ class SelfBuildManager:
                 approval_id=request.approval_id,
                 files_changed=result.changed_files,
                 limitations=[] if result.applied else [result.reason],
+                patch_hash=proposal.patch_hash,
+                validation_passed=result.validation_passed,
+                applied=result.applied,
+                reverted=result.reverted,
+                failure_reason="" if result.applied else result.reason,
             )
         )
         return result
+
+    def validate_task(self, task_id: str) -> SelfBuildValidationReport:
+        task = self.tasks[task_id]
+        proposal = task.proposal
+        patch_id = proposal.patch_id if proposal else ""
+        patch_hash = proposal.patch_hash if proposal else ""
+        runs = self.validation.run_presets(task.required_tests)
+        passed = bool(runs) and all(item.passed for item in runs)
+        failure = "" if passed else "One or more self-build validation presets failed or did not run."
+        report = SelfBuildValidationReport(
+            task_id=task.task_id,
+            patch_id=patch_id,
+            patch_hash=patch_hash,
+            validation_passed=passed,
+            validation_runs=runs,
+            failure_reason=failure,
+            status="passed" if passed else "failed",
+        )
+        task.validation_reports.append(report)
+        task.receipts.append(
+            self.receipts.create(
+                "self_build_validation",
+                report.status,
+                task.request.request_id,
+                task.task_id,
+                patch_id,
+                tests_run=[item.preset for item in runs if item.ran],
+                patch_hash=patch_hash,
+                validation_passed=passed,
+                failure_reason=failure,
+            )
+        )
+        return report
+
+    def trust_status(self) -> dict[str, object]:
+        return {
+            "approval_required": True,
+            "approval_hash_required": True,
+            "allowed_paths": self.reader.allowed_paths(),
+            "blocked_paths": self.reader.blocked_paths(),
+            "validation_presets": sorted(self.validation.preset_commands(["architecture_guard", "api_tests", "web_tests", "e2e_tests", "web_build", "compose_config"]).keys()),
+            "writes_without_approval": False,
+            "commit_allowed_by_default": False,
+            "push_allowed_by_default": False,
+            "status": "ready",
+        }

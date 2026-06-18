@@ -2,7 +2,28 @@ from x8.self_build.contracts import SelfBuildReceipt
 
 
 class SelfBuildReceiptManager:
-    def create(self, action_type: str, status: str, request_id: str = "", task_id: str = "", patch_id: str = "", approval_id: str = "", files_read=None, files_changed=None, tests_run=None, limitations=None) -> SelfBuildReceipt:
+    def create(
+        self,
+        action_type: str,
+        status: str,
+        request_id: str = "",
+        task_id: str = "",
+        patch_id: str = "",
+        approval_id: str = "",
+        files_read=None,
+        files_changed=None,
+        tests_run=None,
+        limitations=None,
+        selected_model: str = "",
+        fallback_used: bool = False,
+        timed_out: bool = False,
+        timeout_seconds: float = 0.0,
+        failure_reason: str = "",
+        patch_hash: str = "",
+        validation_passed: bool = False,
+        applied: bool = False,
+        reverted: bool = False,
+    ) -> SelfBuildReceipt:
         return SelfBuildReceipt(
             action_type=action_type,
             status=status,
@@ -14,4 +35,13 @@ class SelfBuildReceiptManager:
             files_changed=files_changed or [],
             tests_run=tests_run or [],
             limitations=limitations or [],
+            selected_model=selected_model,
+            fallback_used=fallback_used,
+            timed_out=timed_out,
+            timeout_seconds=timeout_seconds,
+            failure_reason=failure_reason,
+            patch_hash=patch_hash,
+            validation_passed=validation_passed,
+            applied=applied,
+            reverted=reverted,
         )

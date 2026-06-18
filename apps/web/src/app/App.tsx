@@ -272,6 +272,7 @@ export function App() {
 
   async function createAssistantReply(text: string, outgoingAttachments: AttachmentReference[] = []) {
     try {
+      setLatestResult('Model warming/responding...');
       const response = await sendChat(text, outgoingAttachments, sessionId);
       setSessionId(response.data.session_id);
       window.localStorage.setItem('x8.activeSessionId', response.data.session_id);

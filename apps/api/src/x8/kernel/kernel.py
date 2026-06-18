@@ -43,6 +43,12 @@ class XV8Kernel:
         model_status, selection = self.model_router.select(lane)
         self.events.emit("model_selected", model=selection.selected_model, ready=selection.model_ready)
         content, status, limitations = self._respond(selection, context.prompt)
+        model_status.selected_model = selection.selected_model
+        model_status.fallback_used = selection.fallback_used
+        model_status.timed_out = selection.timed_out
+        model_status.timeout_seconds = selection.timeout_seconds
+        if selection.reason_if_unavailable:
+            model_status.failure_reason = selection.reason_if_unavailable
         limitations.extend(context.context_bundle.limitations)
         if model_status.failure_reason and model_status.failure_reason not in limitations:
             limitations.append(model_status.failure_reason)
@@ -57,6 +63,10 @@ class XV8Kernel:
             attachments=[str(item.get("attachment_id", item.get("filename", ""))) for item in request.attachments],
             tools=tools,
             limitations=limitations,
+            fallback_used=selection.fallback_used,
+            timed_out=selection.timed_out,
+            timeout_seconds=selection.timeout_seconds,
+            failure_reason=selection.reason_if_unavailable,
         )
         self.events.emit("receipt_created", receipt_id=receipt.receipt_id)
         trace = KernelTrace(lane_selected=lane, model_selected=selection.selected_model, context_sources_included=context.sources_used, tools_requested=tools, final_status=status)

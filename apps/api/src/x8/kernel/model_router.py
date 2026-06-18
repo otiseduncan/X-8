@@ -58,6 +58,8 @@ class ModelRouter:
             last_checked_at=datetime.now(timezone.utc),
             failure_reason=failure,
             fallback_used=fallback_used,
+            timed_out=False,
+            timeout_seconds=0.0,
             reason_if_unavailable=failure,
             health_prompt_succeeded=ready,
             embedding_ready=bool(self.profiles.embedding and self.profiles.embedding in selectable_models),
@@ -82,5 +84,7 @@ class ModelRouter:
         if generation is not None:
             selection.selected_model = getattr(generation, "model", selection.selected_model) or selection.selected_model
             selection.fallback_used = bool(getattr(generation, "fallback_used", selection.fallback_used))
+            selection.timed_out = bool(getattr(generation, "timed_out", selection.timed_out))
+            selection.timeout_seconds = float(getattr(generation, "timeout_seconds", selection.timeout_seconds) or 0.0)
             selection.reason_if_unavailable = getattr(generation, "failure_reason", reason) or reason
         return ok, content, reason

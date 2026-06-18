@@ -34,7 +34,7 @@ def _kernel(request: Request) -> XV8Kernel:
     }
     brain = BrainContextAssembler(settings.knowledge_root, limits, MemoryManager(settings.memory_storage_path) if settings.memory_enabled else None)
     context = KernelContextAssembler(brain, KernelPromptBuilder())
-    code_model = settings.default_chat_model
+    code_model = settings.code_model
     profiles = ModelProfileManager(
         settings.default_chat_model,
         settings.fallback_chat_model,

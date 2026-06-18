@@ -9,7 +9,7 @@ Default model wiring:
 - Main chat: `qwen3:8b`
 - Reasoning: `qwen3:14b`
 - Fallback chat: `qwen3:1.7b`
-- Code/dev: `qwen3:14b`
+- Code/dev: `qwen3:8b`
 - Embeddings: `nomic-embed-text:latest`
 
 Blocked model:

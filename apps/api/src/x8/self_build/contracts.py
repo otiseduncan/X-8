@@ -84,6 +84,9 @@ class PatchFileChange(SelfBuildBase):
     change_type: str = "modify"
     before_summary: str = ""
     after_summary: str = ""
+    before_hash: str = ""
+    after_hash: str = ""
+    proposed_content: str = ""
     unified_diff: str = ""
     risk_level: str = "normal_mutation"
 
@@ -115,6 +118,8 @@ class PatchApplyResult(SelfBuildBase):
     apply_id: str = Field(default_factory=lambda: _id("apply"))
     patch_id: str
     applied: bool = False
+    reverted: bool = False
+    validation_passed: bool = False
     changed_files: list[str] = Field(default_factory=list)
     backup_paths: list[str] = Field(default_factory=list)
     reason: str = ""
@@ -125,7 +130,19 @@ class SelfBuildTestRun(SelfBuildBase):
     preset: str
     ran: bool = False
     passed: bool = False
+    command: list[str] = Field(default_factory=list)
+    exit_code: int | None = None
     output_summary: str = ""
+
+
+class SelfBuildValidationReport(SelfBuildBase):
+    report_id: str = Field(default_factory=lambda: _id("vrep"))
+    task_id: str
+    patch_id: str = ""
+    patch_hash: str = ""
+    validation_passed: bool = False
+    validation_runs: list[SelfBuildTestRun] = Field(default_factory=list)
+    failure_reason: str = ""
 
 
 class SelfBuildReceipt(SelfBuildBase):
@@ -138,6 +155,15 @@ class SelfBuildReceipt(SelfBuildBase):
     files_read: list[str] = Field(default_factory=list)
     files_changed: list[str] = Field(default_factory=list)
     tests_run: list[str] = Field(default_factory=list)
+    selected_model: str = ""
+    fallback_used: bool = False
+    timed_out: bool = False
+    timeout_seconds: float = 0.0
+    failure_reason: str = ""
+    patch_hash: str = ""
+    validation_passed: bool = False
+    applied: bool = False
+    reverted: bool = False
 
 
 class SelfBuildTask(SelfBuildBase):
@@ -154,3 +180,4 @@ class SelfBuildTask(SelfBuildBase):
     plan: SelfBuildPlan | None = None
     proposal: PatchProposal | None = None
     receipts: list[SelfBuildReceipt] = Field(default_factory=list)
+    validation_reports: list[SelfBuildValidationReport] = Field(default_factory=list)

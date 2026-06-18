@@ -93,6 +93,8 @@ class ModelStatus(BaseModel):
     last_checked_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     failure_reason: str = ""
     fallback_used: bool = False
+    timed_out: bool = False
+    timeout_seconds: float = 0.0
     reason_if_unavailable: str = ""
     health_prompt_succeeded: bool = False
     embedding_ready: bool = False

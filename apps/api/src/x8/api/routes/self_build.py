@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, Request
 
 from x8.contracts.base import ResultEnvelope
 from x8.contracts.receipts import Receipt
-from x8.self_build.contracts import PatchApplyRequest, PatchApplyResult, SelfBuildRequest, SelfBuildTask
+from x8.self_build.contracts import PatchApplyRequest, PatchApplyResult, SelfBuildRequest, SelfBuildTask, SelfBuildValidationReport
 from x8.self_build.manager import SelfBuildManager
 
 router = APIRouter(prefix="/api/self-build", tags=["self_build"])
@@ -42,6 +42,14 @@ def get_task(task_id: str, request: Request) -> ResultEnvelope[SelfBuildTask]:
     return ResultEnvelope(ok=True, status=task.status, data=task, message="Self-build task loaded.")
 
 
+@router.get("/tasks/{task_id}/proposal", response_model=ResultEnvelope[SelfBuildTask])
+def get_task_proposal(task_id: str, request: Request) -> ResultEnvelope[SelfBuildTask]:
+    task = manager(request).get_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Self-build task not found.")
+    return ResultEnvelope(ok=task.proposal is not None, status=task.proposal.status if task.proposal else "missing", data=task, message="Self-build patch proposal loaded.")
+
+
 @router.post("/tasks/{task_id}/apply", response_model=ResultEnvelope[PatchApplyResult])
 def apply_patch(task_id: str, payload: PatchApplyRequest, request: Request) -> ResultEnvelope[PatchApplyResult]:
     try:
@@ -55,3 +63,24 @@ def apply_patch(task_id: str, payload: PatchApplyRequest, request: Request) -> R
         message=result.reason,
         receipts=[Receipt(action="self_build.patch_apply", status=result.status, summary=result.reason, metadata=result.model_dump(mode="json"))],
     )
+
+
+@router.post("/tasks/{task_id}/validate", response_model=ResultEnvelope[SelfBuildValidationReport])
+def validate_task(task_id: str, request: Request) -> ResultEnvelope[SelfBuildValidationReport]:
+    try:
+        report = manager(request).validate_task(task_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return ResultEnvelope(
+        ok=report.validation_passed,
+        status=report.status,
+        data=report,
+        message="Self-build validation completed." if report.validation_passed else report.failure_reason,
+        receipts=[Receipt(action="self_build.validation", status=report.status, summary=report.failure_reason or "Validation presets passed.", metadata=report.model_dump(mode="json"))],
+    )
+
+
+@router.get("/trust-status", response_model=ResultEnvelope[dict[str, object]])
+def trust_status(request: Request) -> ResultEnvelope[dict[str, object]]:
+    data = manager(request).trust_status()
+    return ResultEnvelope(ok=True, status=str(data["status"]), data=data, message="Self-build trust gate status loaded.")

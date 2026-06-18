@@ -1,5 +1,5 @@
-import hashlib
 import difflib
+import hashlib
 
 from x8.self_build.contracts import PatchFileChange, PatchProposal, SelfBuildPlan, SelfBuildTask
 from x8.self_build.repo_context import RepoContextReader
@@ -19,14 +19,28 @@ class PatchProposalManager:
                 continue
             after = self._proposed_content(path, before.content, task.request.user_prompt)
             diff = "".join(difflib.unified_diff(before.content.splitlines(True), after.splitlines(True), fromfile=f"a/{path}", tofile=f"b/{path}"))
-            changes.append(PatchFileChange(file_path=path, before_summary=f"{path} currently has {len(before.content)} chars.", after_summary="Add guarded self-build documentation/proposed change.", unified_diff=diff, status="proposed"))
+            changes.append(
+                PatchFileChange(
+                    file_path=path,
+                    before_summary=f"{path} currently has {len(before.content)} chars.",
+                    after_summary="Add guarded self-build documentation/proposed change.",
+                    before_hash=self._hash_text(before.content),
+                    after_hash=self._hash_text(after),
+                    proposed_content=after,
+                    unified_diff=diff,
+                    status="proposed",
+                )
+            )
         patch_hash = self.hash_changes(changes)
         validation = self.validation.validate(changes)
         return PatchProposal(task_id=task.task_id, plan_id=plan.plan_id, changes=changes, patch_hash=patch_hash, validation=validation, status="proposed" if validation.passed else "blocked")
 
     def hash_changes(self, changes: list[PatchFileChange]) -> str:
-        raw = "\n".join(f"{item.file_path}:{item.unified_diff}" for item in changes)
+        raw = "\n".join(f"{item.file_path}:{item.before_hash}:{item.after_hash}:{item.unified_diff}:{item.proposed_content}" for item in changes)
         return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+    def _hash_text(self, content: str) -> str:
+        return hashlib.sha256(content.encode("utf-8")).hexdigest()
 
     def _proposed_content(self, path: str, before: str, prompt: str) -> str:
         if path.lower() == "readme.md" and "self-build mode" not in before.lower():
