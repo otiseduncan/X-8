@@ -34,10 +34,11 @@ def _kernel(request: Request) -> XV8Kernel:
     }
     brain = BrainContextAssembler(settings.knowledge_root, limits, MemoryManager(settings.memory_storage_path) if settings.memory_enabled else None)
     context = KernelContextAssembler(brain, KernelPromptBuilder())
+    code_model = settings.default_chat_model
     profiles = ModelProfileManager(
         settings.default_chat_model,
         settings.fallback_chat_model,
-        settings.code_model,
+        code_model,
         settings.fast_model,
         settings.embedding_model,
         settings.reasoning_model,
@@ -73,8 +74,6 @@ def chat(payload: ChatRequest, request: Request) -> ResultEnvelope[ChatResponse]
         )
     )
     assistant_message_id = store.insert_message(session_id, "assistant", kernel_response.assistant_message, [card.model_dump() for card in kernel_response.cards])
-    for attachment in attachments:
-        store.link_attachment(assistant_message_id, attachment.attachment_id)
     receipt = PromptReceipt(
         receipt_id=kernel_response.receipt.receipt_id,
         action_type="prompt_round_trip",
