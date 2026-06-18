@@ -1,0 +1,38 @@
+{
+  "version": "1.0",
+  "defaultAvatar": "xoduz",
+  "assets": [
+    {
+      "id": "idle",
+      "label": "Idle",
+      "type": "video",
+      "src": "/avatar/xoduz-idle.mp4",
+      "states": ["idle"],
+      "loop": true,
+      "muted": true
+    },
+    {
+      "id": "thinking",
+      "label": "Thinking",
+      "type": "video",
+      "src": "/avatar/xoduz-thinking.mp4",
+      "states": ["thinking", "listening"],
+      "loop": true,
+      "muted": true
+    },
+    {
+      "id": "speaking",
+      "label": "Speaking",
+      "type": "video",
+      "src": "/avatar/xoduz-speaking.mp4",
+      "states": ["speaking"],
+      "loop": true,
+      "muted": true
+    }
+  ],
+  "fallback": {
+    "type": "generated",
+    "label": "Fallback X avatar",
+    "src": "/avatar/fallback.svg"
+  }
+}

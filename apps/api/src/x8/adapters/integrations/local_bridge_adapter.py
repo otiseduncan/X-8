@@ -1,0 +1,53 @@
+from datetime import datetime
+
+import httpx
+from pydantic import BaseModel
+
+
+class LocalBridgeStatus(BaseModel):
+    bridge_configured: bool
+    bridge_reachable: bool
+    bridge_url: str
+    available_tools: list[str]
+    approved_roots: list[str]
+    last_success_at: datetime | None = None
+    last_failure_at: datetime | None = None
+    last_failure_reason: str | None = None
+
+
+class LocalBridgeAdapter:
+    name = "local_bridge"
+    version = "0.1.0"
+
+    def __init__(self, url: str, token: str, approved_roots: str) -> None:
+        self.url = url
+        self.token = token
+        self.approved_roots = [root.strip() for root in approved_roots.split(";") if root.strip()]
+
+    def status(self) -> LocalBridgeStatus:
+        configured = bool(self.url and self.token)
+        try:
+            response = httpx.get(f"{self.url.rstrip('/')}/status", timeout=3)
+            if response.status_code < 500:
+                payload = response.json()
+                return LocalBridgeStatus(
+                    bridge_configured=True,
+                    bridge_reachable=True,
+                    bridge_url=self.url,
+                    available_tools=list(payload.get("available_tools", [])),
+                    approved_roots=list(payload.get("approved_roots", self.approved_roots)),
+                    last_success_at=datetime.now(),
+                )
+        except Exception as exc:
+            failure = str(exc)
+        else:
+            failure = f"Bridge returned HTTP {response.status_code}"
+        return LocalBridgeStatus(
+            bridge_configured=configured,
+            bridge_reachable=False,
+            bridge_url=self.url,
+            available_tools=[],
+            approved_roots=self.approved_roots,
+            last_failure_at=datetime.now(),
+            last_failure_reason=failure if configured else "Local bridge token not configured",
+        )

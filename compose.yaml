@@ -1,0 +1,162 @@
+services:
+  x8-api:
+    build:
+      context: .
+      dockerfile: docker/api/Dockerfile
+    env_file: .env.example
+    ports:
+      - "${X8_API_PORT:-8080}:8080"
+    depends_on:
+      x8-postgres:
+        condition: service_healthy
+      x8-redis:
+        condition: service_started
+      x8-local-bridge:
+        condition: service_started
+    volumes:
+      - ./knowledge:/app/knowledge:ro
+      - .:/workspace
+      - "X:/XV7/xv7:/imports/x7:ro"
+      - "X:/X-V-6.1:/imports/x6:ro"
+      - /var/run/docker.sock:/var/run/docker.sock
+      - x8-audit:/app/runtime
+
+  x8-web:
+    build:
+      context: .
+      dockerfile: docker/web/Dockerfile
+      target: dev
+    env_file: .env.example
+    ports:
+      - "${X8_WEB_PORT:-5173}:5173"
+    depends_on:
+      - x8-api
+
+  x8-postgres:
+    image: postgres:16-alpine
+    env_file: .env.example
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U x8 -d x8"]
+      interval: 2s
+      timeout: 5s
+      retries: 20
+    volumes:
+      - x8-postgres-data:/var/lib/postgresql/data
+
+  x8-redis:
+    image: redis:7-alpine
+    volumes:
+      - x8-redis-data:/data
+
+  x8-ollama:
+    image: ollama/ollama:latest
+    volumes:
+      - x8-ollama-data:/root/.ollama
+    profiles: ["llm"]
+
+  x8-searxng:
+    image: searxng/searxng:latest
+    environment:
+      - SEARXNG_BASE_URL=http://x8-searxng:8080/
+    volumes:
+      - x8-searxng-data:/etc/searxng
+    profiles: ["search"]
+
+  x8-comfyui:
+    image: ghcr.io/ai-dock/comfyui:latest
+    environment:
+      - COMFYUI_DISABLE_EXTERNAL_API_NODES=${X8_COMFYUI_DISABLE_EXTERNAL_API_NODES:-true}
+    ports:
+      - "${X8_COMFYUI_HOST_PORT:-8188}:8188"
+    volumes:
+      - x8-comfyui-output:/outputs
+      - x8-comfyui-workflows:/workflows
+      - type: bind
+        source: ${X8_COMFYUI_HOST_MODELS_PATH:-./runtime/comfyui-models}
+        target: /models/checkpoints
+    profiles: ["image"]
+
+  x8-qdrant:
+    image: qdrant/qdrant:latest
+    ports:
+      - "${X8_QDRANT_HOST_PORT:-6333}:6333"
+    volumes:
+      - x8-qdrant-data:/qdrant/storage
+    profiles: ["memory"]
+
+  x8-local-bridge:
+    build:
+      context: .
+      dockerfile: docker/api/Dockerfile
+    command: ["uvicorn", "x8.local_bridge_app:app", "--host", "0.0.0.0", "--port", "5788"]
+    env_file: .env.example
+    volumes:
+      - .:/workspace:ro
+      - "X:/XV7/xv7:/imports/x7:ro"
+      - "X:/X-V-6.1:/imports/x6:ro"
+
+  x8-worker:
+    build:
+      context: .
+      dockerfile: docker/api/Dockerfile
+    command: ["python", "-m", "x8.worker"]
+    env_file: .env.example
+    depends_on:
+      - x8-redis
+    profiles: ["worker"]
+
+  x8-seed-loader:
+    build:
+      context: .
+      dockerfile: docker/api/Dockerfile
+    command: ["python", "-m", "x8.seed_loader"]
+    volumes:
+      - ./knowledge:/app/knowledge:ro
+    profiles: ["tools"]
+
+  api-tests:
+    build:
+      context: .
+      dockerfile: docker/api/Dockerfile
+    command: ["pytest", "tests"]
+    env_file: .env.example
+    depends_on:
+      x8-postgres:
+        condition: service_healthy
+    volumes:
+      - ./apps/api/tests:/app/tests:ro
+      - .:/workspace
+      - "X:/XV7/xv7:/imports/x7:ro"
+      - "X:/X-V-6.1:/imports/x6:ro"
+
+  web-tests:
+    build:
+      context: .
+      dockerfile: docker/web/Dockerfile
+      target: test
+    command: ["npm", "test", "--", "--run"]
+
+  e2e-tests:
+    build:
+      context: .
+      dockerfile: docker/e2e/Dockerfile
+    command: ["npx", "playwright", "test"]
+    depends_on:
+      - x8-api
+      - x8-web
+
+  architecture-guard:
+    build:
+      context: .
+      dockerfile: docker/guard/Dockerfile
+    command: ["python", "scripts/check_file_size.py", "."]
+
+volumes:
+  x8-postgres-data:
+  x8-redis-data:
+  x8-ollama-data:
+  x8-searxng-data:
+  x8-comfyui-output:
+  x8-comfyui-workflows:
+  x8-qdrant-data:
+  x8-audit:

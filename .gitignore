@@ -1,0 +1,50 @@
+runtime/
+.env
+.env.local
+imports/x7/*
+!imports/x7/.gitkeep
+imports/x6/*
+!imports/x6/.gitkeep
+node_modules/
+dist/
+coverage/
+playwright-report/
+test-results/
+__pycache__/
+.pytest_cache/
+
+# Local runtime / generated data
+runtime/
+attachments/
+logs/
+*.log
+
+# Legacy imports are local-only read-only mounts/scans
+imports/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Node / web
+node_modules/
+dist/
+build/
+coverage/
+playwright-report/
+test-results/
+
+# Secrets / local env
+.env
+.env.*
+!.env.example
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/settings.json
