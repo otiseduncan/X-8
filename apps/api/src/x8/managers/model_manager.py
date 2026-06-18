@@ -71,7 +71,8 @@ class ModelReadinessManager:
         self.fallback_model, fallback_blocked = normalize_model(fallback_model, "qwen3:1.7b")
         self.ollama_mode = ollama_mode
         self.reasoning_model, reasoning_blocked = normalize_model(reasoning_model, "qwen3:14b")
-        self.code_model, code_blocked = normalize_model(code_model, "qwen3:14b")
+        code_fallback = self.default_model or "qwen3:8b"
+        self.code_model, code_blocked = normalize_model(code_model, code_fallback)
         self.embedding_model, embedding_blocked = normalize_model(embedding_model, "nomic-embed-text:latest")
         self.configured_blocked_models = [model for model, blocked in ((default_model, default_blocked), (reasoning_model, reasoning_blocked), (fallback_model, fallback_blocked), (code_model, code_blocked), (embedding_model, embedding_blocked)) if blocked]
         self.health_prompt = health_prompt
