@@ -19,7 +19,7 @@ class PostgresStore:
 
     @contextmanager
     def connect(self):
-        with psycopg.connect(_dsn(self.database_url), row_factory=dict_row) as conn:
+        with psycopg.connect(_dsn(self.database_url), row_factory=dict_row, connect_timeout=5) as conn:
             yield conn
 
     def ensure(self) -> None:

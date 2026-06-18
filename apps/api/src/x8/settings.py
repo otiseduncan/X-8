@@ -3,7 +3,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="X8_", extra="ignore", protected_namespaces=("settings_",))
+    model_config = SettingsConfigDict(env_prefix="X8_", extra="ignore", protected_namespaces=("settings_",), populate_by_name=True)
 
     env: str = "development"
     database_url: str = Field("postgresql+psycopg://x8:x8_dev_password@x8-postgres:5432/x8", validation_alias="DATABASE_URL")
@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     default_chat_model: str = "qwen3:8b"
     reasoning_model: str = "qwen3:14b"
     fallback_chat_model: str = "qwen3:1.7b"
-    code_model: str = "qwen3:14b"
+    code_model: str = "qwen3:8b"
     fast_model: str = "qwen3:1.7b"
     embedding_model: str = "nomic-embed-text:latest"
     model_health_prompt: str = "Reply with XV8_READY only."

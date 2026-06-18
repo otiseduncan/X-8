@@ -24,14 +24,17 @@ from x8.self_build.repo_context import RepoContextReader
 
 
 def client(settings: Settings | None = None) -> TestClient:
-    settings = settings or Settings(
-        knowledge_root="/app/knowledge",
-        ollama_base_url="http://127.0.0.1:9",
-        default_chat_model="",
-        fallback_chat_model="",
-        x7_import_root="/missing/x7",
-        x6_import_root="/missing/x6",
-    )
+    if settings is None:
+        settings = Settings(
+            knowledge_root="/app/knowledge",
+            x7_import_root="/missing/x7",
+            x6_import_root="/missing/x6",
+        )
+        settings.ollama_base_url = "http://127.0.0.1:9"
+        settings.default_chat_model = ""
+        settings.fallback_chat_model = ""
+        settings.code_model = ""
+        settings.reasoning_model = ""
     return TestClient(create_app(settings))
 
 
@@ -145,14 +148,14 @@ def test_model_readiness_reports_host_ollama_role_map() -> None:
         "qwen3:1.7b",
         ollama_mode="host_ollama_bridge",
         reasoning_model="qwen3:14b",
-        code_model="qwen3:14b",
+        code_model="qwen3:8b",
         embedding_model="nomic-embed-text:latest",
     ).status()  # type: ignore[arg-type]
     assert status.ollama_mode == "host_ollama_bridge"
     assert status.ollama_base_url == "http://host.docker.internal:11434"
     assert status.selected_model == "qwen3:8b"
     assert status.reasoning_model == "qwen3:14b"
-    assert status.code_model == "qwen3:14b"
+    assert status.code_model == "qwen3:8b"
     assert status.embedding_model == "nomic-embed-text:latest"
     assert status.blocked_models == ["qwen3-coder:30b"]
     assert status.installed_but_blocked == ["qwen3-coder:30b"]
@@ -168,10 +171,10 @@ def test_model_router_maps_qwen_roles() -> None:
         def generate(self, model: str, prompt: str):
             return True, "ok", ""
 
-    router = ModelRouter(Adapter(), ModelProfileManager("qwen3:8b", "qwen3:1.7b", "qwen3:14b", fast="qwen3:1.7b", embedding="nomic-embed-text:latest", reasoning="qwen3:14b"))  # type: ignore[arg-type]
+    router = ModelRouter(Adapter(), ModelProfileManager("qwen3:8b", "qwen3:1.7b", "qwen3:8b", fast="qwen3:1.7b", embedding="nomic-embed-text:latest", reasoning="qwen3:14b"))  # type: ignore[arg-type]
     assert router.select("normal_chat")[1].selected_model == "qwen3:8b"
     assert router.select("reasoning")[1].selected_model == "qwen3:14b"
-    assert router.select("code_help")[1].selected_model == "qwen3:14b"
+    assert router.select("code_help")[1].selected_model == "qwen3:8b"
     assert router.select("fast")[1].selected_model == "qwen3:1.7b"
 
 
@@ -184,7 +187,7 @@ def test_blocked_qwen_coder_is_never_selected() -> None:
             return True, "ok", ""
 
     status, selection = ModelRouter(Adapter(), ModelProfileManager("qwen3:8b", "qwen3:1.7b", "qwen3-coder:30b")).select("code_help")  # type: ignore[arg-type]
-    assert selection.selected_model == "qwen3:14b"
+    assert selection.selected_model == "qwen3:8b"
     assert selection.selected_model != "qwen3-coder:30b"
     assert status.blocked_model_configured == ["qwen3-coder:30b"]
     assert status.installed_but_blocked == ["qwen3-coder:30b"]
@@ -201,7 +204,7 @@ def test_blocked_model_configured_in_readiness_is_ignored() -> None:
             return True, "XV8_READY", ""
 
     status = ModelReadinessManager(Adapter(), "qwen3:8b", "qwen3:1.7b", code_model="qwen3-coder:30b", embedding_model="nomic-embed-text:latest").status()  # type: ignore[arg-type]
-    assert status.code_model == "qwen3:14b"
+    assert status.code_model == "qwen3:8b"
     assert status.selected_model == "qwen3:8b"
     assert status.blocked_model_configured == ["qwen3-coder:30b"]
 
