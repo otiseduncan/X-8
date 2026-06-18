@@ -78,7 +78,7 @@ class ModelReadinessManager:
         self.health_prompt = health_prompt
         self.embedding_required_for_memory = embedding_required_for_memory
 
-    def status(self) -> ModelStatus:
+    def status(self, *, probe: bool = True) -> ModelStatus:
         reachable, models, reason = self.adapter.models()
         selectable_models = [model for model in models if model not in BLOCKED_MODELS]
         selected = ""
@@ -94,13 +94,13 @@ class ModelReadinessManager:
         missing = [model for model in configured if model and model not in selectable_models]
         health_ok = False
         health_reason = ""
-        if reachable and selected:
+        if reachable and selected and probe:
             health_ok, content, health_reason = self.adapter.generate(selected, self.health_prompt)
             health_ok = health_ok and "XV8_READY" in content
             if not health_ok and not health_reason:
                 health_reason = "Model health prompt did not return XV8_READY."
         embedding_ok = bool(self.embedding_model) and self.embedding_model in selectable_models
-        ready = reachable and bool(selected) and health_ok
+        ready = reachable and bool(selected) and (health_ok if probe else True)
         failure = "" if ready else (health_reason or reason or "No configured chat model is available.")
         if not ready and self.ollama_mode == "docker_ollama" and missing:
             pulls = "\n".join(f"docker compose exec x8-ollama ollama pull {model}" for model in missing)
