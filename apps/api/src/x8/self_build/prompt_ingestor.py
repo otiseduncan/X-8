@@ -37,7 +37,12 @@ class BuildPromptIngestor:
         "fixes",
         "fixed",
         "fixing",
+        "wire",
+        "wires",
+        "wired",
+        "wiring",
     )
+    SELF_BUILD_MARKERS = ("self-build", "self build", "patch proposal", "proposal-only", "approval", "patch hash")
     INSPECT_PHRASES = (
         "show proposal details",
         "show latest proposal",
@@ -58,27 +63,56 @@ class BuildPromptIngestor:
     APPROVAL_PHRASES = ("approve", "apply", "approval id")
 
     def is_self_build_prompt(self, text: str) -> bool:
-        lower = text.lower()
         return self.classify_intent(text) != "none"
 
     def classify_intent(self, text: str) -> str:
         lower = text.lower()
-        if any(phrase in lower for phrase in self.TRUST_PHRASES):
-            return "trust_status"
-        if any(phrase in lower for phrase in self.VALIDATION_PHRASES):
+        is_self_build = self._is_self_build_context(lower)
+        if is_self_build and self._has_apply_intent(lower):
+            return "approval_apply"
+        if is_self_build and self._has_create_verb(lower):
+            return "create_proposal"
+        if is_self_build and self._has_validation_report_intent(lower):
             return "validation_report"
-        if any(phrase in lower for phrase in self.INSPECT_PHRASES):
+        if is_self_build and self._has_trust_status_intent(lower):
+            return "trust_status"
+        if is_self_build:
             return "inspect_proposal"
-        if "self-build" in lower or sum(1 for needle in self.NEEDLES if needle in lower) >= 3:
-            if self._has_create_verb(lower):
-                return "create_proposal"
-            if any(phrase in lower for phrase in self.APPROVAL_PHRASES):
-                return "approval_apply"
+        if self._has_validation_report_intent(lower):
+            return "validation_report"
+        if self._has_trust_status_intent(lower):
+            return "trust_status"
+        if any(phrase in lower for phrase in self.INSPECT_PHRASES):
             return "inspect_proposal"
         return "none"
 
+    def _is_self_build_context(self, lower: str) -> bool:
+        return any(marker in lower for marker in self.SELF_BUILD_MARKERS) or sum(1 for needle in self.NEEDLES if needle in lower) >= 3
+
     def _has_create_verb(self, lower: str) -> bool:
-        return any(re.search(rf"\b{re.escape(verb)}\b", lower) for verb in self.CREATE_VERBS)
+        normalized = lower.replace("self-build", "selfbuild").replace("self build", "selfbuild")
+        for verb in self.CREATE_VERBS:
+            for match in re.finditer(rf"\b{re.escape(verb)}\b", normalized):
+                prefix = normalized[max(0, match.start() - 20) : match.start()]
+                if any(negation in prefix for negation in ("do not ", "don't ", "dont ", "never ")):
+                    continue
+                return True
+        return False
+
+    def _has_apply_intent(self, lower: str) -> bool:
+        if any(phrase in lower for phrase in ("do not apply", "do not write", "before approval", "until i approve", "until approved")):
+            return False
+        action = re.search(r"\b(apply|approve|write)\b", lower) is not None
+        hash_context = any(phrase in lower for phrase in ("patch_hash", "patch hash", "approval_id", "approval id", "approved=true"))
+        return action and hash_context
+
+    def _has_trust_status_intent(self, lower: str) -> bool:
+        direct = any(phrase in lower for phrase in ("show trust status", "show self-build trust status", "current trust status", "what is the trust status"))
+        return direct and not self._has_create_verb(lower)
+
+    def _has_validation_report_intent(self, lower: str) -> bool:
+        direct = any(phrase in lower for phrase in ("show validation report", "show latest validation report", "show latest self-build validation report", "latest validation report"))
+        return direct and not self._has_create_verb(lower)
 
     def extract(self, text: str) -> dict[str, object]:
         lower = text.lower()

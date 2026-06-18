@@ -542,6 +542,9 @@ def test_self_build_prompt_is_detected() -> None:
     assert BuildPromptIngestor().is_self_build_prompt("Self-build test. Inspect README.md and propose a patch. Do not commit.")
     assert BuildPromptIngestor().classify_intent("Show the full self-build patch proposal details before approval") == "inspect_proposal"
     assert BuildPromptIngestor().classify_intent("Self-build test. Inspect README.md and add a Self-Build Mode section. Do not commit.") == "create_proposal"
+    assert BuildPromptIngestor().classify_intent("Self-build task: run a controlled proposal-only improvement. Add a small UI label or dashboard card that displays the current self-build trust status using the existing trust-status endpoint. Rules: Proposal only first. Do not write files until I approve the exact patch hash.") == "create_proposal"
+    assert BuildPromptIngestor().classify_intent("Show self-build trust status.") == "trust_status"
+    assert BuildPromptIngestor().classify_intent("Show latest self-build validation report.") == "validation_report"
 
 
 def test_self_build_repo_context_allows_and_blocks_paths(tmp_path) -> None:
@@ -665,15 +668,45 @@ def test_self_build_prompt_route_read_only_inspects_latest_without_creating(tmp_
     assert latest["data"]["patch_hash"] == original_patch_hash
 
 
+def test_self_build_build_prompt_mentions_trust_status_but_creates_one_proposal(tmp_path) -> None:
+    (tmp_path / "README.md").write_text("# XV8\n", encoding="utf-8")
+    api = client(Settings(workspace_root=str(tmp_path), knowledge_root="/app/knowledge", ollama_base_url="http://127.0.0.1:9", default_chat_model="", fallback_chat_model="", x7_import_root="/missing/x7", x6_import_root="/missing/x6"))
+    build_prompt = "Self-build task: run a controlled proposal-only improvement. Add a small UI label or dashboard card that displays the current self-build trust status using the existing trust-status endpoint. Rules: Proposal only first. Do not write files until I approve the exact patch hash. Show exact files to change. Include unified diff. Include validation commands. Include rollback plan."
+
+    created = api.post("/api/self-build/prompt", json={"prompt": build_prompt}).json()
+
+    assert created["status"] == "planned"
+    assert created["data"]["intent"] == "create_proposal"
+    original = created["data"]["proposal_detail"]
+    assert original["task_id"]
+    assert original["patch_id"]
+    assert original["approval_id"]
+    assert original["patch_hash"]
+    assert original["message"] == "No files changed. Approval required before apply."
+    assert "Self-Build Mode" not in (tmp_path / "README.md").read_text(encoding="utf-8")
+
+    inspected = api.post("/api/self-build/prompt", json={"prompt": "Show the full latest self-build patch proposal details before approval. Do not create a new proposal. Do not apply. Do not write anything."}).json()
+    assert inspected["status"] == "proposed"
+    assert inspected["data"]["intent"] == "inspect_proposal"
+    assert inspected["data"]["proposal_detail"]["task_id"] == original["task_id"]
+    assert inspected["data"]["proposal_detail"]["patch_id"] == original["patch_id"]
+    assert inspected["data"]["proposal_detail"]["patch_hash"] == original["patch_hash"]
+
+    latest = api.get("/api/self-build/tasks/latest/proposal").json()
+    assert latest["data"]["task_id"] == original["task_id"]
+    assert latest["data"]["patch_id"] == original["patch_id"]
+    assert latest["data"]["patch_hash"] == original["patch_hash"]
+
+
 def test_self_build_read_only_status_prompts_do_not_create_proposals(tmp_path) -> None:
     (tmp_path / "README.md").write_text("# XV8\n", encoding="utf-8")
     api = client(Settings(workspace_root=str(tmp_path), knowledge_root="/app/knowledge", ollama_base_url="http://127.0.0.1:9", default_chat_model="", fallback_chat_model="", x7_import_root="/missing/x7", x6_import_root="/missing/x6"))
 
-    trust = api.post("/api/self-build/prompt", json={"prompt": "Show trust status"}).json()
+    trust = api.post("/api/self-build/prompt", json={"prompt": "Show self-build trust status."}).json()
     assert trust["status"] == "ready"
     assert trust["data"]["intent"] == "trust_status"
 
-    validation = api.post("/api/self-build/prompt", json={"prompt": "Show validation report"}).json()
+    validation = api.post("/api/self-build/prompt", json={"prompt": "Show latest self-build validation report."}).json()
     assert validation["status"] == "missing"
     assert validation["message"] == "No active self-build proposal found."
 

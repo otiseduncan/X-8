@@ -19,17 +19,20 @@ The model status endpoint is light by default. `GET /api/models/status` checks a
 
 1. User submits a self-build prompt.
 2. XV8 classifies the self-build intent before doing anything else.
-3. Read-only intents such as "show proposal details", "show latest proposal", "show patch hash", "show approval id", "show validation report", "show trust status", "before approval", "do not apply", "do not write anything yet", "no files should be changed", "what is the current proposal", and "list proposal ids" retrieve existing data only.
-4. Create-proposal intent is reserved for prompts that clearly ask to build, change, add, implement, modify, update, refactor, create, or fix project files.
-5. For create-proposal intent, XV8 reads only allowlisted repo context.
-6. XV8 creates a plan and patch proposal.
-7. The proposal contains file paths, unified diff, before hash, after hash, patch hash, risk, tests, and rollback expectations.
-8. No files are changed during proposal.
-9. Apply requires `approved=true`, matching `patch_id`, matching `approval_id`, and exact `patch_hash`.
-10. Apply verifies each target file still matches the proposal `before_hash` before any write.
-11. Apply writes exact `proposed_content`, not reconstructed diff text.
-12. Apply stores local runtime backups and restores changed files if a partial write fails.
-13. Validation is limited to allowlisted presets.
+3. Apply/approval intent is only selected when the prompt asks to apply/approve/write and includes approval or patch-hash context; negated phrases such as "do not apply" and "do not write" keep the request read-only or proposal-only.
+4. Create-proposal intent wins when the prompt asks to add, build, modify, implement, update, fix, create, wire, or change project behavior/files, even if the prompt mentions trust status, validation reports, patch hashes, or proposal details as feature requirements.
+5. Read-only intents such as "show proposal details", "show latest proposal", "show patch hash", "show approval id", "show validation report", "show trust status", "before approval", "do not apply", "do not write anything yet", "no files should be changed", "what is the current proposal", and "list proposal ids" retrieve existing data only when the prompt does not ask to add/build/modify files.
+6. Trust status intent applies only to direct requests to show the current trust status, not to build requests that add a trust-status UI/card.
+7. Validation report intent applies only to direct requests to show the latest validation report, not to build requests that include validation report requirements.
+8. For create-proposal intent, XV8 reads only allowlisted repo context.
+9. XV8 creates a plan and patch proposal.
+10. The proposal contains file paths, unified diff, before hash, after hash, patch hash, risk, tests, and rollback expectations.
+11. No files are changed during proposal.
+12. Apply requires `approved=true`, matching `patch_id`, matching `approval_id`, and exact `patch_hash`.
+13. Apply verifies each target file still matches the proposal `before_hash` before any write.
+14. Apply writes exact `proposed_content`, not reconstructed diff text.
+15. Apply stores local runtime backups and restores changed files if a partial write fails.
+16. Validation is limited to allowlisted presets.
 
 ## API Surface
 
@@ -76,6 +79,16 @@ Current-run validation on June 18, 2026:
 - `docker compose run --rm e2e-tests`: passed, 11 tests.
 - `git diff --check`: passed with LF-to-CRLF normalization warnings only.
 
+Live proof after app restart on June 18, 2026:
+
+- `docker compose down --remove-orphans`: passed.
+- `docker compose up -d --build x8-api x8-web x8-postgres x8-redis x8-local-bridge`: passed.
+- `docker compose ps`: `x8-api`, `x8-web`, `x8-postgres`, `x8-redis`, and `x8-local-bridge` were running.
+- `GET http://localhost:8080/api/health`: returned `{"status":"ok","service":"x8-api"}`.
+- Build prompt mentioning a trust-status UI feature returned `intent=create_proposal`, `task_id=task_5aeef69fa07f`, `patch_id=patch_52fdcd76649a`, `approval_id=sbappr_df8919d5b8d4`, and `patch_hash=df8919d5b8d40cc9e843560d34472c6dbd7b579f5f924af02152b8997b1c88cf`.
+- Read-only prompt "Show the full latest self-build patch proposal details before approval. Do not create a new proposal. Do not apply. Do not write anything." returned `intent=inspect_proposal` with the same `task_id`, `patch_id`, `approval_id`, and `patch_hash`.
+- `README.md` SHA256 after both live prompts was `2c6123831453ad17cac2453f679298f97099e978664b5ccb8036573e6cf6ba8c`, matching the proposal `before_hash`; no file write occurred.
+
 Focused trust-gate proof:
 
 - Self-build proposal tests prove proposal creation does not write files.
@@ -85,6 +98,7 @@ Focused trust-gate proof:
 - Trust-status API test proves the runtime reports approval-hash gating and no writes without approval.
 - Model-router test proves a timed-out `qwen3:8b` response can be reported as fallback to `qwen3:1.7b`.
 - Intent tests prove proposal inspection, trust status, and validation report prompts do not create new proposals.
+- Intent tests prove a build prompt that mentions trust status as the feature still creates a proposal.
 - Latest proposal tests prove read-only details return the original proposal `task_id`, `patch_id`, `approval_id`, and `patch_hash`.
 
 ## Current Completion Status
