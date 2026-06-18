@@ -17,7 +17,7 @@ let recognitionInstance: {
 };
 
 function mockRuntime() {
-  vi.stubGlobal('fetch', (path: string, options?: { body?: BodyInit }) => {
+  vi.stubGlobal('fetch', vi.fn((path: string, options?: { body?: BodyInit }) => {
     const text = typeof options?.body === 'string' ? JSON.parse(options.body) : {};
     if (String(path) === '/avatar/manifest.json') {
       return Promise.resolve({
@@ -82,6 +82,10 @@ function mockRuntime() {
                                     ? { status: 'browser_fallback' }
                                     : String(path).includes('speech/receipt')
                                       ? { ok: true }
+                                      : String(path).includes('/api/self-build/tasks/') && String(path).endsWith('/apply')
+                                        ? text.patch_hash === 'blocked_hash'
+                                          ? { patch_id: text.patch_id, applied: false, validation_passed: false, status: 'blocked', changed_files: [], backup_paths: [], reason: 'File changed since proposal: README.md' }
+                                          : { patch_id: text.patch_id, applied: true, validation_passed: true, status: 'applied', changed_files: ['README.md'], backup_paths: ['runtime/self-build-backups/README.md.bak'], reason: 'Patch applied after exact approval hash match.' }
                                       : String(path).includes('self-build/prompt')
                                         ? {
                                             intent: 'create_proposal',
@@ -89,12 +93,12 @@ function mockRuntime() {
                                               task_id: 'sbtask_1',
                                               patch_id: 'patch_1',
                                               approval_id: 'sbappr_1',
-                                              patch_hash: 'hash_1',
+                                              patch_hash: text.prompt?.includes('blocked apply') ? 'blocked_hash' : text.prompt?.includes('missing hash') ? '' : 'hash_1',
                                               files_changed_count: 1,
                                               changed_file_paths: ['README.md'],
-                                              validation_status: 'passed',
+                                              validation_status: text.prompt?.includes('unsafe proposal') ? 'failed' : 'passed',
                                               risk_level: 'normal_mutation',
-                                              apply_safe: true,
+                                              apply_safe: !text.prompt?.includes('unsafe proposal') && !text.prompt?.includes('missing hash'),
                                               message: 'No files changed. Approval required before apply.',
                                               changes: [{ file_path: 'README.md', before_hash: 'before_1', after_hash: 'after_1', unified_diff: '--- a/README.md\n+++ b/README.md\n+## Self-Build Mode' }]
                                             }
@@ -121,7 +125,7 @@ function mockRuntime() {
                                           }
                                         : [{ name: 'Product Lead', responsibility: 'Owns value and scope.', output_style: 'Concise' }];
     return Promise.resolve({ ok: true, json: () => Promise.resolve({ status: 'ok', message: 'ok', receipts: [], data }) });
-  });
+  }));
 }
 
 beforeEach(() => {
@@ -233,13 +237,44 @@ test('renders self-build plan proposal and approval cards', async () => {
   expect(screen.getByText('Self-build patch plan')).toBeInTheDocument();
   expect(screen.getByTestId('inline-diff-card')).toBeInTheDocument();
   expect(screen.getByTestId('inline-approval-card')).toBeInTheDocument();
-  expect(screen.getByText(/No files changed. Approval required before apply./i)).toBeInTheDocument();
+  expect(screen.getAllByText(/No files changed. Approval required before apply./i).length).toBeGreaterThan(0);
   expect(screen.getByText(/1 file change/i)).toBeInTheDocument();
   const approvalCard = screen.getByTestId('inline-approval-card');
-  fireEvent.click(within(approvalCard).getByLabelText(/Expand Approval required before apply/i));
   expect(within(approvalCard).getByText('patch_1')).toBeInTheDocument();
   expect(within(approvalCard).getByText('sbappr_1')).toBeInTheDocument();
   expect(within(approvalCard).getByText('hash_1')).toBeInTheDocument();
+  expect(within(approvalCard).getByRole('button', { name: /^Apply$/ })).toBeInTheDocument();
+  fireEvent.click(within(approvalCard).getByRole('button', { name: /^Apply$/ }));
+  await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/self-build/tasks/sbtask_1/apply', expect.objectContaining({
+    method: 'POST',
+    body: JSON.stringify({ patch_id: 'patch_1', approval_id: 'sbappr_1', patch_hash: 'hash_1', approved: true })
+  })));
+  expect(await within(approvalCard).findByText(/Patch applied after exact approval hash match./i)).toBeInTheDocument();
+  expect(within(approvalCard).getByText('README.md')).toBeInTheDocument();
+  expect(within(approvalCard).getByText(/runtime\/self-build-backups\/README.md.bak/i)).toBeInTheDocument();
+});
+
+test('renders blocked self-build apply result honestly', async () => {
+  render(<App />);
+  await send('Self-build test blocked apply. Inspect README.md and propose a patch. Do not commit.');
+  const approvalCard = await screen.findByTestId('inline-approval-card');
+  fireEvent.click(within(approvalCard).getByRole('button', { name: /^Apply$/ }));
+  expect(await within(approvalCard).findByText(/File changed since proposal: README.md/i)).toBeInTheDocument();
+  expect(within(approvalCard).getByText(/false/i)).toBeInTheDocument();
+});
+
+test('does not render self-build Apply button without safe approval metadata', async () => {
+  render(<App />);
+  await send('Self-build unsafe proposal. Inspect README.md and propose a patch. Do not commit.');
+  expect(await screen.findByText('Self-build patch plan')).toBeInTheDocument();
+  expect(screen.queryByTestId('inline-approval-card')).not.toBeInTheDocument();
+
+  cleanup();
+  mockRuntime();
+  render(<App />);
+  await send('Self-build missing hash. Inspect README.md and propose a patch. Do not commit.');
+  expect(await screen.findByText('Self-build status')).toBeInTheDocument();
+  expect(screen.queryByTestId('inline-approval-card')).not.toBeInTheDocument();
 });
 
 test('renders inline research and image cards honestly', async () => {

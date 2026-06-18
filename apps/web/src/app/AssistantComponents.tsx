@@ -169,7 +169,7 @@ export function transcriptMarkdown(messages: ChatMessage[], includeReceipts = fa
   return sections.join('\n\n');
 }
 
-export function ChatTimeline({ messages, onToggle, onRequestApply, onCopyMessage }: { messages: ChatMessage[]; onToggle: (cardId: string, patch: Partial<ChatCard>) => void; onRequestApply: () => void; onCopyMessage: (message: ChatMessage) => Promise<void> | void }) {
+export function ChatTimeline({ messages, onToggle, onRequestApply, onCopyMessage }: { messages: ChatMessage[]; onToggle: (cardId: string, patch: Partial<ChatCard>) => void; onRequestApply: (card: ChatCard) => void; onCopyMessage: (message: ChatMessage) => Promise<void> | void }) {
   const [copiedId, setCopiedId] = useState('');
   async function copy(message: ChatMessage) {
     await onCopyMessage(message);
@@ -238,7 +238,7 @@ function receiptSummary(receipt: InfoReceipt) {
   return `${receipt.action}: ${receipt.status}`;
 }
 
-function InlineChatCard({ card, onToggle, onRequestApply }: { card: ChatCard; onToggle: (cardId: string, patch: Partial<ChatCard>) => void; onRequestApply: () => void }) {
+function InlineChatCard({ card, onToggle, onRequestApply }: { card: ChatCard; onToggle: (cardId: string, patch: Partial<ChatCard>) => void; onRequestApply: (card: ChatCard) => void }) {
   const [tab, setTab] = useState('Preview');
   const icon = {
     artifact: <Play size={17} />,
@@ -268,7 +268,7 @@ function InlineChatCard({ card, onToggle, onRequestApply }: { card: ChatCard; on
       <p className="cardSummary">{card.summary}</p>
       <div className="inlineActions">
         <button className="chipButton"><Copy size={14} /> Copy</button>
-        {card.type === 'approval' && <button className="chipButton" onClick={onRequestApply}>Apply</button>}
+        {card.type === 'approval' && canApplyCard(card) && <button className="chipButton" onClick={() => onRequestApply(card)} disabled={card.status === 'applying'}>{card.status === 'applying' ? 'Applying' : 'Apply'}</button>}
       </div>
       {!card.collapsed && (
         <div className="cardBody">
@@ -320,7 +320,7 @@ function DiffBody({ card }: { card: ChatCard }) {
       <div className="row split"><strong>Approval state</strong><span>{String(card.payload?.approvalState || 'pending')}</span></div>
       <div className="row"><strong>Before / after</strong><span>{String(card.payload?.beforeAfter || '')}</span></div>
       <pre className="diff">{String(card.payload?.diff || '')}</pre>
-      <div className="inlineActions"><button className="chipButton">Apply</button><button className="chipButton">Cancel</button></div>
+      <div className="inlineActions"><button className="chipButton">Cancel</button></div>
     </div>
   );
 }
@@ -367,6 +367,10 @@ function ReceiptBody({ card }: { card: ChatCard }) {
 }
 
 function ApprovalBody({ card }: { card: ChatCard }) {
+  const applyResult = (card.payload?.apply_result || {}) as Record<string, unknown>;
+  const changedFiles: unknown[] = Array.isArray(applyResult.changed_files) ? applyResult.changed_files : Array.isArray(card.payload?.changed_file_paths) ? card.payload.changed_file_paths : [];
+  const backupPaths: unknown[] = Array.isArray(applyResult.backup_paths) ? applyResult.backup_paths : [];
+  const reason = String(applyResult.reason || '');
   return (
     <div className="stack">
       <p className="cardSummary">{card.summary}</p>
@@ -374,8 +378,26 @@ function ApprovalBody({ card }: { card: ChatCard }) {
       <div className="row split"><strong>Patch</strong><span>{String(card.payload?.patch_id || 'unknown')}</span></div>
       <div className="row split"><strong>Approval</strong><span>{String(card.payload?.approval_id || 'unknown')}</span></div>
       <div className="row"><strong>Patch hash</strong><span>{String(card.payload?.patch_hash || 'unknown')}</span></div>
+      <div className="row split"><strong>Apply safe</strong><span>{String(card.payload?.apply_safe ?? false)}</span></div>
+      <div className="row split"><strong>Validation passed</strong><span>{String(applyResult.validation_passed ?? card.payload?.validation_passed ?? card.payload?.validation_status ?? 'unknown')}</span></div>
+      <div className="row"><strong>Changed files</strong><span>{changedFiles.length ? changedFiles.map(String).join(', ') : 'unknown'}</span></div>
+      {reason && <div className="row"><strong>Reason</strong><span>{reason}</span></div>}
+      {backupPaths.length > 0 && <div className="row"><strong>Backups</strong><span>{backupPaths.map(String).join(', ')}</span></div>}
     </div>
   );
+}
+
+function canApplyCard(card: ChatCard) {
+  const payload = card.payload || {};
+  return card.status !== 'applied'
+    && card.status !== 'blocked'
+    && payload.apply_safe === true
+    && Boolean(payload.task_id)
+    && Boolean(payload.patch_id)
+    && Boolean(payload.approval_id)
+    && Boolean(payload.patch_hash)
+    && payload.validation_status !== 'failed'
+    && payload.validation_passed !== false;
 }
 
 function ErrorBody({ card }: { card: ChatCard }) {

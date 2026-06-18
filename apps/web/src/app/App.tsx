@@ -2,7 +2,7 @@ import { Activity, Boxes, Check, ChevronDown, ChevronUp, Code2, Copy, FileText, 
 import { useEffect, useRef, useState } from 'react';
 import { SpeechInputManager, SpeechOutputManager } from '../audio/speechManagers';
 import type { SpeechReceipt, SttStatus, TtsStatus } from '../audio/speechManagers';
-import { applyUpdate, createArtifactPreview, createSpeechReceipt, loadAvatarManifest, loadBridgeStatus, loadCapabilities, loadConfigImportStatus, loadDockerPresets, loadFiles, loadGitHubStatus, loadImageStatus, loadIntegrations, loadMemoryStatus, loadModelStatus, loadReceipts, loadSearchStatus, loadSession, loadSessions, loadSpeechStatus, loadTeam, proposeUpdate, readFile, requestImage, runSearch, runSelfBuildPrompt, loadSelfBuildTrustStatus, scanX7Configs, sendChat, uploadAttachment } from '../services/apiClient';
+import { applySelfBuildPatch, applyUpdate, createArtifactPreview, createSpeechReceipt, loadAvatarManifest, loadBridgeStatus, loadCapabilities, loadConfigImportStatus, loadDockerPresets, loadFiles, loadGitHubStatus, loadImageStatus, loadIntegrations, loadMemoryStatus, loadModelStatus, loadReceipts, loadSearchStatus, loadSession, loadSessions, loadSpeechStatus, loadTeam, proposeUpdate, readFile, requestImage, runSearch, runSelfBuildPrompt, loadSelfBuildTrustStatus, scanX7Configs, sendChat, uploadAttachment } from '../services/apiClient';
 import type { AttachmentReference, Capability, FileEntry, IntegrationStatus, PatchProposal, SessionDetail, TeamSeat } from '../types/contracts';
 import { CodeEditor } from '../components/cockpit/CodeEditor';
 import { StatusPill } from '../components/ui/StatusPill';
@@ -445,6 +445,7 @@ export function App() {
         setSpeechState(muted ? 'muted' : 'idle');
         return;
       }
+      const canApplySelfBuild = detail.apply_safe === true && Boolean(detail.task_id) && Boolean(detail.patch_id) && Boolean(detail.approval_id) && Boolean(detail.patch_hash) && detail.validation_status !== 'failed';
       appendMessage({
         id: nowId(),
         role: 'assistant',
@@ -453,7 +454,7 @@ export function App() {
           { id: nowId(), type: 'receipt', title: 'Self-build prompt detected', status: response.status, summary: 'No files changed. Approval required before apply.', payload: { task_id: detail.task_id, patch_id: detail.patch_id, approval_id: detail.approval_id, patch_hash: detail.patch_hash } },
           { id: nowId(), type: 'receipt', title: 'Self-build patch plan', status: detail.validation_status || task.plan?.status || 'created', summary: `${detail.files_changed_count || changedPaths.length || 0} file change(s): ${changedPaths.join(', ') || 'none'}`, payload: { ...detail, risk_level: detail.risk_level, validation_status: detail.validation_status }, collapsed: false },
           { id: nowId(), type: 'diff', title: 'Self-build patch proposal', status: detail.validation_status || 'proposed', summary: `${detail.files_changed_count || changedPaths.length || 0} proposed file change(s).`, payload: { diff: firstChange.unified_diff || '', path: firstChange.file_path || changedPaths[0] || '', approvalState: detail.apply_safe ? 'pending_click' : 'blocked', before_hash: firstChange.before_hash, after_hash: firstChange.after_hash }, collapsed: true },
-          ...(detail.apply_safe ? [{ id: nowId(), type: 'approval' as const, title: 'Approval required before apply', status: 'pending_click', summary: 'Applying this patch requires popup approval tied to the exact patch hash.', payload: { task_id: detail.task_id, patch_id: detail.patch_id, approval_id: detail.approval_id, patch_hash: detail.patch_hash } }] : [])
+          ...(canApplySelfBuild ? [{ id: nowId(), type: 'approval' as const, title: 'Approval required before apply', status: 'pending_click', summary: 'Applying this patch calls the locked self-build endpoint with the exact approval payload.', payload: { task_id: detail.task_id, patch_id: detail.patch_id, approval_id: detail.approval_id, patch_hash: detail.patch_hash, changed_file_paths: changedPaths, apply_safe: detail.apply_safe, validation_status: detail.validation_status, validation_passed: detail.validation_status === 'passed' } }] : [])
         ]
       });
       setSpeechState(muted ? 'muted' : 'idle');
@@ -560,7 +561,26 @@ export function App() {
     setSpeechState(muted ? 'muted' : 'idle');
   }
 
-  async function requestApply() {
+  async function requestApply(card?: ChatCard) {
+    const payload = card?.payload || {};
+    if (card?.type === 'approval' && payload.apply_safe === true && payload.task_id && payload.patch_id && payload.approval_id && payload.patch_hash) {
+      updateCard(card.id, { status: 'applying', summary: 'Applying through the locked self-build endpoint.', collapsed: false });
+      try {
+        const response = await applySelfBuildPatch(String(payload.task_id), String(payload.patch_id), String(payload.approval_id), String(payload.patch_hash));
+        const result = response.data || {};
+        updateCard(card.id, {
+          status: response.status,
+          summary: response.message || String(result.reason || 'Self-build apply completed.'),
+          payload: { ...payload, apply_result: result }
+        });
+        setLatestResult(`Self-build apply: ${response.status}`);
+        setLatestReceipt(response.receipts?.[0] || null);
+      } catch {
+        updateCard(card.id, { status: 'blocked', summary: 'Self-build apply request failed before any confirmed write.', payload: { ...payload, apply_result: { applied: false, validation_passed: false, changed_files: [], backup_paths: [], reason: 'Self-build apply request failed.' } } });
+        setLatestResult('Self-build apply blocked');
+      }
+      return;
+    }
     const response = await applyUpdate(selectedPath, code, false);
     setProposal(response.data);
     setApprovalOpen(true);
@@ -877,7 +897,7 @@ export function App() {
               <span>{selectedPath}</span>
               <div className="actions">
                 <button className="ghost" onClick={() => proposeDiffCard(selectedPath)}>Propose diff</button>
-                <button className="ghost" onClick={requestApply}>Apply</button>
+                <button className="ghost" onClick={() => void requestApply()}>Apply</button>
               </div>
             </div>
             <CodeEditor path={selectedPath} value={code} onChange={setCode} />
@@ -1029,4 +1049,3 @@ export function App() {
     </main>
   );
 }
-

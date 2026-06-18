@@ -108,3 +108,7 @@ docker compose logs x8-api
 docker compose logs x8-web
 docker compose run --rm architecture-guard
 ```
+
+## Self-Build Mode
+
+XV8 can inspect its own repo and propose guarded patches. File changes require approval before apply.
