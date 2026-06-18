@@ -66,6 +66,7 @@ class FileReadResult(SelfBuildBase):
 
 class SelfBuildPlan(SelfBuildBase):
     plan_id: str = Field(default_factory=lambda: _id("plan"))
+    task_type: str = "unknown_safe"
     summary: str
     target_files: list[str] = Field(default_factory=list)
     new_files: list[str] = Field(default_factory=list)
@@ -140,6 +141,8 @@ class SelfBuildValidationReport(SelfBuildBase):
     task_id: str
     patch_id: str = ""
     patch_hash: str = ""
+    applied: bool = False
+    reverted: bool = False
     validation_passed: bool = False
     validation_runs: list[SelfBuildTestRun] = Field(default_factory=list)
     failure_reason: str = ""
@@ -170,6 +173,7 @@ class SelfBuildTask(SelfBuildBase):
     task_id: str = Field(default_factory=lambda: _id("task"))
     request: SelfBuildRequest
     goal: str = ""
+    task_type: str = "unknown_safe"
     constraints: list[str] = Field(default_factory=list)
     blocked_actions: list[str] = Field(default_factory=list)
     required_tests: list[str] = Field(default_factory=list)

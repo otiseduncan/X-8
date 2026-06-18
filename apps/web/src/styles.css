@@ -4,11 +4,11 @@
   --color-surface-2: #111827;
   --color-primary: #00d4ff;
   --color-primary-glow: rgba(0, 212, 255, 0.45);
-  --color-xv-purple: #a855ff;
-  --color-xv-purple-soft: rgba(168, 85, 255, 0.18);
-  --color-xv-purple-glow: transparent;
-  --color-xv-purple-border: rgba(168, 85, 255, 0.38);
-  --color-secondary: #7c3cff;
+  --color-xv-accent: #22d3ee;
+  --color-xv-accent-soft: rgba(34, 211, 238, 0.16);
+  --color-xv-accent-glow: transparent;
+  --color-xv-accent-border: rgba(34, 211, 238, 0.38);
+  --color-secondary: #38bdf8;
   --color-success: #00ffb2;
   --color-warning: #ffcc00;
   --color-danger: #ff3b6b;
@@ -29,7 +29,7 @@ body {
   min-width: 320px;
   background:
     radial-gradient(circle at 14% 8%, rgba(0, 212, 255, 0.13), transparent 32%),
-    radial-gradient(circle at 82% 4%, rgba(124, 60, 255, 0.13), transparent 34%),
+    radial-gradient(circle at 82% 4%, rgba(56, 189, 248, 0.12), transparent 34%),
     var(--color-bg);
 }
 
@@ -66,10 +66,10 @@ button:disabled {
   display: grid;
   gap: 18px;
   min-height: 0;
-  border: 1px solid var(--color-xv-purple-border);
+  border: 1px solid var(--color-xv-accent-border);
   border-radius: 8px;
   background: linear-gradient(180deg, rgba(11, 15, 26, 0.96), rgba(5, 7, 13, 0.92));
-  box-shadow: inset 3px 0 0 var(--color-xv-purple);
+  box-shadow: inset 3px 0 0 var(--color-xv-accent);
   padding: 20px;
   overflow: hidden;
 }
@@ -178,7 +178,7 @@ button:disabled {
 
 .assistantIdentityCard .eyebrow,
 .assistantIdentityCard h1 {
-  color: var(--color-xv-purple);
+  color: var(--color-xv-accent);
 }
 
 .avatar.speaking,
@@ -370,12 +370,12 @@ h2 {
 }
 
 .message.assistant .messageBubble {
-  border-color: var(--color-xv-purple-border);
+  border-color: var(--color-xv-accent-border);
   background: linear-gradient(180deg, rgba(168, 85, 255, 0.12), rgba(11, 15, 26, 0.82));
 }
 
 .message.assistant .messageRole {
-  color: var(--color-xv-purple);
+  color: var(--color-xv-accent);
 }
 
 .message.user .messageBubble {
@@ -406,7 +406,7 @@ h2 {
 }
 
 .messageCopyButton:hover {
-  border-color: var(--color-xv-purple-border);
+  border-color: var(--color-xv-accent-border);
   color: var(--color-text);
 }
 
@@ -510,7 +510,7 @@ input:focus {
 
 .inlineCard {
   margin-top: 12px;
-  border: 1px solid var(--color-xv-purple-border);
+  border: 1px solid var(--color-xv-accent-border);
   border-radius: 8px;
   background: rgba(5, 7, 13, 0.74);
   padding: 12px;

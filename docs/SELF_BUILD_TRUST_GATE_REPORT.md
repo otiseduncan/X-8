@@ -47,6 +47,42 @@ The model status endpoint is light by default. `GET /api/models/status` checks a
 - `POST /api/self-build/tasks/{task_id}/validate`
 - `GET /api/self-build/trust-status`
 
+## Real Proposal Generation
+
+The proposal engine no longer defaults create requests to `README.md`. It classifies the requested task, reads the matching allowlisted source files, and generates deterministic proposed content for supported task types. The trust-status UI feature now produces frontend source diffs instead of documentation-only output.
+
+For the supported trust-status UI feature, the proposal targets:
+
+- `apps/web/src/services/apiClient.ts`
+- `apps/web/src/app/App.tsx`
+
+The generated patch adds a `loadSelfBuildTrustStatus()` API helper and a `Self-Build Trust` runtime card that displays approval gating, hash gating, write/commit/push defaults, validation presets, and allowed/blocked path counts. The patch remains proposal-only until exact approval.
+
+## Task Classification
+
+Self-build create requests are classified as:
+
+- `ui_feature`
+- `api_feature`
+- `test_only`
+- `docs_only`
+- `config_change`
+- `unknown_safe`
+
+`README.md` is only targeted for explicit docs/readme/documentation prompts. UI feature prompts target `apps/web/src/`. API feature prompts target backend route/manager/test files. Test-only prompts target tests. Unknown-safe prompts produce no generic write proposal and require clarification.
+
+## Read-Only Inspection Behavior
+
+Read-only self-build prompts retrieve existing state and do not create proposals:
+
+- latest proposal details
+- trust status
+- latest validation report
+- patch hash / approval id
+- proposal ids
+
+If no proposal exists, proposal inspection returns `No active self-build proposal found.` Latest validation returns a validation-specific missing response when a proposal exists but no validation report has been produced.
+
 ## Safety Rules
 
 - Writes without approval: blocked.
@@ -58,6 +94,39 @@ The model status endpoint is light by default. `GET /api/models/status` checks a
 - Arbitrary shell from prompt: blocked.
 - Commit/push by default: blocked.
 - `qwen3-coder:30b`: installed-but-blocked if present, never selected.
+
+## Approval/Apply Safety Gates
+
+Apply remains locked behind:
+
+- exact `patch_id`
+- exact `approval_id`
+- exact `patch_hash`
+- unchanged file `before_hash`
+- exact proposed content writes
+- runtime backups before writes
+- rollback on partial write failure
+
+Bad patch hash, bad approval id, bad patch id, and changed target content are all blocked by tests.
+
+## Frontend Trust-Status Proof
+
+The proposed trust-status UI card displays:
+
+- approval required
+- hash approval required
+- writes without approval
+- commit allowed by default
+- push allowed by default
+- validation presets
+- allowed path count
+- blocked path count
+
+Proposal cards expose `task_id`, `patch_id`, `approval_id`, `patch_hash`, changed paths, validation status, and diff content. Receipt and approval card rendering now uses payload metadata when available, avoiding blank `{}` detail cards.
+
+## Cyan/Neon Blue UI Standard
+
+Frontend primary accent styling is cyan/neon blue. The old purple/violet/fuchsia/indigo language was removed from frontend source styling, and the web test suite includes a static guard that scans `apps/web/src` source files for blocked cool-purple tokens.
 
 ## Validation Presets
 
@@ -89,6 +158,15 @@ Live proof after app restart on June 18, 2026:
 - Read-only prompt "Show the full latest self-build patch proposal details before approval. Do not create a new proposal. Do not apply. Do not write anything." returned `intent=inspect_proposal` with the same `task_id`, `patch_id`, `approval_id`, and `patch_hash`.
 - `README.md` SHA256 after both live prompts was `2c6123831453ad17cac2453f679298f97099e978664b5ccb8036573e6cf6ba8c`, matching the proposal `before_hash`; no file write occurred.
 
+Current hardening live proof after restart on June 18, 2026:
+
+- Build prompt for a trust-status UI feature returned `intent=create_proposal`, `task_id=task_80a5037a1e8b`, `patch_id=patch_2fc4555311b4`, `approval_id=sbappr_88892ae36c68`, and `patch_hash=88892ae36c685dd3797464f656d3668e990c7cb5ee88bb021cbb0df9e2795220`.
+- Changed paths were `apps/web/src/app/App.tsx` and `apps/web/src/services/apiClient.ts`; `README.md` was not targeted.
+- The proposal was `task_type=ui_feature`, `validation_status=passed`, and `apply_safe=true`.
+- Read-only latest proposal inspection returned the same `task_id`, `patch_id`, `approval_id`, and `patch_hash`.
+- `apps/web/src/app/App.tsx` and `apps/web/src/services/apiClient.ts` hashes were unchanged by proposal creation and inspection.
+- Direct prompt "Show self-build trust status." returned `intent=trust_status`, `approval_required=true`, `approval_hash_required=true`, `writes_without_approval=false`, `commit_allowed_by_default=false`, and `push_allowed_by_default=false`.
+
 Focused trust-gate proof:
 
 - Self-build proposal tests prove proposal creation does not write files.
@@ -100,7 +178,19 @@ Focused trust-gate proof:
 - Intent tests prove proposal inspection, trust status, and validation report prompts do not create new proposals.
 - Intent tests prove a build prompt that mentions trust status as the feature still creates a proposal.
 - Latest proposal tests prove read-only details return the original proposal `task_id`, `patch_id`, `approval_id`, and `patch_hash`.
+- Proposal-generation tests prove the trust-status UI feature targets `apps/web/src/`, does not target `README.md`, and includes non-empty code diffs.
+- Apply tests prove exact approval writes exact proposed content in a temp workspace.
+- Web tests prove proposal cards expose metadata and frontend source is free of blocked cool-purple tokens.
+
+## Remaining Risks
+
+- Host Ollama availability depends on the local machine and configured Ollama URL.
+- Self-build is supervised, not autonomous.
+- No broad remote control is enabled.
+- No auto-push is enabled.
+- User approval is still required for writes.
+- Proposal generation is deterministic for supported task types and should expand task coverage over time.
 
 ## Current Completion Status
 
-The scaffolding and self-build trust gate are verified by the current command suite above. Live user-machine model reachability still depends on the host Ollama service and installed models being available at the configured Ollama URL.
+The self-build trust gate and deterministic trust-status UI proposal path are verified by tests. Live proof must be rerun after each hardening change before claiming runtime behavior is current.

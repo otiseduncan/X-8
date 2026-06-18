@@ -362,11 +362,20 @@ function TestBody({ card }: { card: ChatCard }) {
 }
 
 function ReceiptBody({ card }: { card: ChatCard }) {
-  return <pre className="codeBlock">{JSON.stringify(card.receipt || {}, null, 2)}</pre>;
+  const content = card.payload && Object.keys(card.payload).length ? card.payload : card.receipt || {};
+  return <pre className="codeBlock">{JSON.stringify(content, null, 2)}</pre>;
 }
 
 function ApprovalBody({ card }: { card: ChatCard }) {
-  return <p className="cardSummary">{card.summary}</p>;
+  return (
+    <div className="stack">
+      <p className="cardSummary">{card.summary}</p>
+      <div className="row split"><strong>Task</strong><span>{String(card.payload?.task_id || 'unknown')}</span></div>
+      <div className="row split"><strong>Patch</strong><span>{String(card.payload?.patch_id || 'unknown')}</span></div>
+      <div className="row split"><strong>Approval</strong><span>{String(card.payload?.approval_id || 'unknown')}</span></div>
+      <div className="row"><strong>Patch hash</strong><span>{String(card.payload?.patch_hash || 'unknown')}</span></div>
+    </div>
+  );
 }
 
 function ErrorBody({ card }: { card: ChatCard }) {

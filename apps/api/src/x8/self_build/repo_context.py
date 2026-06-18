@@ -63,7 +63,7 @@ class RepoContextReader:
         return FileReadResult(path=relative_path, content=text[:max_chars], size_bytes=target.stat().st_size, status="read", limitations=["truncated"] if len(text) > max_chars else [])
 
     def snapshot(self, files_to_read: list[str] | None = None) -> RepoContextSnapshot:
-        files_to_read = files_to_read or ["README.md"]
+        files_to_read = ["README.md"] if files_to_read is None else files_to_read
         read_results = [self.read_file(path) for path in files_to_read]
         return RepoContextSnapshot(
             status="completed",

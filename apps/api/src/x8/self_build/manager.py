@@ -41,6 +41,7 @@ class SelfBuildManager:
         task = SelfBuildTask(
             request=request,
             goal=str(extracted["goal"]),
+            task_type=str(extracted["task_type"]),
             constraints=list(extracted["constraints"]),
             blocked_actions=list(extracted["blocked_actions"]),
             required_tests=request.test_presets,
@@ -101,6 +102,8 @@ class SelfBuildManager:
             ],
             "validation_status": proposal.validation.status,
             "validation_reasons": proposal.validation.reasons,
+            "task_type": task.plan.task_type if task.plan else task.task_type,
+            "tests_to_run": task.plan.tests_to_run if task.plan else task.required_tests,
             "risk_level": task.plan.risk_level if task.plan else task.risk_level,
             "rollback_plan": task.plan.rollback_plan if task.plan else "",
             "apply_safe": bool(proposal.validation.passed and proposal.approval_id and proposal.patch_hash),
@@ -157,6 +160,8 @@ class SelfBuildManager:
             task_id=task.task_id,
             patch_id=patch_id,
             patch_hash=patch_hash,
+            applied=self._last_apply_state(task)[0],
+            reverted=self._last_apply_state(task)[1],
             validation_passed=passed,
             validation_runs=runs,
             failure_reason=failure,
@@ -177,6 +182,12 @@ class SelfBuildManager:
             )
         )
         return report
+
+    def _last_apply_state(self, task: SelfBuildTask) -> tuple[bool, bool]:
+        for receipt in reversed(task.receipts):
+            if receipt.action_type in {"patch_applied", "patch_apply_failed"}:
+                return receipt.applied, receipt.reverted
+        return False, False
 
     def trust_status(self) -> dict[str, object]:
         return {

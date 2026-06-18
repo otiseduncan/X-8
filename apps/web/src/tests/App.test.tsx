@@ -1,4 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { join } from 'node:path';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { App } from '../app/App';
 import { AvatarStage, selectAvatarAsset } from '../app/AssistantComponents';
@@ -230,6 +232,13 @@ test('renders self-build plan proposal and approval cards', async () => {
   expect(screen.getByText('Self-build patch plan')).toBeInTheDocument();
   expect(screen.getByTestId('inline-diff-card')).toBeInTheDocument();
   expect(screen.getByTestId('inline-approval-card')).toBeInTheDocument();
+  expect(screen.getByText(/No files changed. Approval required before apply./i)).toBeInTheDocument();
+  expect(screen.getByText(/1 file change/i)).toBeInTheDocument();
+  const approvalCard = screen.getByTestId('inline-approval-card');
+  fireEvent.click(within(approvalCard).getByLabelText(/Expand Approval required before apply/i));
+  expect(within(approvalCard).getByText('patch_1')).toBeInTheDocument();
+  expect(within(approvalCard).getByText('sbappr_1')).toBeInTheDocument();
+  expect(within(approvalCard).getByText('hash_1')).toBeInTheDocument();
 });
 
 test('renders inline research and image cards honestly', async () => {
@@ -241,6 +250,26 @@ test('renders inline research and image cards honestly', async () => {
   await send('generate an image of a console');
   expect(await screen.findByTestId('inline-image-card')).toBeInTheDocument();
   expect(screen.queryByText('Image Studio')).not.toBeInTheDocument();
+});
+
+test('frontend source keeps cyan accent vocabulary and blocks old cool-purple tokens', () => {
+  const blocked = ['purple-', 'violet-', 'fuchsia-', 'indigo-', 'purple', 'violet', 'fuchsia', 'indigo', '#a855', '#7c3', '#c084', '#9333', '#d946', '#8b5'];
+  const root = join(process.cwd(), 'src');
+  const files: string[] = [];
+  const visit = (dir: string) => {
+    for (const entry of readdirSync(dir)) {
+      const path = join(dir, entry);
+      if (path.includes(`${join('src', 'tests')}`)) continue;
+      if (statSync(path).isDirectory()) visit(path);
+      else if (/\.(ts|tsx|css)$/.test(path)) files.push(path);
+    }
+  };
+  visit(root);
+  const hits = files.flatMap((file) => {
+    const text = readFileSync(file, 'utf-8').toLowerCase();
+    return blocked.filter((token) => text.includes(token)).map((token) => `${file}:${token}`);
+  });
+  expect(hits).toEqual([]);
 });
 
 test('reviews transcript before sending and sends it as normal chat', async () => {

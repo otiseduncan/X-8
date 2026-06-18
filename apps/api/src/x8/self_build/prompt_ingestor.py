@@ -117,12 +117,18 @@ class BuildPromptIngestor:
     def extract(self, text: str) -> dict[str, object]:
         lower = text.lower()
         files = sorted(set(re.findall(r"[\w./-]+\.(?:py|ts|tsx|js|jsx|css|md|yaml|yml|json|toml)|README\.md|compose\.yaml", text)))
+        task_type = self.classify_task_type(text)
+        if not files:
+            files = self.default_files_for_task(task_type)
         tests = [name for name in ("architecture_guard", "api_tests", "web_tests", "e2e_tests", "web_build", "compose_config") if name.replace("_", " ") in lower or name in lower]
         if not tests and ("architecture guard" in lower or "validation" in lower):
             tests = ["architecture_guard"]
+        if not tests and task_type == "ui_feature":
+            tests = ["web_tests", "architecture_guard"]
         return {
             "goal": text.strip().splitlines()[0][:240] if text.strip() else "Self-build task",
-            "files_to_inspect": files or ["README.md"],
+            "task_type": task_type,
+            "files_to_inspect": files,
             "constraints": self._lines_matching(text, ("must", "should", "keep", "only", "never")),
             "blocked_actions": self._lines_matching(text, ("do not", "never", "not acceptable")),
             "required_tests": tests,
@@ -133,3 +139,30 @@ class BuildPromptIngestor:
 
     def _lines_matching(self, text: str, needles: tuple[str, ...]) -> list[str]:
         return [line.strip() for line in text.splitlines() if any(needle in line.lower() for needle in needles)][:20]
+
+    def classify_task_type(self, text: str) -> str:
+        lower = text.lower()
+        if any(word in lower for word in ("readme", "documentation", "docs", "document ")):
+            return "docs_only"
+        if any(word in lower for word in ("test only", "tests only", "add test", "unit test", "api test", "web test")):
+            return "test_only"
+        if any(word in lower for word in ("compose", ".env", "config", "configuration")):
+            return "config_change"
+        if any(word in lower for word in ("ui", "frontend", "web", "dashboard", "card", "label", "screen", "panel")):
+            return "ui_feature"
+        if any(word in lower for word in ("api", "endpoint", "route", "manager", "backend")):
+            return "api_feature"
+        return "unknown_safe"
+
+    def default_files_for_task(self, task_type: str) -> list[str]:
+        if task_type == "ui_feature":
+            return ["apps/web/src/app/App.tsx", "apps/web/src/services/apiClient.ts"]
+        if task_type == "api_feature":
+            return ["apps/api/src/x8/api/routes/self_build.py", "apps/api/src/x8/self_build/manager.py", "apps/api/tests/test_api_contracts.py"]
+        if task_type == "test_only":
+            return ["apps/api/tests/test_api_contracts.py"]
+        if task_type == "docs_only":
+            return ["README.md"]
+        if task_type == "config_change":
+            return [".env.example"]
+        return []

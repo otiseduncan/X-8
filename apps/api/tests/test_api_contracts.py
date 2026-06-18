@@ -556,6 +556,64 @@ def test_self_build_repo_context_allows_and_blocks_paths(tmp_path) -> None:
     assert reader.read_file(".env").blocked is True
 
 
+def create_ui_workspace(root) -> None:
+    app_dir = root / "apps" / "web" / "src" / "app"
+    services_dir = root / "apps" / "web" / "src" / "services"
+    app_dir.mkdir(parents=True)
+    services_dir.mkdir(parents=True)
+    (app_dir / "App.tsx").write_text(
+        """import { Activity, ShieldCheck } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { runSearch, runSelfBuildPrompt, scanX7Configs } from '../services/apiClient';
+
+function StatusPill(props: { label: string; status: string }) {
+  return <span>{props.label}</span>;
+}
+
+function Panel(props: { icon: React.ReactNode; title: string; children: React.ReactNode }) {
+  return <section>{props.title}{props.children}</section>;
+}
+
+export function App() {
+  const [memoryDetails, setMemoryDetails] = useState<Record<string, unknown>>({});
+  const [selectedPath, setSelectedPath] = useState('README.md');
+  useEffect(() => {
+    readFile(selectedPath)
+      .then((response) => setCode(response.data.content))
+      .catch(() => setCode('File could not be loaded from the configured workspace root.'));
+  }, [selectedPath]);
+  return (
+    <Panel icon={<Activity />} title="Model + Runtime">
+      <div>runtime</div>
+    </Panel>
+  );
+}
+""",
+        encoding="utf-8",
+    )
+    (services_dir / "apiClient.ts").write_text(
+        """import type { ResultEnvelope } from '../types/contracts';
+
+async function getJson<T>(path: string): Promise<T> {
+  const response = await fetch(path);
+  if (!response.ok) throw new Error(`Request failed: ${path}`);
+  return response.json();
+}
+
+export async function runSelfBuildPrompt(prompt: string) {
+  const response = await fetch('/api/self-build/prompt', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ prompt })
+  });
+  if (!response.ok) throw new Error('Self-build prompt failed');
+  return response.json();
+}
+""",
+        encoding="utf-8",
+    )
+
+
 def test_self_build_plan_and_proposal_do_not_write(tmp_path) -> None:
     readme = tmp_path / "README.md"
     readme.write_text("# XV8\n", encoding="utf-8")
@@ -581,6 +639,8 @@ def test_self_build_apply_requires_approval_and_hash_match(tmp_path) -> None:
     assert mismatch.applied is False
     bad_approval = manager.apply_patch(task.task_id, PatchApplyRequest(patch_id=proposal.patch_id, approval_id="wrong", patch_hash=proposal.patch_hash, approved=True))
     assert bad_approval.applied is False
+    bad_patch = manager.apply_patch(task.task_id, PatchApplyRequest(patch_id="wrong", approval_id=proposal.approval_id, patch_hash=proposal.patch_hash, approved=True))
+    assert bad_patch.applied is False
     applied = manager.apply_patch(task.task_id, PatchApplyRequest(patch_id=proposal.patch_id, approval_id=proposal.approval_id, patch_hash=proposal.patch_hash, approved=True))
     assert applied.applied is True
     assert "Self-Build Mode" in readme.read_text(encoding="utf-8")
@@ -669,7 +729,7 @@ def test_self_build_prompt_route_read_only_inspects_latest_without_creating(tmp_
 
 
 def test_self_build_build_prompt_mentions_trust_status_but_creates_one_proposal(tmp_path) -> None:
-    (tmp_path / "README.md").write_text("# XV8\n", encoding="utf-8")
+    create_ui_workspace(tmp_path)
     api = client(Settings(workspace_root=str(tmp_path), knowledge_root="/app/knowledge", ollama_base_url="http://127.0.0.1:9", default_chat_model="", fallback_chat_model="", x7_import_root="/missing/x7", x6_import_root="/missing/x6"))
     build_prompt = "Self-build task: run a controlled proposal-only improvement. Add a small UI label or dashboard card that displays the current self-build trust status using the existing trust-status endpoint. Rules: Proposal only first. Do not write files until I approve the exact patch hash. Show exact files to change. Include unified diff. Include validation commands. Include rollback plan."
 
@@ -683,7 +743,14 @@ def test_self_build_build_prompt_mentions_trust_status_but_creates_one_proposal(
     assert original["approval_id"]
     assert original["patch_hash"]
     assert original["message"] == "No files changed. Approval required before apply."
-    assert "Self-Build Mode" not in (tmp_path / "README.md").read_text(encoding="utf-8")
+    assert "README.md" not in original["changed_file_paths"]
+    assert any(path.startswith("apps/web/src/") for path in original["changed_file_paths"])
+    assert original["task_type"] == "ui_feature"
+    assert original["tests_to_run"]
+    assert all(change["before_hash"] and change["after_hash"] and change["unified_diff"] for change in original["changes"])
+    assert "loadSelfBuildTrustStatus" in "\n".join(change["unified_diff"] for change in original["changes"])
+    assert "Self-Build Trust" in "\n".join(change["unified_diff"] for change in original["changes"])
+    assert "Self-Build Trust" not in (tmp_path / "apps" / "web" / "src" / "app" / "App.tsx").read_text(encoding="utf-8")
 
     inspected = api.post("/api/self-build/prompt", json={"prompt": "Show the full latest self-build patch proposal details before approval. Do not create a new proposal. Do not apply. Do not write anything."}).json()
     assert inspected["status"] == "proposed"
@@ -696,6 +763,25 @@ def test_self_build_build_prompt_mentions_trust_status_but_creates_one_proposal(
     assert latest["data"]["task_id"] == original["task_id"]
     assert latest["data"]["patch_id"] == original["patch_id"]
     assert latest["data"]["patch_hash"] == original["patch_hash"]
+
+
+def test_self_build_exact_approval_applies_ui_proposed_content(tmp_path) -> None:
+    create_ui_workspace(tmp_path)
+    manager = SelfBuildManager(str(tmp_path))
+    task = manager.create_task(SelfBuildRequest(user_prompt="Self-build task: Add a small UI label or dashboard card that displays the current self-build trust status using the existing trust-status endpoint. Proposal only first."))
+    proposal = task.proposal
+    assert proposal is not None
+    app_change = next(change for change in proposal.changes if change.file_path == "apps/web/src/app/App.tsx")
+
+    result = manager.apply_patch(task.task_id, PatchApplyRequest(patch_id=proposal.patch_id, approval_id=proposal.approval_id, patch_hash=proposal.patch_hash, approved=True))
+
+    assert result.applied is True
+    assert (tmp_path / "apps" / "web" / "src" / "app" / "App.tsx").read_text(encoding="utf-8") == app_change.proposed_content
+    report = manager.validate_task(task.task_id)
+    assert report.patch_hash == proposal.patch_hash
+    assert report.applied is True
+    assert report.reverted is False
+    assert report.failure_reason in {"", "One or more self-build validation presets failed or did not run."}
 
 
 def test_self_build_read_only_status_prompts_do_not_create_proposals(tmp_path) -> None:
