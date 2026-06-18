@@ -25,6 +25,7 @@ class GenerateResult:
     model: str = ""
     timeout_seconds: float = 0.0
     timed_out: bool = False
+    fallback_used: bool = False
     total_generation_ms: int = 0
 
 
@@ -35,10 +36,13 @@ def _timed_out(exc: BaseException) -> bool:
 
 
 class OllamaAdapter:
-    def __init__(self, base_url: str, timeout_seconds: float = 3.0, generate_timeout_seconds: float = 120.0) -> None:
+    def __init__(self, base_url: str, timeout_seconds: float = 3.0, generate_timeout_seconds: float = 120.0, fallback_model: str = "qwen3:1.7b", fallback_timeout_seconds: float = 45.0) -> None:
         self.base_url = base_url.rstrip("/")
         self.timeout_seconds = timeout_seconds
         self.generate_timeout_seconds = generate_timeout_seconds
+        self.fallback_model = fallback_model
+        self.fallback_timeout_seconds = fallback_timeout_seconds
+        self.last_generation_result = GenerateResult(ok=False)
 
     def models(self) -> tuple[bool, list[str], str]:
         try:
@@ -80,6 +84,18 @@ class OllamaAdapter:
 
     def generate(self, model: str, prompt: str) -> tuple[bool, str, str]:
         result = self.generate_with_metrics(model, prompt)
+        self.last_generation_result = result
+        if result.ok and result.content:
+            return result.ok, result.content, result.failure_reason
+        if result.timed_out and model == "qwen3:8b" and self.fallback_model:
+            fallback = self.generate_with_metrics(self.fallback_model, prompt, timeout_seconds=self.fallback_timeout_seconds)
+            fallback.timed_out = True
+            fallback.fallback_used = True
+            fallback.timeout_seconds = result.timeout_seconds
+            fallback.total_generation_ms += result.total_generation_ms
+            fallback.failure_reason = f"Primary model {model} timed out after {result.timeout_seconds:g}s. Fallback model {self.fallback_model} responded." if fallback.ok and fallback.content else f"Primary model {model} timed out after {result.timeout_seconds:g}s. Fallback model {self.fallback_model} failed."
+            self.last_generation_result = fallback
+            return fallback.ok, fallback.content, fallback.failure_reason
         return result.ok, result.content, result.failure_reason
 
     def embed(self, model: str, text: str) -> tuple[bool, list[float], str]:
