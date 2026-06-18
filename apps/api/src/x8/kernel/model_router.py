@@ -9,7 +9,8 @@ class ModelProfileManager:
     def __init__(self, default_chat: str, fallback_chat: str, code: str = "", fast: str = "", embedding: str = "", reasoning: str = "", ollama_mode: str = "host_ollama_bridge", ollama_base_url: str = "") -> None:
         self.default_chat, default_blocked = normalize_model(default_chat, "qwen3:8b")
         self.fallback_chat, fallback_blocked = normalize_model(fallback_chat, "qwen3:1.7b")
-        self.code, code_blocked = normalize_model(code, "qwen3:14b")
+        code_fallback = self.default_chat or "qwen3:8b"
+        self.code, code_blocked = normalize_model(code, code_fallback)
         self.fast, fast_blocked = normalize_model(fast, "qwen3:1.7b")
         self.embedding, embedding_blocked = normalize_model(embedding, "nomic-embed-text:latest")
         self.reasoning, reasoning_blocked = normalize_model(reasoning, "qwen3:14b")
