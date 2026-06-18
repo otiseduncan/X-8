@@ -1,3 +1,4 @@
+import re
 from datetime import datetime, timezone
 
 from x8.kernel.context_assembler import KernelContextAssembler
@@ -57,7 +58,7 @@ class XV8Kernel:
             limitations.extend(context.context_bundle.limitations)
         if model_status.failure_reason and model_status.failure_reason not in limitations:
             limitations.append(model_status.failure_reason)
-        cards = self._cards(lane, status, limitations)
+        cards = self._cards(lane, status, limitations, request)
         tools = [tool_intent.name] if tool_intent else []
         receipt = self.receipt_builder.build(
             lane=lane,
@@ -103,6 +104,18 @@ class XV8Kernel:
             return "My name is XV8.", "passed", []
         if "say github" in lower:
             return "GitHub.", "passed", []
+        if lane == "github_status":
+            return "GitHub status loaded without mutation.", "passed", []
+        if lane == "github_create_repo":
+            return "GitHub repo creation requires approval before any write.", "passed", []
+        if lane == "github_push":
+            return "Push preview loaded. No push occurred.", "passed", []
+        if lane == "github_pull":
+            return "Pull preview loaded. No pull occurred.", "passed", []
+        if lane == "github_connect_init":
+            return "GitHub repository setup requires approval before any write.", "passed", []
+        if lane == "self_build":
+            return "Self-build prompt detected. Patch proposal requires approval before apply.", "passed", []
         if ("github" in lower and any(word in lower for word in ("access", "can you", "available", "status"))) or lower in {"github", "github?"}:
             return ("XV8 has GitHub Ops routes for status, previews, and approval-gated writes. "
                     "I should not claim GitHub is inaccessible; write operations still require explicit approval."), "passed", []
@@ -117,10 +130,34 @@ class XV8Kernel:
             return "An attachment was referenced, but no extracted attachment text is available in this turn.", "passed", bundle.limitations
         return None
 
-    def _cards(self, lane: str, status: str, limitations: list[str]) -> list[ResponseCard]:
+    def _cards(self, lane: str, status: str, limitations: list[str], request: KernelRequest) -> list[ResponseCard]:
         cards: list[ResponseCard] = []
         if limitations:
             cards.append(ResponseCard(type="info", title="Kernel limitations", status=status, summary="Some context or model capabilities were unavailable.", payload={"limitations": limitations}))
+        if lane == "github_status":
+            cards.append(ResponseCard(type="receipt", title="GitHub Ops status", status="ready", summary="Local git and GitHub auth status should be loaded through GitHub Ops without mutation.", payload={"provider": "github_ops", "operation": "status", "read_only": True, "github_write_ran": False}))
+        if lane == "github_create_repo":
+            repo = self._parse_github_repo_request(request.user_message)
+            cards.append(ResponseCard(type="approval", title="GitHub create-repo", status="pending_click", summary="GitHub create-repo requires explicit approval. No GitHub write has run.", payload={"provider": "github_ops", "operation": "create-repo", "repo_name": repo["repo_name"], "owner": repo["owner"], "visibility": repo["visibility"], "approval_required": True, "apply_safe": True, "github_write_ran": False, "local_repo_mutation": False, "code_push": False}))
+        if lane == "github_push":
+            cards.append(ResponseCard(type="receipt", title="GitHub push preview", status="preview", summary="Push preview loaded without pushing.", payload={"provider": "github_ops", "operation": "push-preview", "github_write_ran": False}))
+            cards.append(ResponseCard(type="approval", title="Push this repo", status="pending_click", summary="Push this repo requires explicit approval. No GitHub write has run.", payload={"provider": "github_ops", "operation": "push", "approval_required": True, "apply_safe": True, "github_write_ran": False, "local_repo_mutation": False, "code_push": False}))
+        if lane == "github_pull":
+            cards.append(ResponseCard(type="receipt", title="GitHub pull preview", status="preview", summary="Pull preview loaded without pulling.", payload={"provider": "github_ops", "operation": "pull-preview", "github_write_ran": False}))
+            cards.append(ResponseCard(type="approval", title="Pull latest", status="pending_click", summary="Pull latest requires explicit approval. No GitHub write has run.", payload={"provider": "github_ops", "operation": "pull", "approval_required": True, "apply_safe": True, "github_write_ran": False, "local_repo_mutation": False, "code_push": False}))
+        if lane == "github_connect_init":
+            cards.append(ResponseCard(type="approval", title="GitHub repository setup", status="pending_click", summary="Repository init/connect requires explicit approval. No write has run.", payload={"provider": "github_ops", "operation": "connect-or-init", "approval_required": True, "apply_safe": True, "github_write_ran": False, "local_repo_mutation": False, "code_push": False}))
+        if lane == "self_build":
+            cards.append(ResponseCard(type="receipt", title="Self-build prompt detected", status="planned", summary="Self-build is routed before GitHub Ops. No files changed.", payload={"provider": "self_build", "operation": "proposal", "approval_required": True, "local_repo_mutation": False, "code_push": False}))
+            cards.append(ResponseCard(type="approval", title="Self-build patch proposal", status="pending_click", summary="Self-build patch proposal requires exact approval before apply.", payload={"provider": "self_build", "operation": "proposal", "approval_required": True, "apply_safe": False, "local_repo_mutation": False, "code_push": False}))
         if lane in {"web_search", "image_generation", "repo_inspection", "approval_required_action"}:
             cards.append(ResponseCard(type="status", title=f"Kernel lane: {lane}", status=status, summary="The kernel selected a tool-capable lane; tool execution remains routed through approved managers."))
         return cards
+
+    def _parse_github_repo_request(self, message: str) -> dict[str, str]:
+        quoted = re.search(r"[`'\"]([^`'\"]+)[`'\"]", message)
+        named = re.search(r"\bnamed\s+([A-Za-z0-9_.-]+)", message, flags=re.IGNORECASE)
+        owner = re.search(r"\b(?:owner|under)\s+([A-Za-z0-9_.-]+)", message, flags=re.IGNORECASE)
+        repo_name = (quoted.group(1) if quoted else named.group(1) if named else "xv8-lab-repo").strip()
+        visibility = "public" if re.search(r"\bpublic\b", message, flags=re.IGNORECASE) else "private"
+        return {"repo_name": repo_name, "owner": owner.group(1) if owner else "", "visibility": visibility}

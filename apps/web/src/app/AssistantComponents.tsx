@@ -193,7 +193,7 @@ export function ThinkingIndicator({ active, stage, status }: { active: boolean; 
   if (!active) return null;
   const label = status === 'timeout' ? 'Timed out - reset available' : elapsed > 10 ? 'Still working...' : stage === 'thinking' ? 'Thinking...' : 'Working...';
   return (
-    <article className={`thinkingIndicator ${elapsed > 10 ? 'caution' : ''}`} aria-label="XV8 thinking">
+    <article className={`thinkingIndicator ${elapsed > 10 ? 'caution' : ''}`} aria-label="XV8 thinking" data-testid="thinking-indicator">
       <span className="thinkingDots" aria-hidden="true"><i /><i /><i /></span>
       <div>
         <strong>{label}</strong>
@@ -217,8 +217,8 @@ export function ChatTimeline({ messages, onToggle, onRequestApply, onCopyMessage
         <article key={message.id} className={`message ${message.role}`}>
           <div className="messageBubble">
             <p className="messageRole">{message.role === 'assistant' ? 'XV8' : 'You'}</p>
-            <button className="messageCopyButton" type="button" aria-label={`Copy ${message.role === 'assistant' ? 'XV8' : 'You'} message`} onClick={() => void copy(message)}>
-              <Copy size={13} /> {copiedId === message.id ? 'Copied' : 'Copy'}
+            <button className="messageCopyButton" type="button" aria-label={`Copy ${message.role === 'assistant' ? 'XV8' : 'You'} message`} data-testid="copy-message-button" onClick={() => void copy(message)}>
+              <Copy size={13} /> {copiedId === message.id ? 'Copied' : 'Copy message'}
             </button>
             <p>{message.text}</p>
             {message.attachments && message.attachments.length > 0 && (
@@ -283,7 +283,7 @@ export function InfoDropdown({ open, onToggle, bridgeStatus, modelStatus, memory
           <div className="row"><strong>Latest receipt</strong><span>{latestReceipt ? receiptSummary(latestReceipt) : 'No receipts yet.'}</span></div>
           <div className="row"><strong>Limitations</strong><span>Model and attachment limits are shown in receipts when they apply.</span></div>
           <button className="chipButton"><Copy size={14} /> Copy diagnostics</button>
-          <button className="chipButton" onClick={onCopyTranscript}><Copy size={14} /> Copy transcript</button>
+          <button className="chipButton" data-testid="copy-transcript-button" onClick={onCopyTranscript}><Copy size={14} /> Copy transcript</button>
           <button className="chipButton" onClick={onCopyTranscriptWithReceipts}><Copy size={14} /> Copy transcript with receipts</button>
           <button className="chipButton" onClick={onDownloadTranscript}>Download transcript .md</button>
         </div>
@@ -314,13 +314,15 @@ function InlineChatCard({ card, onToggle, onRequestApply }: { card: ChatCard; on
     error: <X size={17} />
   }[card.type];
 
+  const stableMarkerTestId = stableCardTestId(card);
   return (
     <section className={`inlineCard ${card.type}`} data-testid={`inline-${card.type}-card`}>
+      {stableMarkerTestId && <span className="srOnly" data-testid={stableMarkerTestId} aria-hidden="true" />}
       <header className="inlineCardHeader">
         <span className="icon small">{icon}</span>
         <div>
           <p className="cardMeta">{card.type} / {card.status}</p>
-          <h2>{card.title}</h2>
+          <h2 data-testid={card.title === 'Self-build patch plan' ? 'self-build-patch-plan-text' : undefined}>{card.title}</h2>
         </div>
         <button className="ghost iconButton" aria-label={`${card.collapsed ? 'Expand' : 'Collapse'} ${card.title}`} onClick={() => onToggle(card.id, { collapsed: !card.collapsed })}>
           {card.collapsed ? <ChevronDown size={18} /> : <ChevronUp size={18} />}
@@ -476,6 +478,13 @@ function canApplyCard(card: ChatCard) {
     && payload.validation_passed !== false;
 }
 
+function stableCardTestId(card: ChatCard) {
+  if (card.title === 'Self-build patch proposal') return 'self-build-proposal-card';
+  if (card.title === 'Self-build patch plan') return 'self-build-patch-plan-card';
+  if (card.payload?.provider === 'github_ops' && card.payload?.operation === 'create-repo') return 'github-create-repo-approval-card';
+  return '';
+}
+
 function ErrorBody({ card }: { card: ChatCard }) {
   return <p className="cardSummary">{card.summary}</p>;
 }
@@ -624,15 +633,15 @@ export function AvatarPresencePanel({
         <span>Voice: {voiceStatus} / {actualVoiceName || requestedVoiceLabel}</span>
       </div>
       {voiceFallbackReason && <p className="voiceFallback">{voiceFallbackReason}</p>}
-      <details className="audioControls" aria-label="Audio controls">
-        <summary>Audio controls</summary>
-        <div className="audioControlGrid" aria-label="Avatar audio controls">
-          <button className="ghost iconButton speakerButton" aria-label={muted ? 'Unmute voice' : 'Mute voice'} onClick={onToggleMute}>
+      <details className="audioControls" aria-label="Audio controls" data-testid="avatar-audio-controls-panel">
+        <summary data-testid="audio-controls-toggle">Audio controls</summary>
+        <div className="audioControlGrid" aria-label="Avatar audio controls" data-testid="avatar-audio-controls">
+          <button className="ghost iconButton speakerButton" aria-label={muted ? 'Unmute voice' : 'Mute voice'} data-testid="mute-button" onClick={onToggleMute}>
             {muted ? <VolumeX size={18} /> : <Volume2 size={18} />}
           </button>
           <label className="volumeControl">
             <span>Volume</span>
-            <input aria-label="Voice volume" type="range" min="0" max="100" value={muted ? 0 : volume} onChange={(event) => onVolumeChange(Number(event.target.value))} />
+            <input aria-label="Voice volume" data-testid="volume-slider" type="range" min="0" max="100" value={muted ? 0 : volume} onChange={(event) => onVolumeChange(Number(event.target.value))} />
           </label>
           <label className="voiceSelector">
             <span>Voice</span>
@@ -642,10 +651,10 @@ export function AvatarPresencePanel({
           </label>
           <button className="ghost" type="button" onClick={onRefreshVoices}>Refresh voices</button>
           <button className="ghost" type="button" onClick={onPreviewSelectedVoice}>Preview selected voice</button>
-          <button className="ghost" type="button" onClick={onResetStage}>Reset stage</button>
-          <button className="ghost" type="button" onClick={onStopAudio}>Stop audio</button>
-          <button className="ghost" type="button" onClick={onPlayRawAudioTest}>Play raw audio test</button>
-          <button className="ghost" type="button" onClick={onUnlockTestVoice}>Unlock/Test Voice</button>
+          <button className="ghost" type="button" data-testid="reset-stage-button" onClick={onResetStage}>Reset stage</button>
+          <button className="ghost" type="button" data-testid="stop-audio-button" onClick={onStopAudio}>Stop audio</button>
+          <button className="ghost" type="button" data-testid="raw-audio-test-button" onClick={onPlayRawAudioTest}>Play raw audio test</button>
+          <button className="ghost" type="button" data-testid="unlock-test-voice-button" onClick={onUnlockTestVoice}>Unlock/Test Voice</button>
         </div>
       </details>
       <AudioDiagnosticsPanel chat={chatDiagnostics} audio={audioDiagnostics} avatar={avatarDiagnostics} />

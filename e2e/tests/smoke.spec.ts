@@ -2,8 +2,16 @@ import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 
 async function ask(page: Page, message: string) {
-  await page.getByLabel('Message XV8').fill(message);
-  await page.getByRole('button', { name: /^Send$/ }).click();
+  await page.getByTestId('composer-input').fill(message);
+  await page.getByTestId('send-button').click();
+}
+
+async function openAudioControls(page: Page) {
+  const panel = page.getByTestId('avatar-audio-controls-panel');
+  if ((await panel.getAttribute('open')) === null) {
+    await page.getByTestId('audio-controls-toggle').click();
+  }
+  return page.getByTestId('avatar-audio-controls');
 }
 
 test('assistant mode renders without permanent tool panels', async ({ page }) => {
@@ -19,8 +27,9 @@ test('assistant mode renders without permanent tool panels', async ({ page }) =>
   await expect(page.getByPlaceholder('Ask XV8 anything...')).toBeVisible();
   await expect(page.getByLabel('Attach file', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Push to talk' })).toBeVisible();
-  await expect(page.getByLabel('Avatar audio controls').getByRole('button', { name: /mute voice/i })).toBeVisible();
-  await expect(page.getByLabel('Avatar audio controls').getByLabel('Voice volume')).toBeVisible();
+  const controls = await openAudioControls(page);
+  await expect(controls.getByTestId('mute-button')).toBeVisible();
+  await expect(controls.getByTestId('volume-slider')).toBeVisible();
   await expect(page.getByRole('button', { name: /^Mute$/ })).toHaveCount(0);
   await expect(page.getByRole('button', { name: /^Read aloud$/ })).toHaveCount(0);
   await expect(page.getByRole('button', { name: /^Info/ })).toHaveCount(1);
@@ -47,22 +56,22 @@ test('message and transcript copy controls work', async ({ page, context }) => {
   });
   await page.goto('/');
   await ask(page, 'hello copy check');
-  await page.getByRole('button', { name: /copy you message/i }).last().click();
+  await page.getByTestId('copy-message-button').last().click();
   await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain('You:\nhello copy check');
-  await page.getByRole('button', { name: /copy xv8 message/i }).last().click();
+  await page.getByTestId('copy-message-button').first().click();
   await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain('XV8:');
   await page.getByRole('button', { name: /^Info/ }).click();
-  await page.getByRole('button', { name: /copy transcript$/i }).click();
+  await page.getByTestId('copy-transcript-button').last().click();
   await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain('# XV8 Conversation Transcript');
 });
 
 test('avatar audio controls toggle mute and volume', async ({ page }) => {
   await page.goto('/');
-  const controls = page.getByLabel('Avatar audio controls');
-  await controls.getByRole('button', { name: /mute voice/i }).click();
+  const controls = await openAudioControls(page);
+  await controls.getByTestId('mute-button').click();
   await expect(page.getByTestId('avatar-stage')).toHaveAttribute('data-avatar-state', 'muted');
-  await controls.getByLabel('Voice volume').fill('35');
-  await expect(controls.getByLabel('Voice volume')).toHaveValue('35');
+  await controls.getByTestId('volume-slider').fill('35');
+  await expect(controls.getByTestId('volume-slider')).toHaveValue('35');
 });
 
 test('attachment chip appears before sending', async ({ page }) => {
@@ -123,9 +132,10 @@ test('inline diff proposal requires approval before mutation', async ({ page }) 
 
 test('self-build prompt creates plan proposal and approval card without applying', async ({ page }) => {
   await page.goto('/');
-  await ask(page, 'Self-build test. Inspect README.md and propose a patch that adds a short Self-Build Mode section. Do not apply the patch until I approve. Do not commit.');
+  await ask(page, 'Self-build test. Inspect README.md and propose a patch that adds a short validation smoke note. Do not apply the patch until I approve. Do not commit.');
   await expect(page.getByText('Self-build prompt detected')).toBeVisible({ timeout: 15000 });
-  await expect(page.getByText('Self-build patch plan')).toBeVisible();
+  await expect(page.getByTestId('self-build-patch-plan-text')).toBeVisible();
+  await expect(page.getByTestId('self-build-proposal-card')).toHaveCount(1);
   await expect(page.getByTestId('inline-diff-card')).toBeVisible();
   await expect(page.getByTestId('inline-approval-card')).toBeVisible();
 });

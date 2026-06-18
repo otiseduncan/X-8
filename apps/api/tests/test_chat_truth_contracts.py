@@ -54,6 +54,67 @@ def test_chat_can_say_github_without_capability_denial() -> None:
     assert payload["status"] == "passed"
     assert content == "GitHub."
     assert "cannot access" not in content.lower()
+    assert payload["receipts"][0]["metadata"]["kernel_lane"] == "normal_chat"
+    assert payload["data"]["assistant_message"]["cards"] == []
+
+
+def test_chat_github_status_routes_to_github_ops_card() -> None:
+    payload = client().post("/api/chat", json={"message": "check GitHub status"}).json()
+    cards = payload["data"]["assistant_message"]["cards"]
+    assert payload["status"] == "passed"
+    assert payload["receipts"][0]["metadata"]["kernel_lane"] == "github_status"
+    assert cards[0]["title"] == "GitHub Ops status"
+    assert cards[0]["payload"]["provider"] == "github_ops"
+    assert cards[0]["payload"]["read_only"] is True
+    assert "assistant model is unavailable" not in str(payload).lower()
+
+
+def test_chat_github_create_repo_routes_to_approval_card_without_token_leak() -> None:
+    payload = client().post(
+        "/api/chat",
+        json={"message": "prepare a GitHub create-repo proposal for a private disposable repo named x8-validation-smoke"},
+    ).json()
+    cards = payload["data"]["assistant_message"]["cards"]
+    assert payload["status"] == "passed"
+    assert payload["receipts"][0]["metadata"]["kernel_lane"] == "github_create_repo"
+    assert cards[0]["type"] == "approval"
+    assert cards[0]["title"] == "GitHub create-repo"
+    assert cards[0]["payload"]["repo_name"] == "x8-validation-smoke"
+    assert cards[0]["payload"]["visibility"] == "private"
+    assert cards[0]["payload"]["github_write_ran"] is False
+    assert "ghp_secret" not in str(payload)
+    assert "Authorization" not in str(payload)
+
+
+def test_chat_github_push_routes_to_preview_and_approval_cards() -> None:
+    payload = client().post("/api/chat", json={"message": "push this repo"}).json()
+    cards = payload["data"]["assistant_message"]["cards"]
+    assert payload["status"] == "passed"
+    assert payload["receipts"][0]["metadata"]["kernel_lane"] == "github_push"
+    assert [card["title"] for card in cards] == ["GitHub push preview", "Push this repo"]
+    assert cards[0]["payload"]["github_write_ran"] is False
+    assert cards[1]["payload"]["operation"] == "push"
+    assert cards[1]["payload"]["approval_required"] is True
+
+
+def test_chat_github_pull_routes_to_preview_and_approval_cards() -> None:
+    payload = client().post("/api/chat", json={"message": "pull latest"}).json()
+    cards = payload["data"]["assistant_message"]["cards"]
+    assert payload["status"] == "passed"
+    assert payload["receipts"][0]["metadata"]["kernel_lane"] == "github_pull"
+    assert [card["title"] for card in cards] == ["GitHub pull preview", "Pull latest"]
+    assert cards[0]["payload"]["github_write_ran"] is False
+    assert cards[1]["payload"]["operation"] == "pull"
+
+
+def test_chat_self_build_github_bug_routes_to_self_build_before_github_or_code_help() -> None:
+    payload = client().post("/api/chat", json={"message": "create a self-build proposal to fix a fake GitHub routing bug"}).json()
+    cards = payload["data"]["assistant_message"]["cards"]
+    assert payload["status"] == "passed"
+    assert payload["receipts"][0]["metadata"]["kernel_lane"] == "self_build"
+    assert cards[0]["title"] == "Self-build prompt detected"
+    assert cards[0]["payload"]["provider"] == "self_build"
+    assert "assistant model is unavailable" not in str(payload).lower()
 
 
 def test_kernel_uses_attachment_text_without_model(tmp_path) -> None:

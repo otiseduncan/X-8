@@ -810,12 +810,15 @@ export function App() {
     await new Promise<void>((resolve) => {
       let speakingStartedAt = 0;
       let settled = false;
+      let terminalStatus: TtsStatus = 'ready';
       const finish = async () => {
         if (settled) return;
         settled = true;
         if (speakingStartedAt) {
           const remaining = Math.max(0, MIN_SPEAKING_VISIBLE_MS - (Date.now() - speakingStartedAt));
           if (remaining > 0) await wait(remaining);
+        } else if ((terminalStatus === 'error' || terminalStatus === 'unavailable') && speechRun.current === runId) {
+          setStage('idle');
         } else if (speechRun.current === runId) {
           setStage('responded');
           await wait(RESPONDED_VISIBLE_MS);
@@ -825,6 +828,7 @@ export function App() {
       };
       speechOutput.tts.speak(text, {
         onStatus: (status) => {
+          terminalStatus = status;
           setVoiceStatus(status);
           if (status === 'speaking') {
             speakingStartedAt = Date.now();
@@ -977,7 +981,7 @@ export function App() {
           <header className="conversationHeader">
             <div><div className="modeLabel">Assistant Mode</div><span className="statusText">{latestResult}</span></div>
             <div className="topbarActions">
-              <button className="ghost" type="button" onClick={() => void copyTranscript(false)}><Copy size={16} /> Copy transcript</button>
+              <button className="ghost" type="button" data-testid="copy-transcript-button" onClick={() => void copyTranscript(false)}><Copy size={16} /> Copy transcript</button>
               <button className="ghost" type="button" onClick={clearChat}>Clear chat</button>
               <button className="ghost" type="button" aria-expanded={historyOpen} onClick={() => setHistoryOpen((open) => !open)}><FileText size={16} /> History</button>
               <InfoDropdown open={infoOpen} onToggle={() => setInfoOpen((open) => !open)} bridgeStatus={bridgeStatus} modelStatus={modelStatus} memoryStatus={memoryStatus} githubStatus={githubStatus} voiceStatus={voiceStatus} voiceName={voiceName} latestReceipt={latestReceipt} latestResult={latestResult} onCopyTranscript={() => void copyTranscript(false)} onCopyTranscriptWithReceipts={() => void copyTranscript(true)} onDownloadTranscript={downloadTranscript} />
@@ -994,7 +998,7 @@ export function App() {
             <ThinkingIndicator active={chatPending} stage={speechState} status={lastApiStatus} />
             <div ref={timelineEndRef} />
           </div>
-          {userAwayFromLatest && <button className="jumpLatest" type="button" onClick={jumpToLatest}>Jump to latest</button>}
+          {userAwayFromLatest && <button className="jumpLatest" type="button" data-testid="jump-to-latest-button" onClick={jumpToLatest}>Jump to latest</button>}
 
           <form className="messageEntry" onSubmit={submitMessage}>
             {attachments.length > 0 && (
@@ -1012,12 +1016,12 @@ export function App() {
                 <Paperclip size={18} />
                 <input aria-label="Attach file input" type="file" multiple onChange={(event) => attachFiles(event.target.files)} />
               </label>
-              <textarea ref={entryRef} aria-label="Message XV8" value={entry} onChange={(event) => { setEntry(event.target.value); setSttError(''); }} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void submitMessage(); } }} placeholder="Ask XV8 anything..." />
+              <textarea ref={entryRef} aria-label="Message XV8" data-testid="composer-input" value={entry} onChange={(event) => { setEntry(event.target.value); setSttError(''); }} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void submitMessage(); } }} placeholder="Ask XV8 anything..." />
               <div className="speechInputSlot">
                 <PushToTalkButton status={micStatus} onToggle={startMicrophone} />
                 {sttError && <span className="compactSttError" role="status">{sttError}</span>}
               </div>
-              <button className="primary" type="submit" disabled={!entry.trim() && attachments.length === 0}>
+              <button className="primary" type="submit" data-testid="send-button" disabled={!entry.trim() && attachments.length === 0}>
                 <Send size={18} /> Send
               </button>
             </div>

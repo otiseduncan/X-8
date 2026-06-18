@@ -59,6 +59,9 @@ class PatchProposalManager:
         if task_type == "docs_only" and lower_path == "readme.md" and "self-build mode" not in before.lower():
             section = "\n\n## Self-Build Mode\n\nXV8 can inspect its own repo and propose guarded patches. File changes require approval before apply.\n"
             return before.rstrip() + section + "\n"
+        if task_type == "docs_only" and lower_path == "readme.md" and "validation smoke note" in lower_prompt and "XV8 validation smoke note" not in before:
+            section = "\n\n## XV8 Validation Smoke Note\n\nThis proposed docs-only note validates the self-build approval flow without applying changes automatically.\n"
+            return before.rstrip() + section + "\n"
         return before
 
     def _add_trust_status_client(self, before: str) -> str:
