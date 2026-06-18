@@ -4,7 +4,6 @@ from x8.contracts.chat import ModelStatus
 from x8.kernel.contracts import ModelSelection
 from x8.managers.model_manager import BLOCKED_MODELS, OllamaAdapter, normalize_model
 
-# XV8 owner note: model routing is hardened through dedicated follow-up patches.
 
 class ModelProfileManager:
     def __init__(self, default_chat: str, fallback_chat: str, code: str = "", fast: str = "", embedding: str = "", reasoning: str = "", ollama_mode: str = "host_ollama_bridge", ollama_base_url: str = "") -> None:
@@ -78,4 +77,10 @@ class ModelRouter:
     def generate(self, selection: ModelSelection, prompt: str) -> tuple[bool, str, str]:
         if not selection.model_ready:
             return False, "", selection.reason_if_unavailable
-        return self.adapter.generate(selection.selected_model, prompt)
+        ok, content, reason = self.adapter.generate(selection.selected_model, prompt)
+        generation = getattr(self.adapter, "last_generation_result", None)
+        if generation is not None:
+            selection.selected_model = getattr(generation, "model", selection.selected_model) or selection.selected_model
+            selection.fallback_used = bool(getattr(generation, "fallback_used", selection.fallback_used))
+            selection.reason_if_unavailable = getattr(generation, "failure_reason", reason) or reason
+        return ok, content, reason
