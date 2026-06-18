@@ -64,8 +64,8 @@ export async function connectGitHubRemote(remote_url: string, approved: boolean)
   return response.json() as Promise<ResultEnvelope<Record<string, unknown>>>;
 }
 
-export async function createGitHubRepo(repo_name: string, approved: boolean) {
-  const response = await fetch('/api/github/ops/create-repo', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ repo_name, approved }) });
+export async function createGitHubRepo(repo_name: string, approved: boolean, owner?: string, visibility?: string) {
+  const response = await fetch('/api/github/ops/create-repo', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ repo_name, owner, visibility, approved }) });
   if (!response.ok) throw new Error('GitHub repo creation failed');
   return response.json() as Promise<ResultEnvelope<Record<string, unknown>>>;
 }

@@ -373,12 +373,22 @@ function ApprovalBody({ card }: { card: ChatCard }) {
   const provider = String(card.payload?.provider || '');
   const operation = String(card.payload?.operation || '');
   const reason = String(applyResult.reason || '');
+  const repoName = card.payload?.repo_name === undefined ? '' : String(card.payload.repo_name);
+  const owner = card.payload?.owner === undefined ? '' : String(card.payload.owner);
+  const visibility = card.payload?.visibility === undefined ? '' : String(card.payload.visibility);
   return (
     <div className="stack">
       <p className="cardSummary">{card.summary}</p>
       <div className="row split"><strong>Task</strong><span>{String(card.payload?.task_id || 'unknown')}</span></div>
       {provider && <div className="row split"><strong>Provider</strong><span>{provider}</span></div>}
       {operation && <div className="row split"><strong>Operation</strong><span>{operation}</span></div>}
+      {repoName && <div className="row split"><strong>Repo name</strong><span>{repoName}</span></div>}
+      {owner && <div className="row split"><strong>Owner</strong><span>{owner}</span></div>}
+      {visibility && <div className="row split"><strong>Visibility</strong><span>{visibility}</span></div>}
+      {card.payload?.approval_required !== undefined && <div className="row split"><strong>Approval required</strong><span>{String(card.payload.approval_required)}</span></div>}
+      {card.payload?.github_write_ran !== undefined && <div className="row split"><strong>GitHub write ran</strong><span>{String(card.payload.github_write_ran)}</span></div>}
+      {card.payload?.local_repo_mutation !== undefined && <div className="row split"><strong>Local repo mutation</strong><span>{String(card.payload.local_repo_mutation)}</span></div>}
+      {card.payload?.code_push !== undefined && <div className="row split"><strong>Code push</strong><span>{String(card.payload.code_push)}</span></div>}
       <div className="row split"><strong>Patch</strong><span>{String(card.payload?.patch_id || 'unknown')}</span></div>
       <div className="row split"><strong>Approval</strong><span>{String(card.payload?.approval_id || 'unknown')}</span></div>
       <div className="row"><strong>Patch hash</strong><span>{String(card.payload?.patch_hash || 'unknown')}</span></div>

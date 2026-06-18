@@ -74,6 +74,8 @@ function mockRuntime() {
                         ? { branch: 'main', remote: 'https://github.com/otiseduncan/X-8.git', commits_to_push: ['abc123 Latest safe commit'], dirty: true, allowed_after_approval: true }
                       : String(path).includes('github/ops/pull-preview')
                         ? { branch: 'main', remote: 'https://github.com/otiseduncan/X-8.git', dirty: true, allowed_after_approval: true }
+                      : String(path).includes('github/ops/create-repo')
+                        ? { status: text.approved ? 'applied' : 'blocked', reason: text.approved ? 'GitHub repository created.' : 'Approval required before creating GitHub repository.', repo: text.repo_name, owner: text.owner, visibility: text.visibility || 'private', changed_files: [] }
                       : String(path).includes('github/ops/')
                         ? { status: text.approved ? 'blocked' : 'blocked', reason: text.approved ? 'GitHub token not configured.' : 'Approval required before GitHub operation.', changed_files: [] }
                       : String(path).includes('github/status')
@@ -261,9 +263,57 @@ test('routes GitHub chat prompts to status, previews, and approval cards', async
   expect(within(approvalCards[approvalCards.length - 1]).getByText('Pull latest')).toBeInTheDocument();
 
   await send('Create a GitHub repo');
-  expect(await screen.findByText('GitHub operation requires approval before any write.')).toBeInTheDocument();
+  expect(await screen.findByText('GitHub repo creation requires approval before any write.')).toBeInTheDocument();
   approvalCards = screen.getAllByTestId('inline-approval-card');
   expect(within(approvalCards[approvalCards.length - 1]).getByText('create-repo')).toBeInTheDocument();
+});
+
+test('routes self-build prompts mentioning GitHub before GitHub Ops', async () => {
+  render(<App />);
+  await send('Create a self-build proposal to fix GitHub create-repo chat routing');
+  expect(await screen.findByText('Self-build prompt detected')).toBeInTheDocument();
+  expect(screen.getByText('Self-build patch plan')).toBeInTheDocument();
+  expect(screen.queryByText('GitHub status loaded without mutation.')).not.toBeInTheDocument();
+  await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/self-build/prompt', expect.objectContaining({ method: 'POST' })));
+  expect((fetch as ReturnType<typeof vi.fn>).mock.calls.some(([path]) => String(path).includes('/api/github/ops/status'))).toBe(true);
+  expect((fetch as ReturnType<typeof vi.fn>).mock.calls.filter(([path]) => String(path).includes('/api/github/ops/status')).length).toBe(1);
+});
+
+test('routes GitHub create-repo chat prompt to approval card without push or status-only response', async () => {
+  render(<App />);
+  await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/github/ops/status'));
+  const pushPreviewCallsBefore = (fetch as ReturnType<typeof vi.fn>).mock.calls.filter(([path]) => String(path).includes('/api/github/ops/push-preview')).length;
+
+  await send('Prepare a GitHub create-repo proposal for a private disposable repo named `x8-github-ops-smoke`');
+
+  expect(await screen.findByText('GitHub repo creation requires approval before any write.')).toBeInTheDocument();
+  expect(screen.queryByText('GitHub status loaded without mutation.')).not.toBeInTheDocument();
+  expect(screen.queryByText('Push preview loaded. No push occurred.')).not.toBeInTheDocument();
+  await waitFor(() => {
+    const pushPreviewCallsAfter = (fetch as ReturnType<typeof vi.fn>).mock.calls.filter(([path]) => String(path).includes('/api/github/ops/push-preview')).length;
+    expect(pushPreviewCallsAfter).toBe(pushPreviewCallsBefore);
+  });
+  const approvalCards = screen.getAllByTestId('inline-approval-card');
+  const approvalCard = approvalCards[approvalCards.length - 1];
+  expect(within(approvalCard).getByText('github_ops')).toBeInTheDocument();
+  expect(within(approvalCard).getByText('create-repo')).toBeInTheDocument();
+  expect(within(approvalCard).getByText('x8-github-ops-smoke')).toBeInTheDocument();
+  expect(within(approvalCard).getByText('otiseduncan')).toBeInTheDocument();
+  expect(within(approvalCard).getByText('private')).toBeInTheDocument();
+  expect(within(approvalCard).getAllByText('true').length).toBeGreaterThan(0);
+  expect(within(approvalCard).getAllByText('false').length).toBeGreaterThanOrEqual(3);
+});
+
+test('existing GitHub push and status routing stay intact without token exposure', async () => {
+  render(<App />);
+  await send('push this repo');
+  expect(await screen.findByText('Push preview loaded. No push occurred.')).toBeInTheDocument();
+  expect(screen.getByText('Push this repo')).toBeInTheDocument();
+
+  await send('check GitHub status');
+  expect(await screen.findByText('GitHub status loaded without mutation.')).toBeInTheDocument();
+  expect(screen.getByText('GitHub Ops status')).toBeInTheDocument();
+  expect(document.body.textContent).not.toMatch(/ghp_/i);
 });
 
 test('renders generated artifacts and file viewers inline', async () => {

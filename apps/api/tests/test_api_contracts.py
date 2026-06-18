@@ -407,6 +407,10 @@ def test_github_ops_create_repo_validation_and_mocked_api(tmp_path, monkeypatch)
     settings.github_owner = "otis"
     settings.github_default_visibility = "private"
     api = client(settings)
+    blocked = api.post("/api/github/ops/create-repo", json={"repo_name": "xv8 lab", "visibility": "private", "approved": False}).json()
+    assert blocked["status"] == "blocked"
+    assert blocked["data"]["repo"] == "xv8-lab"
+    assert calls == []
     invalid = api.post("/api/github/ops/create-repo", json={"repo_name": "bad name", "visibility": "internal", "approved": True}).json()
     assert invalid["status"] == "blocked"
     created = api.post("/api/github/ops/create-repo", json={"repo_name": "xv8 lab", "visibility": "private", "approved": True}).json()

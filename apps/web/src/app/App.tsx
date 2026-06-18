@@ -9,6 +9,8 @@ import { StatusPill } from '../components/ui/StatusPill';
 import { AvatarStage, ChatTimeline, InfoDropdown, Panel, PushToTalkButton, TranscriptPreview, messageCopyText, transcriptMarkdown } from './AssistantComponents';
 import type { AvatarRuntimeState, ChatCard, ChatMessage, InfoReceipt } from './AssistantComponents';
 import { errorCard, mapKernelCard, receiptCards } from './cardHelpers';
+import { DeveloperCockpit } from './DeveloperCockpit';
+import { classifyRequest, isGitHubCreateRepoRequest, parseGitHubCreateRepo } from './intentRouting';
 
 const nowId = () => `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   const speechInput = new SpeechInputManager();
@@ -168,19 +170,6 @@ export function App() {
         cards: message.cards?.map((card) => (card.id === cardId ? { ...card, ...patch } : card))
       }))
     );
-  }
-
-  function classifyRequest(text: string) {
-    const lower = text.toLowerCase();
-    if (lower.includes('github') || lower.includes('push this repo') || lower.includes('pull latest') || lower.includes('prepare to push') || lower.includes('initialize this as a repo') || lower.includes('connect this repo')) return 'github';
-    if (lower.includes('self-build') || (lower.includes('patch') && lower.includes('do not commit')) || (lower.includes('completion rule') && lower.includes('tests'))) return 'self_build';
-    if (lower.includes('open') && lower.includes('readme')) return 'file';
-    if (lower.includes('propose') && (lower.includes('edit') || lower.includes('diff'))) return 'diff';
-    if (lower.includes('website') || lower.includes('preview') || lower.includes('html')) return 'artifact';
-    if (lower.includes('search') || lower.includes('searxng')) return 'research';
-    if (lower.includes('image') || lower.includes('generate')) return 'image';
-    if (lower.includes('test')) return 'test';
-    return 'chat';
   }
 
   async function submitMessage(event?: React.FormEvent) {
@@ -550,12 +539,17 @@ export function App() {
   async function createGitHubCards(text: string) {
     const lower = text.toLowerCase();
     try {
+      if (isGitHubCreateRepoRequest(lower)) {
+        const repo = parseGitHubCreateRepo(text, String(githubAuth.owner || '').trim());
+        appendMessage({ id: nowId(), role: 'assistant', text: 'GitHub repo creation requires approval before any write.', cards: [githubCreateRepoApprovalCard(repo)] });
+        return;
+      }
       if (lower.includes('status') || lower.includes('check github')) {
         await refreshGitHubOps();
         appendMessage({ id: nowId(), role: 'assistant', text: 'GitHub status loaded without mutation.', cards: [{ id: nowId(), type: 'receipt', title: 'GitHub Ops status', status: 'ready', summary: 'Local git and GitHub auth status loaded.', payload: { auth: githubAuth, status: githubOps }, collapsed: false }] });
         return;
       }
-      if (lower.includes('prepare to push') || (lower.includes('push') && !lower.includes('push this repo'))) {
+      if (lower.includes('prepare to push') || lower.includes('push this repo') || lower.includes('push')) {
         const response = await previewGitHubPush();
         appendMessage({ id: nowId(), role: 'assistant', text: 'Push preview loaded. No push occurred.', cards: [{ id: nowId(), type: 'receipt', title: 'GitHub push preview', status: response.status, summary: response.message, payload: response.data, collapsed: false }, githubApprovalCard('push', 'Push this repo', response.data)] });
         return;
@@ -565,11 +559,24 @@ export function App() {
         appendMessage({ id: nowId(), role: 'assistant', text: 'Pull preview loaded. No pull occurred.', cards: [{ id: nowId(), type: 'receipt', title: 'GitHub pull preview', status: response.status, summary: response.message, payload: response.data, collapsed: false }, githubApprovalCard('pull', 'Pull latest', response.data)] });
         return;
       }
-      const operation = lower.includes('initialize') ? 'init' : lower.includes('create') ? 'create-repo' : lower.includes('connect') ? 'connect-remote' : 'push';
+      const operation = lower.includes('initialize') ? 'init' : lower.includes('connect') ? 'connect-remote' : 'push';
       appendMessage({ id: nowId(), role: 'assistant', text: 'GitHub operation requires approval before any write.', cards: [githubApprovalCard(operation, `GitHub ${operation}`, {})] });
     } catch {
       appendMessage({ id: nowId(), role: 'assistant', text: 'GitHub operation could not be prepared.', cards: [errorCard('GitHub Ops unavailable', 'No GitHub write occurred.')] });
     }
+  }
+
+  function githubCreateRepoApprovalCard(repo: { repo_name: string; owner: string; visibility: string }): ChatCard {
+    return githubApprovalCard('create-repo', 'GitHub create-repo', {
+      repo_name: repo.repo_name,
+      owner: repo.owner,
+      visibility: repo.visibility,
+      approval_required: true,
+      github_write_ran: false,
+      local_repo_mutation: false,
+      code_push: false,
+      approved: false
+    });
   }
 
   function githubApprovalCard(operation: string, title: string, preview: Record<string, unknown>): ChatCard {
@@ -579,7 +586,15 @@ export function App() {
       title,
       status: 'approval_required',
       summary: `${title} requires explicit approval. No GitHub write has run.`,
-      payload: { provider: 'github_ops', operation, apply_safe: true, validation_status: 'passed', changed_file_paths: preview.changed_files || [], preview },
+      payload: {
+        provider: 'github_ops',
+        operation,
+        apply_safe: true,
+        validation_status: 'passed',
+        changed_file_paths: preview.changed_files || [],
+        preview,
+        ...preview
+      },
       collapsed: false
     };
   }
@@ -625,7 +640,7 @@ export function App() {
       try {
         const operation = String(payload.operation);
         const response = operation === 'create-repo'
-          ? await createGitHubRepo('xv8-lab-repo', true)
+          ? await createGitHubRepo(String(payload.repo_name || 'xv8-lab-repo'), true, String(payload.owner || ''), String(payload.visibility || 'private'))
           : operation === 'connect-remote'
             ? await connectGitHubRemote('https://github.com/otiseduncan/xv8-lab-repo.git', true)
             : await runGitHubOperation(operation as 'init' | 'pull' | 'push', true);
@@ -955,171 +970,7 @@ export function App() {
         </section>
       </section>
 
-      {developerOpen && (
-        <section className="developerCockpit" aria-label="Developer Cockpit Mode">
-          <Panel icon={<FileText />} title="Project File Tree">
-            <div className="fileList">
-              {files.map((file) => (
-                <button key={file.path} className={file.path === selectedPath ? 'file active' : 'file'} onClick={() => setSelectedPath(file.path)}>
-                  {file.path}
-                </button>
-              ))}
-            </div>
-          </Panel>
-          <Panel icon={<Code2 />} title="Full Editor">
-            <div className="editorHead">
-              <span>{selectedPath}</span>
-              <div className="actions">
-                <button className="ghost" onClick={() => proposeDiffCard(selectedPath)}>Propose diff</button>
-                <button className="ghost" onClick={() => void requestApply()}>Apply</button>
-              </div>
-            </div>
-            <CodeEditor path={selectedPath} value={code} onChange={setCode} />
-          </Panel>
-          <Panel icon={<GitBranch />} title="Full Diff Viewer">
-            <pre className="diff">{proposal?.diff || 'No patch proposed yet. Editing here does not mutate the repo.'}</pre>
-          </Panel>
-          <Panel icon={<Search />} title="SearXNG Panel">
-            <div className="list dense">
-              <div className="row split"><strong>Search</strong><StatusPill label={searchStatus} status={searchStatus} /></div>
-              <div className="row"><strong>Provider</strong><span>SearXNG local first</span></div>
-            </div>
-          </Panel>
-          <Panel icon={<Image />} title="Image Studio">
-            <div className="list dense">
-              <div className="row split"><strong>Image</strong><StatusPill label={imageStatus} status={imageStatus} /></div>
-              <div className="row split"><strong>Model</strong><span>Juggernaut</span></div>
-              <div className="row"><strong>Workflow</strong><span>ComfyUI default</span></div>
-            </div>
-          </Panel>
-          <Panel icon={<ShieldCheck />} title="Self-build trust gate">
-            <div className="list dense selfBuildTrustCard" style={{ borderColor: '#22d3ee' }}>
-              <div className="row split"><strong>Self-build trust gate</strong><StatusPill label={selfBuildTrustSummary === 'checking' ? 'loading' : selfBuildTrustSummary} status={selfBuildTrustSummary} /></div>
-              {selfBuildTrustSummary === 'unavailable' && <div className="row"><strong>Status</strong><span>Trust status unavailable. Check the API route.</span></div>}
-              <div className="row split"><strong>Approval required</strong><span>{String(selfBuildTrustStatus.approval_required ?? 'unknown')}</span></div>
-              <div className="row split"><strong>Hash approval required</strong><span>{String(selfBuildTrustStatus.approval_hash_required ?? 'unknown')}</span></div>
-              <div className="row split"><strong>Writes without approval</strong><span>{String(selfBuildTrustStatus.writes_without_approval ?? 'unknown')}</span></div>
-              <div className="row split"><strong>Commit default</strong><span>{String(selfBuildTrustStatus.commit_allowed_by_default ?? 'unknown')}</span></div>
-              <div className="row split"><strong>Push default</strong><span>{String(selfBuildTrustStatus.push_allowed_by_default ?? 'unknown')}</span></div>
-              <div className="row split"><strong>Validation preset count</strong><span>{Array.isArray(selfBuildTrustStatus.validation_presets) ? selfBuildTrustStatus.validation_presets.length : 'unknown'}</span></div>
-              <div className="row"><strong>Validation presets</strong><span>{Array.isArray(selfBuildTrustStatus.validation_presets) ? selfBuildTrustStatus.validation_presets.join(', ') : 'unknown'}</span></div>
-              <div className="row split"><strong>Allowed paths</strong><span>{Array.isArray(selfBuildTrustStatus.allowed_paths) ? selfBuildTrustStatus.allowed_paths.length : 'unknown'}</span></div>
-              <div className="row split"><strong>Blocked paths</strong><span>{Array.isArray(selfBuildTrustStatus.blocked_paths) ? selfBuildTrustStatus.blocked_paths.length : 'unknown'}</span></div>
-            </div>
-          </Panel>
-          <Panel icon={<Activity />} title="Model + Runtime">
-            <div className="list dense">
-              <div className="row split"><strong>Ollama mode</strong><span>{String(modelDetails.ollama_mode || 'unknown')}</span></div>
-              <div className="row"><strong>Ollama URL</strong><span>{String(modelDetails.ollama_base_url || 'unknown')}</span></div>
-              <div className="row split"><strong>Selected chat model</strong><span>{String(modelDetails.selected_model || 'none')}</span></div>
-              <div className="row split"><strong>Default chat</strong><span>{String(modelDetails.default_chat_model || 'none')}</span></div>
-              <div className="row split"><strong>Reasoning</strong><span>{String(modelDetails.reasoning_model || 'none')}</span></div>
-              <div className="row split"><strong>Fallback</strong><span>{String(modelDetails.fallback_chat_model || 'none')}</span></div>
-              <div className="row split"><strong>Code</strong><span>{String(modelDetails.code_model || 'none')}</span></div>
-              <div className="row split"><strong>Embedding</strong><span>{String(modelDetails.embedding_model || 'none')}</span></div>
-              <div className="row"><strong>Blocked models</strong><span>{Array.isArray(modelDetails.blocked_models) && modelDetails.blocked_models.length ? modelDetails.blocked_models.join(', ') : 'none'} / installed: {Array.isArray(modelDetails.installed_but_blocked) && modelDetails.installed_but_blocked.length ? modelDetails.installed_but_blocked.join(', ') : 'none'}</span></div>
-              <div className="row split"><strong>Model ready</strong><StatusPill label={String(modelDetails.model_ready ? 'yes' : 'no')} status={modelDetails.model_ready ? 'ready' : 'unavailable'} /></div>
-              <div className="row"><strong>Missing models</strong><span>{Array.isArray(modelDetails.missing_models) && modelDetails.missing_models.length ? modelDetails.missing_models.join(', ') : 'none'}</span></div>
-            </div>
-          </Panel>
-          <Panel icon={<ShieldCheck />} title="Memory">
-            <div className="list dense">
-              <div className="row split"><strong>Memory</strong><StatusPill label={memoryStatus} status={memoryStatus} /></div>
-              <div className="row split"><strong>Embedding ready</strong><span>{String(memoryDetails.embedding_ready ? 'yes' : 'no')}</span></div>
-              <div className="row split"><strong>Vector store ready</strong><span>{String(memoryDetails.vector_store_ready ? 'yes' : 'no')}</span></div>
-              <div className="row split"><strong>Pending</strong><span>{String(memoryDetails.pending_count ?? 0)}</span></div>
-              <div className="row split"><strong>Active</strong><span>{String(memoryDetails.active_count ?? 0)}</span></div>
-              <div className="row"><strong>Reason</strong><span>{String(memoryDetails.failure_reason || 'ready')}</span></div>
-            </div>
-          </Panel>
-          <Panel icon={<Users />} title="Team Seats">
-            <div className="list dense">
-              {team.slice(0, 6).map((seat) => (
-                <div key={seat.name} className="row">
-                  <strong>{seat.name}</strong>
-                  <span>{seat.responsibility}</span>
-                </div>
-              ))}
-            </div>
-          </Panel>
-          <Panel icon={<ShieldCheck />} title="Capabilities">
-            <div className="chips">
-              {capabilities.map((capability) => (
-                <StatusPill key={capability.name} label={capability.name} status={capability.status} />
-              ))}
-            </div>
-          </Panel>
-          <Panel icon={<Boxes />} title="Future Integrations">
-            <div className="list dense">
-              {integrations.slice(0, 8).map((integration) => (
-                <div key={integration.name} className="row split">
-                  <strong>{integration.name}</strong>
-                  <StatusPill label={integration.status} status={integration.status} />
-                </div>
-              ))}
-            </div>
-          </Panel>
-          <Panel icon={<GitBranch />} title="GitHub + Docker">
-            <div className="list dense">
-              <div className="row split"><strong>GitHub</strong><StatusPill label={githubStatus} status={githubStatus} /></div>
-              {dockerPresets.map((preset) => (
-                <div key={preset} className="row split"><strong>{preset}</strong><span>preset</span></div>
-              ))}
-            </div>
-          </Panel>
-          <Panel icon={<GitBranch />} title="GitHub Ops">
-            <div className="list dense githubOpsPanel">
-              <div className="row split"><strong>Token configured</strong><span>{String(githubAuth.token_configured ?? false)}</span></div>
-              <div className="row split"><strong>Owner</strong><span>{String(githubAuth.owner || 'not configured')}</span></div>
-              <div className="row split"><strong>Branch</strong><span>{String(githubOps.branch || 'not a repo')}</span></div>
-              <div className="row"><strong>Remote</strong><span>{String(githubOps.remote_origin_url || 'none')}</span></div>
-              <div className="row split"><strong>Dirty</strong><span>{String(githubOps.dirty ?? false)}</span></div>
-              <div className="row split"><strong>Changed files</strong><span>{Array.isArray(githubOps.changed_files) ? githubOps.changed_files.length : 0}</span></div>
-              <div className="row"><strong>Last commit</strong><span>{String((githubOps.last_commit as Record<string, unknown> | undefined)?.message || 'none')}</span></div>
-              <div className="row split"><strong>Ahead / behind</strong><span>{String(githubOps.ahead ?? 'unknown')} / {String(githubOps.behind ?? 'unknown')}</span></div>
-              <div className="row"><strong>Result</strong><span>{githubOpsResult}</span></div>
-              <div className="inlineActions">
-                <button className="chipButton" onClick={() => void refreshGitHubOps()}>Refresh</button>
-                <button className="chipButton" onClick={() => void previewGitHubOp('pull')}>Pull preview</button>
-                <button className="chipButton" onClick={() => void previewGitHubOp('push')}>Push preview</button>
-                <button className="chipButton" onClick={() => appendMessage({ id: nowId(), role: 'assistant', text: 'Create repo requires approval.', cards: [githubApprovalCard('create-repo', 'Create repo', {})] })}>Create repo proposal</button>
-                <button className="chipButton" onClick={() => appendMessage({ id: nowId(), role: 'assistant', text: 'Connect remote requires approval.', cards: [githubApprovalCard('connect-remote', 'Connect remote', {})] })}>Connect remote proposal</button>
-                <button className="chipButton" onClick={() => appendMessage({ id: nowId(), role: 'assistant', text: 'Initialize repo requires approval.', cards: [githubApprovalCard('init', 'Init repo', {})] })}>Init repo</button>
-              </div>
-            </div>
-          </Panel>
-          <Panel icon={<Server />} title="Config Import">
-            <div className="list dense">
-              <div className="row split"><strong>Bridge</strong><StatusPill label={bridgeStatus} status={bridgeStatus} /></div>
-              <div className="row"><strong>X7 source path</strong><span>{'X:\\XV7\\xv7 -> /imports/x7'}</span></div>
-              <div className="row split"><strong>X7 import</strong><span>{x7ImportStatus}</span></div>
-              <div className="row"><strong>X6 source path</strong><span>{'X:\\X-V-6.1 -> /imports/x6'}</span></div>
-              <div className="row split"><strong>X6 import</strong><span>{x6ImportStatus}</span></div>
-              <div className="row"><strong>Setup wizard</strong><span>{legacySignals}</span></div>
-              <div className="row split"><strong>Import</strong><span>{importStatus}</span></div>
-              <button className="ghost" onClick={submitConfigScan}>Scan X6/X7 Configs</button>
-            </div>
-          </Panel>
-          <Panel icon={<Volume2 />} title="Avatar + Speech">
-            <div className="list dense">
-              <div className="row split"><strong>TTS</strong><span>{muted ? 'disabled' : 'enabled'}</span></div>
-              <div className="row split"><strong>Microphone</strong><span>{micStatus}</span></div>
-              <div className="row split"><strong>Voice preference</strong><span>US Google female</span></div>
-              <div className="row split"><strong>Resolved voice</strong><span>{voiceName}</span></div>
-              <div className="row split"><strong>Auto-read responses</strong><span>off</span></div>
-              <div className="row split"><strong>Push-to-talk</strong><span>available</span></div>
-              <div className="row split"><strong>Provider</strong><span>{voiceStatus === 'unavailable' ? 'unavailable' : 'browser_speech_synthesis'}</span></div>
-              <div className="row split"><strong>Permission</strong><span>{micStatus}</span></div>
-              <div className="row split"><strong>Volume</strong><input aria-label="Settings voice volume" type="range" min="0" max="100" value={muted ? 0 : volume} onChange={(event) => changeVolume(Number(event.target.value))} /></div>
-              <button className="ghost" onClick={toggleMute}>{muted ? 'Unmute voice' : 'Mute voice'}</button>
-              <button className="ghost" onClick={readAloud}>Test voice</button>
-              <button className="ghost" onClick={startMicrophone}>Test microphone</button>
-              <pre className="codeBlock smallBlock">{JSON.stringify(audioReceipts[0] || { status: 'no_audio_receipts_yet' }, null, 2)}</pre>
-            </div>
-          </Panel>
-        </section>
-      )}
-
+      {developerOpen && <DeveloperCockpit files={files} selectedPath={selectedPath} setSelectedPath={setSelectedPath} proposal={proposal} code={code} setCode={setCode} proposeDiffCard={proposeDiffCard} requestApply={requestApply} searchStatus={searchStatus} imageStatus={imageStatus} selfBuildTrustSummary={selfBuildTrustSummary} selfBuildTrustStatus={selfBuildTrustStatus} modelDetails={modelDetails} memoryStatus={memoryStatus} memoryDetails={memoryDetails} team={team} capabilities={capabilities} integrations={integrations} githubStatus={githubStatus} dockerPresets={dockerPresets} githubAuth={githubAuth} githubOps={githubOps} githubOpsResult={githubOpsResult} refreshGitHubOps={refreshGitHubOps} previewGitHubOp={previewGitHubOp} appendMessage={appendMessage} githubApprovalCard={githubApprovalCard} nowId={nowId} bridgeStatus={bridgeStatus} x7ImportStatus={x7ImportStatus} x6ImportStatus={x6ImportStatus} legacySignals={legacySignals} importStatus={importStatus} submitConfigScan={submitConfigScan} muted={muted} micStatus={micStatus} voiceStatus={voiceStatus} voiceName={voiceName} volume={volume} changeVolume={changeVolume} toggleMute={toggleMute} readAloud={readAloud} startMicrophone={startMicrophone} audioReceipts={audioReceipts} />}
       {approvalOpen && proposal?.approval && (
         <div className="modalBackdrop" role="dialog" aria-modal="true" aria-label="Approval request">
           <div className="modal">

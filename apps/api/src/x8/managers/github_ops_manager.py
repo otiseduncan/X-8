@@ -94,7 +94,7 @@ class GitHubOpsManager:
             timeout=15,
         )
         if response.status_code >= 400:
-            return self._blocked(f"GitHub create repo failed: {response.status_code}")
+            return self._github_create_repo_error(response, clean, selected_visibility)
         data = response.json()
         return {"status": "applied", "repo": clean, "visibility": selected_visibility, "html_url": str(data.get("html_url", "")), "clone_url": self._sanitize_remote(str(data.get("clone_url", ""))), "reason": "GitHub repository created."}
 
@@ -153,3 +153,32 @@ class GitHubOpsManager:
 
     def _blocked(self, reason: str) -> dict[str, object]:
         return {"status": "blocked", "reason": reason, "changed_files": []}
+
+    def _github_create_repo_error(self, response: httpx.Response, repo: str, visibility: str) -> dict[str, object]:
+        body: dict[str, object] = {}
+        try:
+            parsed = response.json()
+            if isinstance(parsed, dict):
+                body = parsed
+        except ValueError:
+            body = {}
+        message = str(body.get("message") or "GitHub create repo failed.")
+        errors = body.get("errors")
+        validation_errors = errors if isinstance(errors, list) else []
+        documentation_url = str(body.get("documentation_url") or "")
+        likely_exists = response.status_code == 422 and (
+            "already exists" in message.lower()
+            or any("already_exists" in str(error).lower() or "name already exists" in str(error).lower() for error in validation_errors)
+        )
+        reason = f"GitHub create repo failed: {response.status_code}. {message}"
+        if likely_exists:
+            reason += " The repository likely already exists."
+        return self._blocked(reason) | {
+            "repo": repo,
+            "visibility": visibility,
+            "github_status_code": response.status_code,
+            "github_message": message,
+            "validation_errors": validation_errors,
+            "documentation_url": documentation_url,
+            "likely_repo_already_exists": likely_exists,
+        }
