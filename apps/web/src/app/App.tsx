@@ -6,18 +6,29 @@ import { CHAT_TIMEOUT_MS, applySelfBuildPatch, applyUpdate, connectGitHubRemote,
 import type { AttachmentReference, Capability, FileEntry, IntegrationStatus, PatchProposal, SessionDetail, TeamSeat } from '../types/contracts';
 import { CodeEditor } from '../components/cockpit/CodeEditor';
 import { StatusPill } from '../components/ui/StatusPill';
-import { AvatarPresencePanel, ChatTimeline, InfoDropdown, Panel, PushToTalkButton, TranscriptPreview, messageCopyText, transcriptMarkdown } from './AssistantComponents';
+import { AvatarPresencePanel, ChatHistoryPanel, ChatTimeline, InfoDropdown, PushToTalkButton, ThinkingIndicator, TranscriptPreview, messageCopyText, transcriptMarkdown } from './AssistantComponents';
 import type { AvatarRuntimeState, ChatCard, ChatMessage, InfoReceipt } from './AssistantComponents';
 import { errorCard, mapKernelCard, receiptCards } from './cardHelpers';
 import { DeveloperCockpit } from './DeveloperCockpit';
 import { classifyRequest, isGitHubCreateRepoRequest, parseGitHubCreateRepo } from './intentRouting';
 import { useAudioLifecycleDiagnostics } from './useAudioLifecycleDiagnostics';
+import { useLocalChatHistory } from './useLocalChatHistory';
 import { useVoiceSelection } from './useVoiceSelection';
+import './chatUsability.css';
 const nowId = () => `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+const MIN_THINKING_VISIBLE_MS = 500;
+const MIN_SPEAKING_VISIBLE_MS = 900;
+const RESPONDED_VISIBLE_MS = 650;
+const wait = (ms: number) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
   const speechInput = new SpeechInputManager();
 const speechOutput = new SpeechOutputManager();
 export function App() {
   const userInteracted = useRef(false);
+  const requestStartedAt = useRef(0);
+  const speechRun = useRef(0);
+  const timelineScrollRef = useRef<HTMLDivElement>(null);
+  const timelineEndRef = useRef<HTMLDivElement>(null);
+  const stickToLatestRef = useRef(true);
   const [capabilities, setCapabilities] = useState<Capability[]>([]);
   const [integrations, setIntegrations] = useState<IntegrationStatus[]>([]);
   const [team, setTeam] = useState<TeamSeat[]>([]);
@@ -59,16 +70,13 @@ export function App() {
   const [proposal, setProposal] = useState<PatchProposal | null>(null);
   const [approvalOpen, setApprovalOpen] = useState(false);
   const [developerOpen, setDeveloperOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [infoOpen, setInfoOpen] = useState(false);
+  const [userAwayFromLatest, setUserAwayFromLatest] = useState(false);
   const [entry, setEntry] = useState('');
   const [attachments, setAttachments] = useState<AttachmentReference[]>([]);
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      id: 'welcome',
-      role: 'assistant',
-      text: 'Ready. Ask me what you want to build, inspect, search, preview, or fix.'
-    }
-  ]);
+  const [localChatId, setLocalChatId] = useState(() => window.localStorage.getItem('x8.localActiveChatId') || nowId());
+  const [messages, setMessages] = useState<ChatMessage[]>([{ id: 'welcome', role: 'assistant', text: 'Ready. Ask me what you want to build, inspect, search, preview, or fix.', createdAt: new Date().toISOString() }]);
   const [error, setError] = useState('');
   const voiceSelection = useVoiceSelection(speechOutput.tts);
   const voiceName = voiceSelection.displayVoiceName;
@@ -88,7 +96,8 @@ export function App() {
     volume,
     speechSynthesisAvailable: speechOutput.tts.supported()
   });
-  const { chatPending, setChatPending, lastApiStatus, setLastApiStatus, setLastApiError, setLastTimeoutReason, setStage, startSpeechAttempt, markSpeechUnavailable, recordSpeechReceipt } = audioLifecycle;
+  const { chatPending, setChatPending, lastApiStatus, setLastApiStatus, setLastApiError, setLastTimeoutReason, setStage, startSpeechAttempt, markSpeechUnavailable, recordResponseLifecycle, markSpeechTriggered, markSpeechSkipped, recordSpeechReceipt, runRawAudioTest } = audioLifecycle;
+  const localHistory = useLocalChatHistory(localChatId, messages);
   useEffect(() => {
     Promise.all([loadCapabilities(), loadIntegrations(), loadTeam(), loadFiles(), loadDockerPresets(), loadGitHubStatus(), loadSearchStatus(), loadImageStatus(), loadBridgeStatus(), loadConfigImportStatus(), loadAvatarManifest(), loadSpeechStatus(), loadGitHubOpsAuthStatus(), loadGitHubOpsStatus()])
       .then(([caps, ints, seats, fileList, presets, github, search, image, bridge, configImport, avatar, speech, githubAuthStatus, githubOpsStatus]) => {
@@ -145,12 +154,7 @@ export function App() {
     setSessionId(session.session_id);
     window.localStorage.setItem('x8.activeSessionId', session.session_id);
     if (session.messages.length === 0) return;
-    setMessages(session.messages.map((message) => ({
-      id: message.message_id,
-      role: message.role,
-      text: message.content,
-      attachments: message.attachments || []
-    })));
+    setMessages(session.messages.map((message) => ({ id: message.message_id, role: message.role, text: message.content, createdAt: new Date().toISOString(), attachments: message.attachments || [] })));
     const latest = session.receipts[0];
     if (latest) {
       setLatestResult(`Session restored: ${String(latest.status || 'ok')}`);
@@ -171,7 +175,7 @@ export function App() {
       .catch(() => setCode('File could not be loaded from the configured workspace root.'));
   }, [selectedPath]);
   function appendMessage(message: ChatMessage) {
-    setMessages((current) => [...current, message]);
+    setMessages((current) => [...current, { ...message, createdAt: message.createdAt || new Date().toISOString() }]);
   }
   function appendAudioReceipt(receipt: SpeechReceipt) {
     setAudioReceipts((current) => [receipt, ...current].slice(0, 8));
@@ -201,7 +205,10 @@ export function App() {
     setLastApiStatus('pending');
     setLastApiError('');
     setLastTimeoutReason('');
+    requestStartedAt.current = Date.now();
     setStage('thinking');
+    stickToLatestRef.current = true;
+    setUserAwayFromLatest(false);
     appendMessage({ id: nowId(), role: 'user', text: text || 'Attached files for reference.', attachments: outgoingAttachments });
     try {
       await handleUserText(text || 'Attached files for reference.', outgoingAttachments);
@@ -293,8 +300,11 @@ export function App() {
     speechInput.transcript.clear();
     setMicStatus(speechInput.supported() ? 'ready' : 'unavailable');
     appendMessage({ id: nowId(), role: 'user', text: value });
+    requestStartedAt.current = Date.now();
     setStage('thinking');
     setChatPending(true);
+    stickToLatestRef.current = true;
+    setUserAwayFromLatest(false);
     void handleUserText(value).finally(() => setChatPending(false));
   }
   async function createAssistantReply(text: string, outgoingAttachments: AttachmentReference[] = []) {
@@ -309,14 +319,17 @@ export function App() {
       setLatestReceipt(response.data.receipt || response.receipts?.[0] || null);
       setLatestResult(outgoingAttachments.length ? `Attachments processed: ${response.status}` : response.status);
       setLastApiStatus(response.status || 'ok');
+      const responseText = response.data.assistant_message.content;
+      const responseCards = response.data.assistant_message.cards.map(mapKernelCard);
+      recordResponseLifecycle(responseCards.length ? 'text-with-cards' : 'deterministic/text-only', Boolean(responseText.trim()), responseCards.length > 0);
       appendMessage({
         id: response.data.message_id || nowId(),
         role: 'assistant',
-        text: response.data.assistant_message.content,
+        text: responseText,
         attachments: response.data.attachments,
-        cards: response.data.assistant_message.cards.map(mapKernelCard)
+        cards: responseCards
       });
-      setStage(muted ? 'muted' : 'idle');
+      await finishAssistantResponseLifecycle(responseText, responseCards.length);
     } catch (exc) {
       const timedOut = exc instanceof DOMException && exc.name === 'AbortError';
       const reason = timedOut ? `Chat request timed out after ${CHAT_TIMEOUT_MS}ms.` : exc instanceof Error ? exc.message : 'API request failed.';
@@ -745,6 +758,7 @@ export function App() {
     setLegacySignals(`${response.data.providers_found.length} providers, ${response.data.secrets_detected_redacted.length} redacted secrets`);
   }
   function resetStage() {
+    speechRun.current += 1;
     speechOutput.playback.stop();
     setChatPending(false);
     setVoiceStatus(muted ? 'muted' : speechOutput.tts.supported() ? 'ready' : 'unavailable');
@@ -756,35 +770,89 @@ export function App() {
   async function unlockTestVoice() { await readAloud('XV8 voice test.'); }
   async function readAloud(textOverride = '') {
     const latest = textOverride || [...messages].reverse().find((message) => message.role === 'assistant')?.text || 'XV8 is ready.';
-    startSpeechAttempt(latest);
+    await speakText(latest, 'manual voice test');
+    try { await createSpeechReceipt(); } catch { appendAudioReceipt(speechOutput.tts.outputReceipt('speech_output_failed', 'receipt_error', new Date().toISOString(), voiceName, 'Backend speech receipt endpoint failed.')); }
+  }
+
+  async function finishAssistantResponseLifecycle(text: string, cardCount: number) {
+    const elapsed = requestStartedAt.current ? Date.now() - requestStartedAt.current : MIN_THINKING_VISIBLE_MS;
+    if (elapsed < MIN_THINKING_VISIBLE_MS) await wait(MIN_THINKING_VISIBLE_MS - elapsed);
+    if (!text.trim()) {
+      markSpeechSkipped('No assistant text was available for speech.');
+      setStage('responded');
+      await wait(RESPONDED_VISIBLE_MS);
+      setStage('idle');
+      return;
+    }
+    await speakText(text, cardCount ? 'assistant response text with cards' : 'assistant deterministic/text-only response');
+  }
+
+  async function showRespondedThenIdle(reason: string, status: TtsStatus = 'ready') {
+    markSpeechSkipped(reason);
+    setVoiceStatus(status);
+    setStage('responded');
+    await wait(RESPONDED_VISIBLE_MS);
+    setStage('idle');
+  }
+
+  async function speakText(text: string, reason: string) {
+    const runId = speechRun.current + 1;
+    speechRun.current = runId;
+    startSpeechAttempt(text);
     const outputMuted = muted || volume <= 0;
     if (outputMuted) {
-      setVoiceStatus('muted');
-      setStage('muted');
-      appendAudioReceipt(speechOutput.tts.outputReceipt('speech_output_skipped', 'muted', new Date().toISOString(), voiceName, 'Muted state prevented speech playback.'));
+      const receipt = speechOutput.tts.outputReceipt('speech_output_skipped', 'muted', new Date().toISOString(), voiceName, 'Muted state prevented speech playback.');
+      appendAudioReceipt(receipt);
+      await showRespondedThenIdle('Muted state prevented speech playback.', 'muted');
       return;
     }
     if (!speechOutput.tts.supported()) {
-      setVoiceStatus('unavailable');
       markSpeechUnavailable('Speech synthesis is unavailable.');
-      setStage('idle');
-      appendMessage({
-        id: nowId(),
-        role: 'assistant',
-        text: 'Text-to-speech is unavailable in this browser.',
-        cards: [errorCard('TTS unavailable', 'No Google Cloud TTS credentials are configured and browser speech synthesis is unavailable.')]
-      });
+      if (reason === 'manual voice test') {
+        appendMessage({
+          id: nowId(),
+          role: 'assistant',
+          text: 'Text-to-speech is unavailable in this browser.',
+          cards: [errorCard('TTS unavailable', 'No Google Cloud TTS credentials are configured and browser speech synthesis is unavailable.')]
+        });
+      }
+      await showRespondedThenIdle('Speech synthesis is unavailable.', 'unavailable');
       return;
     }
-    speechOutput.tts.speak(latest, {
-      onStatus: (status) => {
-        setVoiceStatus(status);
-        setStage(status === 'speaking' ? 'speaking' : status === 'error' ? 'idle' : 'idle');
-      },
-      onVoice: voiceSelection.recordResolvedVoice,
-      onReceipt: appendAudioReceipt
-    }, volume / 100, 20000, voiceSelection.selectedVoiceURI);
-    try { await createSpeechReceipt(); } catch { appendAudioReceipt(speechOutput.tts.outputReceipt('speech_output_failed', 'receipt_error', new Date().toISOString(), voiceName, 'Backend speech receipt endpoint failed.')); }
+    markSpeechTriggered(reason);
+    await new Promise<void>((resolve) => {
+      let speakingStartedAt = 0;
+      let settled = false;
+      const finish = async () => {
+        if (settled) return;
+        settled = true;
+        if (speakingStartedAt) {
+          const remaining = Math.max(0, MIN_SPEAKING_VISIBLE_MS - (Date.now() - speakingStartedAt));
+          if (remaining > 0) await wait(remaining);
+        } else if (speechRun.current === runId) {
+          setStage('responded');
+          await wait(RESPONDED_VISIBLE_MS);
+        }
+        if (speechRun.current === runId) setStage('idle');
+        resolve();
+      };
+      speechOutput.tts.speak(text, {
+        onStatus: (status) => {
+          setVoiceStatus(status);
+          if (status === 'speaking') {
+            speakingStartedAt = Date.now();
+            setStage('speaking');
+            return;
+          }
+          if (status === 'ready' || status === 'error' || status === 'unavailable') void finish();
+        },
+        onVoice: voiceSelection.recordResolvedVoice,
+        onReceipt: (receipt) => {
+          appendAudioReceipt(receipt);
+          if (receipt.status === 'speech_output_failed' || receipt.status === 'speech_output_timeout' || receipt.status === 'speech_output_ended') void finish();
+        }
+      }, volume / 100, 20000, voiceSelection.selectedVoiceURI);
+    });
   }
   function toggleMute() {
     const next = !muted;
@@ -842,9 +910,13 @@ export function App() {
 
   async function copyMessage(message: ChatMessage) { await writeClipboard(messageCopyText(message)); setLatestResult('Copied message.'); }
 
-  function copyTranscript(includeReceipts = false) {
-    void writeClipboard(transcriptMarkdown(messages, includeReceipts));
-    setLatestResult(includeReceipts ? 'Copied transcript with receipts.' : 'Copied transcript.');
+  async function copyTranscript(includeReceipts = false) {
+    try {
+      await writeClipboard(transcriptMarkdown(messages, includeReceipts));
+      setLatestResult(includeReceipts ? 'Copied transcript with receipts.' : 'Copied transcript.');
+    } catch {
+      setLatestResult('Copy transcript failed.');
+    }
   }
 
   function downloadTranscript() {
@@ -860,64 +932,82 @@ export function App() {
 
   function pauseSpeech() { speechOutput.playback.pause(); setVoiceStatus('paused'); setStage('idle'); appendAudioReceipt(speechOutput.tts.outputReceipt('speech_output_paused', 'paused', new Date().toISOString(), voiceName)); }
   function resumeSpeech() { speechOutput.playback.resume(); setVoiceStatus('speaking'); setStage('speaking'); appendAudioReceipt(speechOutput.tts.outputReceipt('speech_output_resumed', 'speaking', new Date().toISOString(), voiceName)); }
-  function stopSpeech() { speechOutput.playback.stop(); setVoiceStatus(muted ? 'muted' : 'ready'); setStage(muted ? 'muted' : 'idle'); appendAudioReceipt(speechOutput.tts.outputReceipt('speech_output_stopped', 'stopped', new Date().toISOString(), voiceName)); }
+  function stopSpeech() { speechRun.current += 1; speechOutput.playback.stop(); setVoiceStatus(muted ? 'muted' : 'ready'); setStage(muted ? 'muted' : 'idle'); appendAudioReceipt(speechOutput.tts.outputReceipt('speech_output_stopped', 'stopped', new Date().toISOString(), voiceName)); }
+
+  useEffect(() => { window.localStorage.setItem('x8.localActiveChatId', localChatId); }, [localChatId]);
+
+  useEffect(() => { if (!stickToLatestRef.current) return undefined; scrollToLatest(); const timer = window.setInterval(scrollToLatest, 100); window.setTimeout(() => window.clearInterval(timer), 1600); return () => window.clearInterval(timer); }, [messages, chatPending, speechState, lastApiStatus]);
+
+  function scrollToLatest() { window.requestAnimationFrame(() => { timelineEndRef.current?.scrollIntoView({ block: 'end' }); const node = timelineScrollRef.current; if (node) node.scrollTop = node.scrollHeight; }); }
+
+  function trackTimelineScroll() {
+    const node = timelineScrollRef.current;
+    if (!node) return;
+    const nearBottom = node.scrollHeight - node.scrollTop - node.clientHeight < 48;
+    stickToLatestRef.current = nearBottom;
+    setUserAwayFromLatest(!nearBottom);
+  }
+
+  function jumpToLatest() {
+    stickToLatestRef.current = true;
+    setUserAwayFromLatest(false);
+    scrollToLatest();
+  }
+
+  function resetChat(nextId: string, result: string) {
+    setMessages([]);
+    setEntry('');
+    setAttachments([]);
+    setTranscript('');
+    setSessionId(undefined);
+    setLocalChatId(nextId);
+    setLatestResult(result);
+  }
+
+  function clearChat() {
+    if (!window.confirm('Clear the current visible chat? Saved history will not be deleted.')) return;
+    resetChat(nowId(), 'Started a clear chat.');
+  }
+
+  function startNewChat() {
+    resetChat(nowId(), 'Started a new chat.');
+    setHistoryOpen(false);
+  }
+
+  function restoreLocalSession(session: { id: string; messages: ChatMessage[] }) {
+    setLocalChatId(session.id);
+    setMessages(session.messages);
+    setHistoryOpen(false);
+    setLatestResult('Restored local chat history.');
+  }
 
   return (
     <main className="shell" data-theme="neon-blue">
       <section className="assistantFrame" aria-label="Assistant Mode">
-        <AvatarPresencePanel
-          state={speechState}
-          fallbackSrc={avatarAsset}
-          muted={muted}
-          volume={volume}
-          voices={voiceSelection.voices}
-          selectedVoiceURI={voiceSelection.selectedVoiceURI}
-          voiceStatus={voiceStatus}
-          requestedVoiceLabel={voiceSelection.requestedVoiceLabel}
-          actualVoiceName={voiceSelection.actualVoiceName}
-          voiceFallbackReason={voiceSelection.voiceFallbackReason}
-          micStatus={micStatus}
-          chatDiagnostics={audioLifecycle.chatDiagnostics}
-          audioDiagnostics={audioLifecycle.audioDiagnostics}
-          avatarDiagnostics={audioLifecycle.avatarDiagnostics}
-          onToggleMute={toggleMute}
-          onVolumeChange={changeVolume}
-          onVoiceSelect={voiceSelection.selectVoice}
-          onRefreshVoices={() => void voiceSelection.refreshVoices()}
-          onPreviewSelectedVoice={() => void readAloud('XV8 selected voice preview.')}
-          onResetStage={resetStage}
-          onStopAudio={stopSpeech}
-          onUnlockTestVoice={() => void unlockTestVoice()}
-        />
+        <AvatarPresencePanel state={speechState} fallbackSrc={avatarAsset} muted={muted} volume={volume} voices={voiceSelection.voices} selectedVoiceURI={voiceSelection.selectedVoiceURI} voiceStatus={voiceStatus} requestedVoiceLabel={voiceSelection.requestedVoiceLabel} actualVoiceName={voiceSelection.actualVoiceName} voiceFallbackReason={voiceSelection.voiceFallbackReason} micStatus={micStatus} chatDiagnostics={audioLifecycle.chatDiagnostics} audioDiagnostics={audioLifecycle.audioDiagnostics} avatarDiagnostics={audioLifecycle.avatarDiagnostics} onToggleMute={toggleMute} onVolumeChange={changeVolume} onVoiceSelect={voiceSelection.selectVoice} onRefreshVoices={() => void voiceSelection.refreshVoices()} onPreviewSelectedVoice={() => void readAloud('XV8 selected voice preview.')} onResetStage={resetStage} onStopAudio={stopSpeech} onPlayRawAudioTest={() => void runRawAudioTest()} onUnlockTestVoice={() => void unlockTestVoice()} />
 
         <section className="conversationPane">
           <header className="conversationHeader">
-            <div className="modeLabel">Assistant Mode</div>
+            <div><div className="modeLabel">Assistant Mode</div><span className="statusText">{latestResult}</span></div>
             <div className="topbarActions">
-              <InfoDropdown
-                open={infoOpen}
-                onToggle={() => setInfoOpen((open) => !open)}
-                bridgeStatus={bridgeStatus}
-                modelStatus={modelStatus}
-                memoryStatus={memoryStatus}
-                githubStatus={githubStatus}
-                voiceStatus={voiceStatus}
-                voiceName={voiceName}
-                latestReceipt={latestReceipt}
-                latestResult={latestResult}
-                onCopyTranscript={() => copyTranscript(false)}
-                onCopyTranscriptWithReceipts={() => copyTranscript(true)}
-                onDownloadTranscript={downloadTranscript}
-              />
+              <button className="ghost" type="button" onClick={() => void copyTranscript(false)}><Copy size={16} /> Copy transcript</button>
+              <button className="ghost" type="button" onClick={clearChat}>Clear chat</button>
+              <button className="ghost" type="button" aria-expanded={historyOpen} onClick={() => setHistoryOpen((open) => !open)}><FileText size={16} /> History</button>
+              <InfoDropdown open={infoOpen} onToggle={() => setInfoOpen((open) => !open)} bridgeStatus={bridgeStatus} modelStatus={modelStatus} memoryStatus={memoryStatus} githubStatus={githubStatus} voiceStatus={voiceStatus} voiceName={voiceName} latestReceipt={latestReceipt} latestResult={latestResult} onCopyTranscript={() => void copyTranscript(false)} onCopyTranscriptWithReceipts={() => void copyTranscript(true)} onDownloadTranscript={downloadTranscript} />
               <button className="ghost iconButton" aria-expanded={developerOpen} aria-label="Settings" onClick={() => setDeveloperOpen((open) => !open)}>
                 <Settings size={18} />
               </button>
             </div>
           </header>
 
-          {error && <div className="error">{error}</div>}
+          <div className="conversationStatus">{error && <div className="error">{error}</div>}{historyOpen && <ChatHistoryPanel sessions={localHistory.sessions} activeId={localChatId} onNew={startNewChat} onRestore={restoreLocalSession} onDelete={localHistory.deleteSession} />}</div>
 
-          <ChatTimeline messages={messages} onToggle={updateCard} onRequestApply={requestApply} onCopyMessage={copyMessage} />
+          <div className="messageScrollArea" ref={timelineScrollRef} onScroll={trackTimelineScroll} aria-label="Message list">
+            <ChatTimeline messages={messages} onToggle={updateCard} onRequestApply={requestApply} onCopyMessage={copyMessage} />
+            <ThinkingIndicator active={chatPending} stage={speechState} status={lastApiStatus} />
+            <div ref={timelineEndRef} />
+          </div>
+          {userAwayFromLatest && <button className="jumpLatest" type="button" onClick={jumpToLatest}>Jump to latest</button>}
 
           <form className="messageEntry" onSubmit={submitMessage}>
             {attachments.length > 0 && (
@@ -930,30 +1020,13 @@ export function App() {
                 ))}
               </div>
             )}
-            {transcript && (
-              <TranscriptPreview
-                transcript={transcript}
-                onCancel={cancelTranscript}
-                onSend={sendTranscript}
-              />
-            )}
+            {transcript && <TranscriptPreview transcript={transcript} onCancel={cancelTranscript} onSend={sendTranscript} />}
             <div className="inputDock">
               <label className="ghost iconButton attachButton" aria-label="Attach file">
                 <Paperclip size={18} />
                 <input aria-label="Attach file input" type="file" multiple onChange={(event) => attachFiles(event.target.files)} />
               </label>
-              <textarea
-                aria-label="Message XV8"
-                value={entry}
-                onChange={(event) => setEntry(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' && !event.shiftKey) {
-                    event.preventDefault();
-                    void submitMessage();
-                  }
-                }}
-                placeholder="Ask XV8 anything..."
-              />
+              <textarea aria-label="Message XV8" value={entry} onChange={(event) => setEntry(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void submitMessage(); } }} placeholder="Ask XV8 anything..." />
               <PushToTalkButton onStart={startMicrophone} />
               <button className="primary" type="submit" disabled={!entry.trim() && attachments.length === 0}>
                 <Send size={18} /> Send

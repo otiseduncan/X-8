@@ -129,19 +129,26 @@ button:disabled {
   color: var(--color-success);
 }
 
-.avatarAudioDock {
-  position: absolute;
-  left: 10px;
-  right: 10px;
-  bottom: 10px;
+.audioControls {
+  width: 100%;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: rgba(5, 7, 13, 0.62);
+  color: var(--color-muted);
+}
+
+.audioControls summary {
+  cursor: pointer;
+  color: var(--color-text);
+  padding: 10px 12px;
+}
+
+.audioControlGrid {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
   gap: 8px;
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
-  background: rgba(5, 7, 13, 0.86);
-  padding: 8px;
+  padding: 0 12px 12px;
 }
 
 .speakerButton {
@@ -169,6 +176,29 @@ button:disabled {
 
 .voiceMiniStatus {
   grid-column: 1 / -1;
+}
+
+.voiceSelector,
+.voiceFallback {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  color: var(--color-muted);
+  font-size: 0.82rem;
+}
+
+.voiceSelector {
+  grid-column: 1 / -1;
+}
+
+.voiceSelector select {
+  min-width: 0;
+  width: 100%;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-bg);
+  color: var(--color-text);
+  padding: 8px 10px;
 }
 
 .assistantIdentityCard {
@@ -246,10 +276,36 @@ h2 {
   gap: 8px;
 }
 
+.audioDiagnostics {
+  width: 100%;
+  color: var(--color-muted);
+  font-size: 0.76rem;
+}
+
+.audioDiagnostics summary {
+  cursor: pointer;
+  color: var(--color-text);
+  margin-bottom: 6px;
+}
+
+.diagnosticGrid,
+.diagnosticGrid section {
+  display: grid;
+  gap: 5px;
+}
+
 .conversationPane {
   display: grid;
-  grid-template-rows: auto minmax(260px, 1fr) auto;
+  position: relative;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
   min-height: calc(100vh - 56px);
+  max-height: calc(100vh - 56px);
+  min-width: 0;
+  overflow: hidden;
+}
+
+.conversationStatus {
+  min-height: 0;
 }
 
 .conversationHeader,
@@ -343,12 +399,21 @@ h2 {
   padding: 14px;
 }
 
+.messageScrollArea {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 2px 4px 10px 0;
+  scroll-behavior: auto;
+}
+
 .chatTimeline {
   align-content: end;
   display: grid;
   gap: 12px;
   padding: 10px 2px 14px;
 }
+
 
 .message {
   display: flex;
@@ -371,7 +436,7 @@ h2 {
 
 .message.assistant .messageBubble {
   border-color: var(--color-xv-accent-border);
-  background: linear-gradient(180deg, rgba(168, 85, 255, 0.12), rgba(11, 15, 26, 0.82));
+  background: linear-gradient(180deg, rgba(0, 212, 255, 0.1), rgba(11, 15, 26, 0.82));
 }
 
 .message.assistant .messageRole {
@@ -453,13 +518,28 @@ h2 {
 }
 
 .messageEntry {
-  position: sticky;
-  bottom: 0;
+  position: relative;
+  z-index: 2;
   border: 1px solid var(--color-border);
   border-radius: 8px;
   background: rgba(11, 15, 26, 0.96);
   box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.22), 0 0 22px rgba(0, 212, 255, 0.08);
   padding: 10px;
+}
+
+.jumpLatest {
+  position: absolute;
+  right: 14px;
+  bottom: 92px;
+  z-index: 3;
+  min-height: 32px;
+  border: 1px solid var(--color-primary);
+  border-radius: 999px;
+  background: rgba(5, 7, 13, 0.92);
+  color: var(--color-primary);
+  cursor: pointer;
+  padding: 0 12px;
+  box-shadow: 0 0 18px rgba(0, 212, 255, 0.16);
 }
 
 .inputDock {
@@ -507,6 +587,7 @@ input:focus {
   background: rgba(0, 212, 255, 0.07);
   padding: 10px;
 }
+
 
 .inlineCard {
   margin-top: 12px;
@@ -809,6 +890,11 @@ iframe {
   .compactStatus {
     grid-column: 1 / -1;
   }
+
+  .audioControls,
+  .audioDiagnostics {
+    grid-column: 1 / -1;
+  }
 }
 
 @media (max-width: 700px) {
@@ -825,7 +911,7 @@ iframe {
   }
 
   .messageEntry {
-    position: static;
+    position: relative;
   }
 
   .iconButton,

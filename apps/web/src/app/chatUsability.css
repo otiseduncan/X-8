@@ -1,0 +1,123 @@
+.emptyChat {
+  display: grid;
+  min-height: 180px;
+  place-items: center;
+  border: 1px dashed var(--color-border);
+  border-radius: 8px;
+  color: var(--color-muted);
+  background: rgba(0, 212, 255, 0.05);
+}
+
+.thinkingIndicator {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: min(520px, 100%);
+  margin: 0 0 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: rgba(0, 212, 255, 0.08);
+  color: var(--color-text);
+  padding: 12px 14px;
+}
+
+.thinkingIndicator.caution {
+  border-color: var(--color-warning);
+}
+
+.thinkingIndicator div {
+  display: grid;
+  gap: 3px;
+}
+
+.thinkingIndicator span {
+  color: var(--color-muted);
+  font-size: 0.82rem;
+}
+
+.thinkingDots {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.thinkingDots i {
+  display: block;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--color-primary);
+  animation: thinkingPulse 1s infinite ease-in-out;
+}
+
+.thinkingDots i:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.thinkingDots i:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes thinkingPulse {
+  0%, 100% {
+    opacity: 0.35;
+    transform: translateY(0);
+  }
+  50% {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
+}
+
+.historyPanel {
+  display: grid;
+  gap: 12px;
+  min-height: 0;
+  max-height: 280px;
+  margin-bottom: 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: rgba(5, 7, 13, 0.92);
+  padding: 12px;
+  overflow: auto;
+}
+
+.historyPanel header,
+.historyItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.historyList {
+  display: grid;
+  gap: 8px;
+}
+
+.historyItem {
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 8px;
+  background: rgba(17, 24, 39, 0.62);
+  padding: 8px;
+}
+
+.historyItem.active {
+  border-color: var(--color-primary);
+}
+
+.historyItem > button:first-child {
+  display: grid;
+  flex: 1;
+  gap: 4px;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-text);
+  cursor: pointer;
+  text-align: left;
+}
+
+.historyItem span {
+  color: var(--color-muted);
+  font-size: 0.78rem;
+}

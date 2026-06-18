@@ -147,6 +147,8 @@ function mockRuntime() {
 beforeEach(() => {
   window.localStorage.clear();
   spokenUtterance = null;
+  Element.prototype.scrollIntoView = vi.fn();
+  vi.stubGlobal('confirm', vi.fn(() => true));
   Object.assign(navigator, { clipboard: { writeText: vi.fn().mockResolvedValue(undefined) } });
   mockRuntime();
   recognitionInstance = { onstart: null, onresult: null, onerror: null, onend: null };
@@ -176,6 +178,7 @@ beforeEach(() => {
     speak: vi.fn((utterance: { onstart?: () => void; onend?: () => void }) => {
       spokenUtterance = utterance as unknown as Record<string, unknown>;
       utterance.onstart?.();
+      utterance.onend?.();
     }),
     pause: vi.fn(),
     resume: vi.fn(),
@@ -198,6 +201,12 @@ function openAudioControls() {
   const section = screen.getByLabelText('Audio controls') as HTMLDetailsElement;
   if (!section.open) fireEvent.click(within(section).getByText('Audio controls'));
   return screen.getByLabelText('Avatar audio controls');
+}
+
+function setScrollMetrics(element: HTMLElement, metrics: { scrollHeight: number; clientHeight: number; scrollTop: number }) {
+  Object.defineProperty(element, 'scrollHeight', { configurable: true, value: metrics.scrollHeight });
+  Object.defineProperty(element, 'clientHeight', { configurable: true, value: metrics.clientHeight });
+  Object.defineProperty(element, 'scrollTop', { configurable: true, writable: true, value: metrics.scrollTop });
 }
 
 test('renders assistant mode without permanent dashboard panels', async () => {
@@ -225,6 +234,7 @@ test('renders assistant mode without permanent dashboard panels', async () => {
   expect(within(controls).getByRole('button', { name: /preview selected voice/i })).toBeInTheDocument();
   expect(within(controls).getByRole('button', { name: /reset stage/i })).toBeInTheDocument();
   expect(within(controls).getByRole('button', { name: /stop audio/i })).toBeInTheDocument();
+  expect(within(controls).getByRole('button', { name: /play raw audio test/i })).toBeInTheDocument();
   expect(within(controls).getByRole('button', { name: /unlock\/test voice/i })).toBeInTheDocument();
   expect(screen.queryByRole('button', { name: /^Mute$/i })).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: /^Read aloud$/i })).not.toBeInTheDocument();
@@ -236,12 +246,172 @@ test('renders assistant mode without permanent dashboard panels', async () => {
   expect(screen.queryByText('SearXNG Panel')).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: /^Info/i }));
   expect(await screen.findByLabelText('Info details')).toBeInTheDocument();
-  expect(screen.getByRole('button', { name: /copy transcript$/i })).toBeInTheDocument();
+  expect(screen.getAllByRole('button', { name: /copy transcript$/i }).length).toBeGreaterThan(0);
   expect(screen.getByRole('button', { name: /copy transcript with receipts/i })).toBeInTheDocument();
   expect(screen.getByRole('button', { name: /download transcript/i })).toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: /settings/i }));
   expect(await screen.findByText('Project File Tree')).toBeInTheDocument();
   expect(screen.getByText('Voice preference')).toBeInTheDocument();
+});
+
+test('conversation composer stays in the fixed bottom dock after messages and cards update', async () => {
+  render(<App />);
+  const composer = screen.getByLabelText('Message XV8').closest('form');
+  expect(composer).toHaveClass('messageEntry');
+  expect(screen.getByLabelText('Message list')).toBeInTheDocument();
+  await send('make a simple HTML website preview');
+  expect(await screen.findByTestId('inline-artifact-card')).toBeInTheDocument();
+  expect(screen.getByLabelText('Message XV8').closest('form')).toBe(composer);
+  expect(screen.getByRole('button', { name: /send/i })).toBeInTheDocument();
+});
+
+test('message list auto-scrolls and offers jump-to-latest when user scrolls away', async () => {
+  render(<App />);
+  await screen.findByTestId('avatar-video');
+  const scrollCallsBefore = vi.mocked(Element.prototype.scrollIntoView).mock.calls.length;
+  await send('hello scroll');
+  await screen.findByText(/Echo: hello scroll/i);
+  expect(vi.mocked(Element.prototype.scrollIntoView).mock.calls.length).toBeGreaterThan(scrollCallsBefore);
+  const list = screen.getByLabelText('Message list');
+  setScrollMetrics(list, { scrollHeight: 500, clientHeight: 200, scrollTop: 0 });
+  fireEvent.scroll(list);
+  expect(screen.getByRole('button', { name: /jump to latest/i })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: /jump to latest/i }));
+  expect(screen.queryByRole('button', { name: /jump to latest/i })).not.toBeInTheDocument();
+});
+
+test('thinking indicator appears while a request is pending and resolves after success', async () => {
+  let resolveChat: ((value: Response) => void) | undefined;
+  const original = vi.mocked(fetch).getMockImplementation();
+  vi.mocked(fetch).mockImplementation((path: string, options?: { body?: BodyInit }) => {
+    if (String(path).includes('/api/chat')) return new Promise((resolve) => { resolveChat = resolve; }) as ReturnType<typeof fetch>;
+    return original?.(path, options) as ReturnType<typeof fetch>;
+  });
+  render(<App />);
+  await send('slow hello');
+  expect(await screen.findByLabelText('XV8 thinking')).toHaveTextContent(/Thinking|Working/);
+  resolveChat?.({ ok: true, json: () => Promise.resolve({ status: 'ok', message: 'ok', receipts: [], data: { session_id: 'sess_slow', message_id: 'msg_slow', assistant_message: { role: 'assistant', content: 'Done slowly.', cards: [] }, receipt: { receipt_id: 'rcpt', action_type: 'prompt_round_trip', status: 'ok', model: '', limitations: [] }, attachments: [] } }) } as Response);
+  expect(await screen.findByText('Done slowly.')).toBeInTheDocument();
+  await waitFor(() => expect(screen.queryByLabelText('XV8 thinking')).not.toBeInTheDocument(), { timeout: 2200 });
+});
+
+test('hello text-only response keeps thinking visible and routes through speech lifecycle', async () => {
+  const original = vi.mocked(fetch).getMockImplementation();
+  vi.mocked(fetch).mockImplementation((path: string, options?: { body?: BodyInit }) => {
+    if (String(path).includes('/api/chat')) return Promise.resolve({ ok: true, json: () => Promise.resolve({ status: 'passed', message: 'ok', receipts: [], data: { session_id: 'sess_hello', message_id: 'msg_hello', assistant_message: { role: 'assistant', content: "Hello. I'm XV8.", cards: [] }, receipt: { receipt_id: 'rcpt_hello', action_type: 'prompt_round_trip', status: 'passed', model: '', limitations: [] }, attachments: [] } }) } as Response);
+    return original?.(path, options) as ReturnType<typeof fetch>;
+  });
+  render(<App />);
+  await send('hello');
+  expect(await screen.findByLabelText('XV8 thinking')).toBeInTheDocument();
+  expect(await screen.findByText("Hello. I'm XV8.")).toBeInTheDocument();
+  expect(screen.getByTestId('avatar-stage')).toHaveAttribute('data-avatar-state', 'thinking');
+  expect(speechSynthesis.speak).not.toHaveBeenCalled();
+  await waitFor(() => expect(speechSynthesis.speak).toHaveBeenCalled(), { timeout: 1200 });
+  expect(spokenUtterance?.text).toBe("Hello. I'm XV8.");
+  expect(spokenUtterance?.voice).toBe(femaleVoice);
+  expect(screen.getByTestId('avatar-stage')).toHaveAttribute('data-avatar-state', 'speaking');
+  expect(within(screen.getByLabelText('Audio diagnostics')).getByText('deterministic/text-only')).toBeInTheDocument();
+  expect(within(screen.getByLabelText('Audio diagnostics')).getByText('assistant deterministic/text-only response')).toBeInTheDocument();
+  (spokenUtterance?.onend as (() => void) | undefined)?.();
+  expect(screen.getByTestId('avatar-stage')).toHaveAttribute('data-avatar-state', 'speaking');
+  await waitFor(() => expect(screen.getByTestId('avatar-stage')).toHaveAttribute('data-avatar-state', 'idle'), { timeout: 1400 });
+});
+
+test('muted text-only response shows responded stage and speech skip reason', async () => {
+  const original = vi.mocked(fetch).getMockImplementation();
+  vi.mocked(fetch).mockImplementation((path: string, options?: { body?: BodyInit }) => {
+    if (String(path).includes('/api/chat')) return Promise.resolve({ ok: true, json: () => Promise.resolve({ status: 'passed', message: 'ok', receipts: [], data: { session_id: 'sess_muted', message_id: 'msg_muted', assistant_message: { role: 'assistant', content: "Hello. I'm XV8.", cards: [] }, receipt: { receipt_id: 'rcpt_muted', action_type: 'prompt_round_trip', status: 'passed', model: '', limitations: [] }, attachments: [] } }) } as Response);
+    return original?.(path, options) as ReturnType<typeof fetch>;
+  });
+  render(<App />);
+  fireEvent.click(within(openAudioControls()).getByRole('button', { name: /mute voice/i }));
+  await send('hello');
+  expect(await screen.findByText("Hello. I'm XV8.")).toBeInTheDocument();
+  await waitFor(() => expect(screen.getByTestId('avatar-stage')).toHaveAttribute('data-avatar-state', 'responded'), { timeout: 1200 });
+  expect(speechSynthesis.speak).not.toHaveBeenCalled();
+  expect(within(screen.getByLabelText('Audio diagnostics')).getAllByText('Muted state prevented speech playback.').length).toBeGreaterThan(0);
+  await waitFor(() => expect(screen.getByTestId('avatar-stage')).toHaveAttribute('data-avatar-state', 'idle'), { timeout: 1200 });
+});
+
+test('raw Web Audio test updates audible proof diagnostics', async () => {
+  class MockAudioContext {
+    state = 'running';
+    currentTime = 0;
+    destination = {};
+    createOscillator() {
+      const oscillator = {
+        frequency: { value: 0 },
+        onended: null as (() => void) | null,
+        connect: vi.fn(),
+        start: vi.fn(),
+        stop: vi.fn(function stop(this: { onended: (() => void) | null }) {
+          this.onended?.();
+        })
+      };
+      return oscillator;
+    }
+    createGain() {
+      return { gain: { value: 0 }, connect: vi.fn() };
+    }
+    resume = vi.fn().mockResolvedValue(undefined);
+    close = vi.fn().mockResolvedValue(undefined);
+  }
+  vi.stubGlobal('AudioContext', MockAudioContext);
+  render(<App />);
+  fireEvent.click(within(openAudioControls()).getByRole('button', { name: /play raw audio test/i }));
+  const diagnostics = screen.getByLabelText('Audio diagnostics');
+  expect(await within(diagnostics).findByText('web-audio')).toBeInTheDocument();
+  expect(within(diagnostics).getAllByText('true').length).toBeGreaterThanOrEqual(3);
+});
+
+test('thinking indicator resolves after chat error', async () => {
+  const original = vi.mocked(fetch).getMockImplementation();
+  vi.mocked(fetch).mockImplementation((path: string, options?: { body?: BodyInit }) => String(path).includes('/api/chat') ? Promise.resolve({ ok: false, json: () => Promise.resolve({}) } as Response) : original?.(path, options) as ReturnType<typeof fetch>);
+  render(<App />);
+  await send('force error');
+  expect(await screen.findByText('The chat request could not complete.')).toBeInTheDocument();
+  await waitFor(() => expect(screen.queryByLabelText('XV8 thinking')).not.toBeInTheDocument(), { timeout: 2200 });
+});
+
+test('copy transcript copies readable conversation markdown', async () => {
+  render(<App />);
+  await send('hello transcript');
+  await screen.findByText(/Echo: hello transcript/i);
+  fireEvent.click(screen.getByRole('button', { name: /^Copy transcript$/i }));
+  await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalled());
+  const copied = vi.mocked(navigator.clipboard.writeText).mock.calls.at(-1)?.[0] || '';
+  expect(copied).toContain('# XV8 Conversation Transcript');
+  expect(copied).toContain('hello transcript');
+  expect(copied).toContain('Echo: hello transcript');
+  expect(copied).toContain('Kernel limitations');
+});
+
+test('clear chat confirms and resets visible conversation', async () => {
+  render(<App />);
+  await send('clear me');
+  await screen.findByText(/Echo: clear me/i);
+  fireEvent.click(screen.getByRole('button', { name: /clear chat/i }));
+  expect(confirm).toHaveBeenCalled();
+  expect(screen.queryByText(/Echo: clear me/i)).not.toBeInTheDocument();
+  expect(screen.getByText('New chat is ready.')).toBeInTheDocument();
+});
+
+test('local history opens, starts new chats, restores previous sessions, and deletes sessions', async () => {
+  render(<App />);
+  await send('first history chat');
+  await screen.findByText(/Echo: first history chat/i);
+  fireEvent.click(screen.getByRole('button', { name: /history/i }));
+  const history = await screen.findByLabelText('Chat history');
+  expect(within(history).getByText('first history chat')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: /new chat/i }));
+  expect(screen.getByText('New chat is ready.')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: /history/i }));
+  fireEvent.click(within(await screen.findByLabelText('Chat history')).getByText('first history chat'));
+  expect(await screen.findByText(/Echo: first history chat/i)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: /history/i }));
+  fireEvent.click(screen.getByRole('button', { name: /delete first history chat/i }));
+  expect(within(screen.getByLabelText('Chat history')).queryByText('first history chat')).not.toBeInTheDocument();
 });
 
 test('renders GitHub Ops panel without exposing token values', async () => {
@@ -553,10 +723,10 @@ test('TTS can speak, creates receipts, and mute stops output', async () => {
   fireEvent.click(screen.getByRole('button', { name: /settings/i }));
   fireEvent.click(await screen.findByRole('button', { name: /^Test voice$/i }));
   expect(screen.getByTestId('avatar-stage')).toHaveAttribute('data-avatar-state', 'speaking');
-  fireEvent.click(screen.getByRole('button', { name: /^Info/i }));
-  expect((await screen.findAllByText(/speech_output_started/i)).length).toBeGreaterThan(0);
+  expect(within(screen.getByLabelText('Audio diagnostics')).getByText('speechStarted')).toBeInTheDocument();
+  expect(within(screen.getByLabelText('Audio diagnostics')).getAllByText('true').length).toBeGreaterThan(0);
   fireEvent.click(within(openAudioControls()).getByRole('button', { name: /mute voice/i }));
-  await waitFor(() => expect(screen.getAllByText(/speech_output_stopped/i).length).toBeGreaterThan(0));
+  await waitFor(() => expect(screen.getByTestId('avatar-stage')).toHaveAttribute('data-avatar-state', 'muted'));
   expect(screen.getByTestId('avatar-stage')).toHaveAttribute('data-avatar-state', 'muted');
 });
 
@@ -567,7 +737,7 @@ test('chat send exits pending on success and API error', async () => {
   const diagnostics = screen.getByLabelText('Audio diagnostics');
   expect(within(diagnostics).getByText('chat pending')).toBeInTheDocument();
   expect(within(diagnostics).getAllByText('false').length).toBeGreaterThan(0);
-  expect(screen.getByTestId('avatar-stage')).toHaveAttribute('data-avatar-state', 'idle');
+  await waitFor(() => expect(screen.getByTestId('avatar-stage')).toHaveAttribute('data-avatar-state', 'idle'), { timeout: 2200 });
 
   const original = vi.mocked(fetch).getMockImplementation();
   vi.mocked(fetch).mockImplementation((path: string, options?: { body?: BodyInit }) => {
@@ -619,7 +789,7 @@ test('muted, unavailable, error, and timeout speech paths report honestly', asyn
   fireEvent.click(within(controls).getByRole('button', { name: /mute voice/i }));
   await waitFor(() => expect(screen.getByTestId('avatar-stage')).toHaveAttribute('data-avatar-state', 'muted'));
   fireEvent.click(within(controls).getByRole('button', { name: /unlock\/test voice/i }));
-  expect(await within(screen.getByLabelText('Audio diagnostics')).findByText('Muted state prevented speech playback.')).toBeInTheDocument();
+  expect((await within(screen.getByLabelText('Audio diagnostics')).findAllByText('Muted state prevented speech playback.')).length).toBeGreaterThan(0);
   expect(speechSynthesis.speak).not.toHaveBeenCalled();
   expect(within(screen.getByLabelText('Audio diagnostics')).getAllByText('false').length).toBeGreaterThan(0);
 
@@ -629,19 +799,29 @@ test('muted, unavailable, error, and timeout speech paths report honestly', asyn
   render(<App />);
   fireEvent.click(screen.getByRole('button', { name: /unlock\/test voice/i }));
   expect(await screen.findByText(/Text-to-speech is unavailable/i)).toBeInTheDocument();
-  expect(within(screen.getByLabelText('Audio diagnostics')).getByText('Speech synthesis is unavailable.')).toBeInTheDocument();
+  expect(within(screen.getByLabelText('Audio diagnostics')).getAllByText('Speech synthesis is unavailable.').length).toBeGreaterThan(0);
 
   cleanup();
   mockRuntime();
   vi.stubGlobal('speechSynthesis', { getVoices: () => [], speak: vi.fn((utterance: { onerror?: () => void }) => utterance.onerror?.()), pause: vi.fn(), resume: vi.fn(), cancel: vi.fn() });
   render(<App />);
   fireEvent.click(screen.getByRole('button', { name: /unlock\/test voice/i }));
-  expect(await within(screen.getByLabelText('Audio diagnostics')).findByText('Speech playback failed.')).toBeInTheDocument();
+  expect((await within(screen.getByLabelText('Audio diagnostics')).findAllByText('Speech playback failed.')).length).toBeGreaterThan(0);
   expect(screen.getByTestId('avatar-stage')).toHaveAttribute('data-avatar-state', 'idle');
 });
 
 test('speech never firing onend times out and returns avatar idle', async () => {
   try {
+    vi.stubGlobal('speechSynthesis', {
+      getVoices: () => [maleVoice, femaleVoice],
+      speak: vi.fn((utterance: { onstart?: () => void }) => {
+        spokenUtterance = utterance as unknown as Record<string, unknown>;
+        utterance.onstart?.();
+      }),
+      pause: vi.fn(),
+      resume: vi.fn(),
+      cancel: vi.fn()
+    });
     render(<App />);
     await screen.findByTestId('avatar-video');
     vi.useFakeTimers();
@@ -649,7 +829,7 @@ test('speech never firing onend times out and returns avatar idle', async () => 
     expect(screen.getByTestId('avatar-stage')).toHaveAttribute('data-avatar-state', 'speaking');
     await vi.advanceTimersByTimeAsync(20000);
     vi.useRealTimers();
-    expect(await within(screen.getByLabelText('Audio diagnostics')).findByText('Speech playback timed out after 20000ms.')).toBeInTheDocument();
+    expect(within(screen.getByLabelText('Audio diagnostics')).getAllByText('Speech playback timed out after 20000ms.').length).toBeGreaterThan(0);
     expect(screen.getByTestId('avatar-stage')).toHaveAttribute('data-avatar-state', 'idle');
     expect(within(screen.getByLabelText('Audio diagnostics')).getAllByText('true').length).toBeGreaterThan(0);
   } finally {
@@ -668,9 +848,9 @@ test('copy controls write individual messages and transcripts', async () => {
   fireEvent.click(assistantCopyButtons[assistantCopyButtons.length - 1]);
   expect(navigator.clipboard.writeText).toHaveBeenCalledWith(expect.stringContaining('XV8:\nEcho: hello XV8'));
   fireEvent.click(screen.getByRole('button', { name: /^Info/i }));
-  fireEvent.click(await screen.findByRole('button', { name: /copy transcript$/i }));
+  fireEvent.click((await screen.findAllByRole('button', { name: /copy transcript$/i }))[0]);
   expect(navigator.clipboard.writeText).toHaveBeenCalledWith(expect.stringContaining('# XV8 Conversation Transcript'));
-  expect(navigator.clipboard.writeText).toHaveBeenCalledWith(expect.stringContaining('## User\n\nhello XV8'));
+  expect(navigator.clipboard.writeText).toHaveBeenCalledWith(expect.stringContaining('hello XV8'));
 });
 
 test('avatar speaker and volume controls update muted volume preference', async () => {

@@ -40,6 +40,14 @@ def test_chat_answers_identity_without_model() -> None:
     assert payload["data"]["assistant_message"]["content"] == "My name is XV8."
 
 
+def test_chat_answers_simple_greeting_without_model_or_limitation_card() -> None:
+    payload = client().post("/api/chat", json={"message": "hello"}).json()
+    assert payload["status"] == "passed"
+    assert payload["data"]["assistant_message"]["content"] == "Hello. I'm XV8."
+    assert payload["data"]["assistant_message"]["cards"] == []
+    assert "assistant model is unavailable" not in str(payload).lower()
+
+
 def test_chat_can_say_github_without_capability_denial() -> None:
     payload = client().post("/api/chat", json={"message": "can you say GitHub"}).json()
     content = payload["data"]["assistant_message"]["content"]

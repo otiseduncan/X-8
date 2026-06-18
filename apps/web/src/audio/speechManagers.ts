@@ -8,12 +8,36 @@ export interface SpeechReceipt {
   started_at: string;
   completed_at?: string;
   voice_name?: string;
+  voice_uri?: string;
+  voice_lang?: string;
+  requested_voice_label?: string;
+  actual_voice_matched?: boolean;
+  fallback_reason?: string;
   locale: string;
   permission_status?: string;
   transcript_length?: number;
   error?: string;
   cloud_tts_used?: boolean;
   gender_preference?: string;
+}
+
+export interface VoiceOption {
+  name: string;
+  voiceURI: string;
+  lang: string;
+  label: string;
+  femaleMatch: boolean;
+  maleMatch: boolean;
+}
+
+export interface ResolvedVoice {
+  requestedLabel: string;
+  voice: SpeechSynthesisVoice | null;
+  actualName: string;
+  actualURI: string;
+  actualLang: string;
+  matchedPreference: boolean;
+  fallbackReason: string;
 }
 
 type RecognitionCtor = new () => SpeechRecognitionLike;
@@ -155,14 +179,60 @@ export class SpeechInputManager {
 export class VoicePreferenceManager {
   readonly locale = 'en-US';
   readonly genderPreference = 'female';
-  readonly preferredVoice = 'Google US English Female';
+  readonly preferredVoiceLabel = 'US Google female';
+  readonly knownFemaleNames = ['google us english female', 'us google female', 'microsoft zira', 'microsoft aria', 'samantha', 'victoria', 'susan', 'karen', 'jenny', 'ava'];
+  readonly knownMaleNames = ['david', 'mark', 'george', 'guy', 'alex', 'google us english male', 'microsoft david'];
 
-  resolveVoice(voices: SpeechSynthesisVoice[]) {
-    return voices.find((voice) => voice.name === this.preferredVoice)
-      || voices.find((voice) => voice.lang === this.locale && voice.name.toLowerCase().includes('female'))
-      || voices.find((voice) => voice.lang === this.locale)
-      || voices[0]
-      || null;
+  toOptions(voices: SpeechSynthesisVoice[]): VoiceOption[] {
+    return voices.map((voice) => ({
+      name: voice.name,
+      voiceURI: voice.voiceURI,
+      lang: voice.lang,
+      label: `${voice.name} (${voice.lang || 'unknown'})`,
+      femaleMatch: this.isFemaleVoice(voice),
+      maleMatch: this.isMaleVoice(voice)
+    }));
+  }
+
+  resolveVoice(voices: SpeechSynthesisVoice[], selectedVoiceURI = ''): ResolvedVoice {
+    const selected = selectedVoiceURI ? voices.find((voice) => voice.voiceURI === selectedVoiceURI) || null : null;
+    const female = voices.find((voice) => this.isFemaleVoice(voice));
+    const englishNonMale = voices.find((voice) => this.isEnglishVoice(voice) && !this.isMaleVoice(voice));
+    const english = voices.find((voice) => this.isEnglishVoice(voice));
+    const voice = selected || female || englishNonMale || english || voices[0] || null;
+    const matchedPreference = Boolean(voice && this.isFemaleVoice(voice));
+    const fallbackReason = this.fallbackReason({ selectedVoiceURI, selected, voice, female, matchedPreference });
+    return {
+      requestedLabel: this.preferredVoiceLabel,
+      voice,
+      actualName: voice?.name || '',
+      actualURI: voice?.voiceURI || '',
+      actualLang: voice?.lang || '',
+      matchedPreference,
+      fallbackReason
+    };
+  }
+
+  isFemaleVoice(voice: SpeechSynthesisVoice) {
+    const name = voice.name.toLowerCase();
+    return this.knownFemaleNames.some((candidate) => name.includes(candidate)) || (this.isEnglishVoice(voice) && name.includes('female') && !this.isMaleVoice(voice));
+  }
+
+  isMaleVoice(voice: SpeechSynthesisVoice) {
+    const name = voice.name.toLowerCase();
+    return this.knownMaleNames.some((candidate) => name.includes(candidate)) || name.includes(' male');
+  }
+
+  private isEnglishVoice(voice: SpeechSynthesisVoice) {
+    return voice.lang.toLowerCase().startsWith('en');
+  }
+
+  private fallbackReason({ selectedVoiceURI, selected, voice, female, matchedPreference }: { selectedVoiceURI: string; selected: SpeechSynthesisVoice | null; voice: SpeechSynthesisVoice | null; female: SpeechSynthesisVoice | undefined; matchedPreference: boolean }) {
+    if (!voice) return 'No browser voices are available.';
+    if (selectedVoiceURI && !selected) return `Persisted voice unavailable. Using fallback: ${voice.name}.`;
+    if (selected && !matchedPreference) return `Selected voice does not match the requested female preference: ${voice.name}.`;
+    if (!female && !matchedPreference) return `Female voice unavailable in this browser/OS. Using fallback: ${voice.name}.`;
+    return '';
   }
 }
 
@@ -187,43 +257,76 @@ export class TextToSpeechAdapter {
     return Boolean(window.speechSynthesis && typeof SpeechSynthesisUtterance !== 'undefined');
   }
 
+  voices() {
+    if (!window.speechSynthesis) return [];
+    return this.preference.toOptions(window.speechSynthesis.getVoices());
+  }
+
+  resolve(selectedVoiceURI = '') {
+    if (!window.speechSynthesis) return this.preference.resolveVoice([], selectedVoiceURI);
+    return this.preference.resolveVoice(window.speechSynthesis.getVoices(), selectedVoiceURI);
+  }
+
   speak(text: string, callbacks: {
     onStatus: (status: TtsStatus) => void;
-    onVoice: (voiceName: string) => void;
+    onVoice: (voice: ResolvedVoice) => void;
     onReceipt: (receipt: SpeechReceipt) => void;
-  }, volume = 0.8) {
+  }, volume = 0.8, timeoutMs = 20000, selectedVoiceURI = '') {
     const startedAt = now();
     if (!this.supported()) {
       callbacks.onStatus('unavailable');
-      callbacks.onReceipt(this.outputReceipt('speech_output_failed', 'unavailable', startedAt, '', 'Speech synthesis is unavailable.'));
+      callbacks.onReceipt(this.outputReceipt('speech_output_failed', 'unavailable', startedAt, this.preference.resolveVoice([], selectedVoiceURI), 'Speech synthesis is unavailable.'));
       return;
     }
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.volume = Math.max(0, Math.min(1, volume));
-    const voice = this.preference.resolveVoice(window.speechSynthesis.getVoices());
-    if (voice) utterance.voice = voice;
+    const resolved = this.resolve(selectedVoiceURI);
+    if (resolved.voice) utterance.voice = resolved.voice;
     utterance.lang = this.preference.locale;
-    callbacks.onVoice(voice?.name || 'browser_default');
+    callbacks.onVoice(resolved);
+    let settled = false;
+    const finish = (status: TtsStatus, receipt?: SpeechReceipt) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timeout);
+      callbacks.onStatus(status);
+      if (receipt) callbacks.onReceipt(receipt);
+    };
+    const timeout = window.setTimeout(() => {
+      window.speechSynthesis.cancel();
+      finish('error', this.outputReceipt('speech_output_timeout', 'timeout', startedAt, resolved, `Speech playback timed out after ${timeoutMs}ms.`));
+    }, timeoutMs);
     utterance.onstart = () => {
       callbacks.onStatus('speaking');
-      callbacks.onReceipt(this.outputReceipt('speech_output_started', 'speaking', startedAt, voice?.name || 'browser_default'));
+      callbacks.onReceipt(this.outputReceipt('speech_output_started', 'speaking', startedAt, resolved));
     };
-    utterance.onend = () => callbacks.onStatus('ready');
+    utterance.onend = () => finish('ready', this.outputReceipt('speech_output_ended', 'ready', startedAt, resolved));
     utterance.onerror = () => {
-      callbacks.onStatus('error');
-      callbacks.onReceipt(this.outputReceipt('speech_output_failed', 'error', startedAt, voice?.name || 'browser_default', 'Speech playback failed.'));
+      finish('error', this.outputReceipt('speech_output_failed', 'error', startedAt, resolved, 'Speech playback failed.'));
     };
-    window.speechSynthesis.speak(utterance);
+    try {
+      window.speechSynthesis.speak(utterance);
+    } catch (error) {
+      finish('error', this.outputReceipt('speech_output_failed', 'error', startedAt, resolved, error instanceof Error ? error.message : 'Speech playback failed before start.'));
+    }
   }
 
-  outputReceipt(action: string, status: string, startedAt: string, voiceName: string, error?: string): SpeechReceipt {
+  outputReceipt(action: string, status: string, startedAt: string, selected: ResolvedVoice | string, error?: string): SpeechReceipt {
+    const resolved = typeof selected === 'string'
+      ? { requestedLabel: this.preference.preferredVoiceLabel, voice: null, actualName: selected, actualURI: '', actualLang: this.preference.locale, matchedPreference: selected === this.preference.preferredVoiceLabel, fallbackReason: '' }
+      : selected;
     return {
       receipt_id: receiptId(),
       provider: 'browser_speech_synthesis',
       status: action,
       started_at: startedAt,
       completed_at: now(),
-      voice_name: voiceName,
+      voice_name: resolved.actualName,
+      voice_uri: resolved.actualURI,
+      voice_lang: resolved.actualLang,
+      requested_voice_label: resolved.requestedLabel,
+      actual_voice_matched: resolved.matchedPreference,
+      fallback_reason: resolved.fallbackReason,
       locale: this.preference.locale,
       error,
       cloud_tts_used: false,

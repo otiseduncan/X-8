@@ -1,7 +1,8 @@
 import type { ReactNode } from 'react';
 import { useEffect, useMemo, useState } from 'react';
-import { Activity, ChevronDown, ChevronUp, Code2, Copy, FileText, GitBranch, Image, Info, Mic, MicOff, Pause, Play, Search, Send, ShieldCheck, Square, Volume2, VolumeX, X } from 'lucide-react';
+import { Activity, ChevronDown, ChevronUp, Code2, Copy, FileText, GitBranch, Image, Info, Mic, MicOff, Pause, Play, Search, Send, ShieldCheck, Square, Trash2, Volume2, VolumeX, X } from 'lucide-react';
 import type { SpeechReceipt, SttStatus, TtsStatus } from '../audio/speechManagers';
+import type { VoiceOption } from '../audio/speechManagers';
 import { CodeEditor } from '../components/cockpit/CodeEditor';
 import type { AttachmentReference, PromptReceipt, Receipt } from '../types/contracts';
 
@@ -22,12 +23,21 @@ export interface ChatMessage {
   id: string;
   role: 'assistant' | 'user';
   text: string;
+  createdAt?: string;
   attachments?: AttachmentReference[];
   cards?: ChatCard[];
 }
 
+export interface StoredChatSession {
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  messages: ChatMessage[];
+}
+
 export type InfoReceipt = Receipt | SpeechReceipt | PromptReceipt | null;
-export type AvatarRuntimeState = 'idle' | 'listening' | 'thinking' | 'speaking' | 'muted' | 'error';
+export type AvatarRuntimeState = 'idle' | 'listening' | 'thinking' | 'responded' | 'speaking' | 'muted' | 'error';
 
 export interface AvatarManifestAsset {
   id: string;
@@ -75,7 +85,7 @@ export function AvatarStateController({ state, fallbackSrc = FALLBACK_AVATAR }: 
   return <AvatarStage state={state} fallbackSrc={fallbackSrc} />;
 }
 
-export function AvatarStage({ state, fallbackSrc = FALLBACK_AVATAR, controls }: { state: AvatarRuntimeState; fallbackSrc?: string; controls?: ReactNode }) {
+export function AvatarStage({ state, fallbackSrc = FALLBACK_AVATAR }: { state: AvatarRuntimeState; fallbackSrc?: string }) {
   const [manifest, setManifest] = useState<AvatarManifestDocument | null>(null);
   const [loading, setLoading] = useState(true);
   const [failedSrc, setFailedSrc] = useState('');
@@ -111,7 +121,6 @@ export function AvatarStage({ state, fallbackSrc = FALLBACK_AVATAR, controls }: 
         <img src={fallback} alt="XV8 avatar fallback" className={`avatar fallback ${state}`} data-testid="avatar-fallback" />
       )}
       <AvatarStatusBadge state={badgeState} />
-      {controls && <div className="avatarAudioDock" aria-label="Avatar audio controls">{controls}</div>}
     </div>
   );
 }
@@ -153,7 +162,8 @@ export function messageCopyText(message: ChatMessage) {
 export function transcriptMarkdown(messages: ChatMessage[], includeReceipts = false) {
   const sections = ['# XV8 Conversation Transcript'];
   messages.forEach((message) => {
-    sections.push(`## ${message.role === 'assistant' ? 'XV8' : 'User'}`);
+    const timestamp = message.createdAt ? ` - ${new Date(message.createdAt).toLocaleString()}` : '';
+    sections.push(`## ${message.role === 'assistant' ? 'XV8' : 'User'}${timestamp}`);
     sections.push(message.text);
     if (message.attachments?.length) {
       sections.push(`Attachments:\n${message.attachments.map((attachment) => `- ${attachment.filename} (${attachment.mime_type}, ${attachment.status})`).join('\n')}`);
@@ -169,6 +179,30 @@ export function transcriptMarkdown(messages: ChatMessage[], includeReceipts = fa
   return sections.join('\n\n');
 }
 
+export function ThinkingIndicator({ active, stage, status }: { active: boolean; stage: string; status: string }) {
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    if (!active) {
+      setElapsed(0);
+      return undefined;
+    }
+    const started = Date.now();
+    const timer = window.setInterval(() => setElapsed(Math.floor((Date.now() - started) / 1000)), 1000);
+    return () => window.clearInterval(timer);
+  }, [active]);
+  if (!active) return null;
+  const label = status === 'timeout' ? 'Timed out - reset available' : elapsed > 10 ? 'Still working...' : stage === 'thinking' ? 'Thinking...' : 'Working...';
+  return (
+    <article className={`thinkingIndicator ${elapsed > 10 ? 'caution' : ''}`} aria-label="XV8 thinking">
+      <span className="thinkingDots" aria-hidden="true"><i /><i /><i /></span>
+      <div>
+        <strong>{label}</strong>
+        <span>Stage: {stage || 'working'} / elapsed {elapsed}s</span>
+      </div>
+    </article>
+  );
+}
+
 export function ChatTimeline({ messages, onToggle, onRequestApply, onCopyMessage }: { messages: ChatMessage[]; onToggle: (cardId: string, patch: Partial<ChatCard>) => void; onRequestApply: (card: ChatCard) => void; onCopyMessage: (message: ChatMessage) => Promise<void> | void }) {
   const [copiedId, setCopiedId] = useState('');
   async function copy(message: ChatMessage) {
@@ -178,6 +212,7 @@ export function ChatTimeline({ messages, onToggle, onRequestApply, onCopyMessage
   }
   return (
     <section className="chatTimeline" aria-label="Chat timeline">
+      {messages.length === 0 && <div className="emptyChat">New chat is ready.</div>}
       {messages.map((message) => (
         <article key={message.id} className={`message ${message.role}`}>
           <div className="messageBubble">
@@ -201,6 +236,32 @@ export function ChatTimeline({ messages, onToggle, onRequestApply, onCopyMessage
           </div>
         </article>
       ))}
+    </section>
+  );
+}
+
+export function ChatHistoryPanel({ sessions, activeId, onNew, onRestore, onDelete }: { sessions: StoredChatSession[]; activeId: string; onNew: () => void; onRestore: (session: StoredChatSession) => void; onDelete: (id: string) => void }) {
+  return (
+    <section className="historyPanel" aria-label="Chat history">
+      <header>
+        <div>
+          <p className="eyebrow">Local history</p>
+          <h2>Recent chats</h2>
+        </div>
+        <button className="chipButton" type="button" onClick={onNew}><FileText size={14} /> New chat</button>
+      </header>
+      <div className="historyList">
+        {sessions.length === 0 && <p className="cardSummary">No saved chats yet.</p>}
+        {sessions.map((session) => (
+          <article className={session.id === activeId ? 'historyItem active' : 'historyItem'} key={session.id}>
+            <button type="button" onClick={() => onRestore(session)}>
+              <strong>{session.title}</strong>
+              <span>{new Date(session.updatedAt).toLocaleString()}</span>
+            </button>
+            <button className="ghost iconButton" type="button" aria-label={`Delete ${session.title}`} onClick={() => onDelete(session.id)}><Trash2 size={16} /></button>
+          </article>
+        ))}
+      </div>
     </section>
   );
 }
@@ -505,6 +566,112 @@ export function PlaybackControls({ onPause, onResume, onStop }: { onPause: () =>
       <button className="ghost iconButton" aria-label="Resume speech" onClick={onResume}><Play size={18} /></button>
       <button className="ghost iconButton" aria-label="Stop speech" onClick={onStop}><Square size={18} /></button>
     </div>
+  );
+}
+
+export function AudioDiagnosticsPanel({ chat, audio, avatar }: { chat: Record<string, unknown>; audio: Record<string, unknown>; avatar: Record<string, unknown> }) {
+  const row = (label: string, value: unknown) => <div className="row split" key={label}><strong>{label}</strong><span>{String(value ?? '')}</span></div>;
+  return (
+    <details className="audioDiagnostics" aria-label="Audio diagnostics">
+      <summary>Audio diagnostics</summary>
+      <div className="diagnosticGrid">
+        <section>{row('chat pending', chat.pending)}{row('current stage', chat.stage)}{row('last stage transition', chat.lastStageTransition)}{row('last API status', chat.lastApiStatus)}{row('last API error', chat.lastApiError)}{row('last timeout reason', chat.lastTimeoutReason)}{row('last response kind', chat.lastResponseKind)}{row('last response had text', chat.lastResponseHadText)}{row('last response had cards', chat.lastResponseHadCards)}{row('speech trigger reason', chat.speechTriggerReason)}{row('speech skip reason', chat.speechSkipReason)}</section>
+        <section>{row('webAudioAvailable', audio.webAudioAvailable)}{row('audioContextState', audio.audioContextState)}{row('audioUnlocked', audio.audioUnlocked)}{row('rawBeepStarted', audio.rawBeepStarted)}{row('rawBeepEnded', audio.rawBeepEnded)}{row('rawBeepError', audio.rawBeepError)}{row('speechSynthesisAvailable', audio.speechSynthesisAvailable)}{row('speechSpeakCalled', audio.speechSpeakCalled)}{row('speechStarted', audio.speechStarted)}{row('speechEnded', audio.speechEnded)}{row('speechError', audio.speechError)}{row('muted', audio.muted)}{row('volume', audio.volume)}{row('lastAudibleProof', audio.lastAudibleProof)}{row('lastAudibleProofMethod', audio.lastAudibleProofMethod)}</section>
+        <section>{row('requested voice label', audio.requestedVoiceLabel)}{row('actual selected voice name', audio.actualVoiceName)}{row('actual selected voice URI', audio.actualVoiceURI)}{row('actual selected voice lang', audio.actualVoiceLang)}{row('actual voice matched preference', audio.actualVoiceMatched)}{row('fallback reason', audio.voiceFallbackReason)}{row('last speak requested', audio.lastSpeakRequestedAt)}{row('last speak text length', audio.lastSpeakTextLength)}{row('last speak started', audio.lastSpeakStartedAt)}{row('last speak ended', audio.lastSpeakEndedAt)}{row('last speak error', audio.lastSpeakError)}{row('last speak timeout', audio.lastSpeakTimeout)}</section>
+        <section>{row('avatar state', avatar.state)}{row('avatar waiting on audio', avatar.waitingOnAudio)}{row('video readyState', avatar.videoReadyState)}{row('video paused', avatar.videoPaused)}{row('video error', avatar.videoError)}{row('sync claimed', avatar.syncClaimed)}</section>
+      </div>
+    </details>
+  );
+}
+
+export function AvatarPresencePanel({
+  state,
+  fallbackSrc,
+  muted,
+  volume,
+  voices,
+  selectedVoiceURI,
+  voiceStatus,
+  requestedVoiceLabel,
+  actualVoiceName,
+  voiceFallbackReason,
+  micStatus,
+  chatDiagnostics,
+  audioDiagnostics,
+  avatarDiagnostics,
+  onToggleMute,
+  onVolumeChange,
+  onVoiceSelect,
+  onRefreshVoices,
+  onPreviewSelectedVoice,
+  onResetStage,
+  onStopAudio,
+  onUnlockTestVoice,
+  onPlayRawAudioTest
+}: {
+  state: AvatarRuntimeState;
+  fallbackSrc: string;
+  muted: boolean;
+  volume: number;
+  voices: VoiceOption[];
+  selectedVoiceURI: string;
+  voiceStatus: TtsStatus;
+  requestedVoiceLabel: string;
+  actualVoiceName: string;
+  voiceFallbackReason: string;
+  micStatus: SttStatus;
+  chatDiagnostics: Record<string, unknown>;
+  audioDiagnostics: Record<string, unknown>;
+  avatarDiagnostics: Record<string, unknown>;
+  onToggleMute: () => void;
+  onVolumeChange: (value: number) => void;
+  onVoiceSelect: (voiceURI: string) => void;
+  onRefreshVoices: () => void;
+  onPreviewSelectedVoice: () => void;
+  onResetStage: () => void;
+  onStopAudio: () => void;
+  onUnlockTestVoice: () => void;
+  onPlayRawAudioTest: () => void;
+}) {
+  return (
+    <aside className="avatarPresence" aria-label="Avatar presence">
+      <AvatarStage state={state} fallbackSrc={fallbackSrc} />
+      <div className="assistantIdentityCard">
+        <p className="eyebrow">Xoduz XV8</p>
+        <h1>Assistant conversation</h1>
+        <p className="avatarState">State: {state}</p>
+      </div>
+      <div className="compactStatus">
+        <span>Mic: {micStatus}</span>
+        <span>Voice: {voiceStatus} / {actualVoiceName || requestedVoiceLabel}</span>
+      </div>
+      {voiceFallbackReason && <p className="voiceFallback">{voiceFallbackReason}</p>}
+      <details className="audioControls" aria-label="Audio controls">
+        <summary>Audio controls</summary>
+        <div className="audioControlGrid" aria-label="Avatar audio controls">
+          <button className="ghost iconButton speakerButton" aria-label={muted ? 'Unmute voice' : 'Mute voice'} onClick={onToggleMute}>
+            {muted ? <VolumeX size={18} /> : <Volume2 size={18} />}
+          </button>
+          <label className="volumeControl">
+            <span>Volume</span>
+            <input aria-label="Voice volume" type="range" min="0" max="100" value={muted ? 0 : volume} onChange={(event) => onVolumeChange(Number(event.target.value))} />
+          </label>
+          <label className="voiceSelector">
+            <span>Voice</span>
+            <select aria-label="Voice selector" value={selectedVoiceURI} onChange={(event) => onVoiceSelect(event.target.value)}>
+              {voices.length ? voices.map((voice) => <option key={voice.voiceURI || voice.name} value={voice.voiceURI}>{voice.label}</option>) : <option value="">No browser voices loaded</option>}
+            </select>
+          </label>
+          <button className="ghost" type="button" onClick={onRefreshVoices}>Refresh voices</button>
+          <button className="ghost" type="button" onClick={onPreviewSelectedVoice}>Preview selected voice</button>
+          <button className="ghost" type="button" onClick={onResetStage}>Reset stage</button>
+          <button className="ghost" type="button" onClick={onStopAudio}>Stop audio</button>
+          <button className="ghost" type="button" onClick={onPlayRawAudioTest}>Play raw audio test</button>
+          <button className="ghost" type="button" onClick={onUnlockTestVoice}>Unlock/Test Voice</button>
+        </div>
+      </details>
+      <AudioDiagnosticsPanel chat={chatDiagnostics} audio={audioDiagnostics} avatar={avatarDiagnostics} />
+    </aside>
   );
 }
 

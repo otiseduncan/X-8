@@ -1,6 +1,7 @@
 import type { AttachmentReference, Capability, ChatResponse, FileEntry, FileRead, IntegrationStatus, PatchProposal, ResultEnvelope, SessionDetail, SessionSummary, TeamSeat } from '../types/contracts';
 
 const API = '';
+export const CHAT_TIMEOUT_MS = 45000;
 
 async function getJson<T>(path: string): Promise<T> {
   const response = await fetch(`${API}${path}`);
@@ -232,10 +233,13 @@ export function loadReceipts() {
   return getJson<ResultEnvelope<Array<Record<string, unknown>>>>('/api/receipts');
 }
 
-export async function sendChat(message: string, attachments: AttachmentReference[] = [], session_id?: string) {
+export async function sendChat(message: string, attachments: AttachmentReference[] = [], session_id?: string, timeoutMs = CHAT_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
   const response = await fetch('/api/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
+    signal: controller.signal,
     body: JSON.stringify({
       message,
       session_id,
@@ -248,7 +252,7 @@ export async function sendChat(message: string, attachments: AttachmentReference
           size_bytes: attachment.size_bytes
         }))
     })
-  });
+  }).finally(() => window.clearTimeout(timeout));
   if (!response.ok) throw new Error('Chat request failed');
   return response.json() as Promise<ResultEnvelope<ChatResponse>>;
 }

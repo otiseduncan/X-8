@@ -43,14 +43,18 @@ class XV8Kernel:
         model_status, selection = self.model_router.select(lane)
         self.events.emit("model_selected", model=selection.selected_model, ready=selection.model_ready)
         deterministic = self._deterministic_response(request, lane, context.context_bundle)
+        deterministic_used = deterministic is not None
         content, status, limitations = deterministic or self._respond(selection, context.prompt)
         model_status.selected_model = selection.selected_model
         model_status.fallback_used = selection.fallback_used
         model_status.timed_out = selection.timed_out
         model_status.timeout_seconds = selection.timeout_seconds
-        if selection.reason_if_unavailable:
+        if deterministic_used:
+            model_status.failure_reason = ""
+        elif selection.reason_if_unavailable:
             model_status.failure_reason = selection.reason_if_unavailable
-        limitations.extend(context.context_bundle.limitations)
+        if not deterministic_used:
+            limitations.extend(context.context_bundle.limitations)
         if model_status.failure_reason and model_status.failure_reason not in limitations:
             limitations.append(model_status.failure_reason)
         cards = self._cards(lane, status, limitations)
@@ -67,7 +71,7 @@ class XV8Kernel:
             fallback_used=selection.fallback_used,
             timed_out=selection.timed_out,
             timeout_seconds=selection.timeout_seconds,
-            failure_reason=selection.reason_if_unavailable,
+            failure_reason="" if deterministic_used else selection.reason_if_unavailable,
         )
         self.events.emit("receipt_created", receipt_id=receipt.receipt_id)
         trace = KernelTrace(lane_selected=lane, model_selected=selection.selected_model, context_sources_included=context.sources_used, tools_requested=tools, final_status=status)
@@ -93,6 +97,8 @@ class XV8Kernel:
 
     def _deterministic_response(self, request: KernelRequest, lane: str, bundle) -> tuple[str, str, list[str]] | None:
         lower = request.user_message.lower().strip()
+        if lower in {"hi", "hi xv8", "hello", "hello xv8", "hey", "hey xv8", "good morning", "good afternoon", "good evening"}:
+            return "Hello. I'm XV8.", "passed", []
         if "what is your name" in lower or lower in {"who are you", "who are you?"}:
             return "My name is XV8.", "passed", []
         if "say github" in lower:

@@ -65,7 +65,7 @@ def test_chat_returns_receipt() -> None:
 
 
 def test_chat_does_not_fake_model_response_when_unavailable() -> None:
-    response = client().post("/api/chat", json={"message": "hello XV8"})
+    response = client().post("/api/chat", json={"message": "Write a nuanced paragraph about XV8 runtime strategy."})
     payload = response.json()
     assert payload["status"] == "unavailable"
     assert payload["data"]["assistant_message"]["content"] == "The assistant model is unavailable right now.\nNo model response was generated.\nCheck Settings > Model + Runtime."
@@ -76,7 +76,7 @@ def test_kernel_unavailable_model_returns_honest_response(tmp_path) -> None:
         KernelContextAssembler(BrainContextAssembler(str(tmp_path), {"context_max_messages": 20, "context_max_attachment_chars": 20, "context_max_memory_items": 20, "context_max_knowledge_items": 20}), KernelPromptBuilder()),
         ModelRouter(OllamaAdapter("http://127.0.0.1:9"), ModelProfileManager("", "")),
     )
-    response = kernel.handle(KernelRequest(session_id="sess_test", user_message="hello"))
+    response = kernel.handle(KernelRequest(session_id="sess_test", user_message="Explain XV8 runtime strategy."))
     assert response.assistant_message == UNAVAILABLE
     assert response.receipt.kernel_lane == "normal_chat"
     assert response.receipt.context_sources_used
