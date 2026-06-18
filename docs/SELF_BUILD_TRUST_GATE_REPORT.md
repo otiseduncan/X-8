@@ -106,6 +106,7 @@ If no proposal exists, proposal inspection returns `No active self-build proposa
 ## Safety Rules
 
 - Writes without approval: blocked.
+- GitHub init/connect/create/pull/push: supervised external operations, separate from self-build patch apply, approval required.
 - Read-only inspection prompts creating new proposals: blocked.
 - Patch hash mismatch: blocked.
 - File changed since proposal: blocked.

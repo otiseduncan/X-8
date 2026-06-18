@@ -32,6 +32,44 @@ export function loadGitHubStatus() {
   return getJson<ResultEnvelope<Record<string, string>>>('/api/github/status');
 }
 
+export function loadGitHubOpsAuthStatus() {
+  return getJson<ResultEnvelope<Record<string, unknown>>>('/api/github/ops/auth-status');
+}
+
+export function loadGitHubOpsStatus() {
+  return getJson<ResultEnvelope<Record<string, unknown>>>('/api/github/ops/status');
+}
+
+export async function previewGitHubPush() {
+  const response = await fetch('/api/github/ops/push-preview', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: '.' }) });
+  if (!response.ok) throw new Error('GitHub push preview failed');
+  return response.json() as Promise<ResultEnvelope<Record<string, unknown>>>;
+}
+
+export async function previewGitHubPull() {
+  const response = await fetch('/api/github/ops/pull-preview', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: '.' }) });
+  if (!response.ok) throw new Error('GitHub pull preview failed');
+  return response.json() as Promise<ResultEnvelope<Record<string, unknown>>>;
+}
+
+export async function runGitHubOperation(operation: 'init' | 'pull' | 'push', approved: boolean) {
+  const response = await fetch(`/api/github/ops/${operation}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: '.', approved }) });
+  if (!response.ok) throw new Error('GitHub operation failed');
+  return response.json() as Promise<ResultEnvelope<Record<string, unknown>>>;
+}
+
+export async function connectGitHubRemote(remote_url: string, approved: boolean) {
+  const response = await fetch('/api/github/ops/connect-remote', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: '.', remote_url, approved }) });
+  if (!response.ok) throw new Error('GitHub remote connection failed');
+  return response.json() as Promise<ResultEnvelope<Record<string, unknown>>>;
+}
+
+export async function createGitHubRepo(repo_name: string, approved: boolean) {
+  const response = await fetch('/api/github/ops/create-repo', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ repo_name, approved }) });
+  if (!response.ok) throw new Error('GitHub repo creation failed');
+  return response.json() as Promise<ResultEnvelope<Record<string, unknown>>>;
+}
+
 export function loadSearchStatus() {
   return getJson<ResultEnvelope<Record<string, unknown>>>('/api/search/status');
 }

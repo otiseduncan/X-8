@@ -370,11 +370,15 @@ function ApprovalBody({ card }: { card: ChatCard }) {
   const applyResult = (card.payload?.apply_result || {}) as Record<string, unknown>;
   const changedFiles: unknown[] = Array.isArray(applyResult.changed_files) ? applyResult.changed_files : Array.isArray(card.payload?.changed_file_paths) ? card.payload.changed_file_paths : [];
   const backupPaths: unknown[] = Array.isArray(applyResult.backup_paths) ? applyResult.backup_paths : [];
+  const provider = String(card.payload?.provider || '');
+  const operation = String(card.payload?.operation || '');
   const reason = String(applyResult.reason || '');
   return (
     <div className="stack">
       <p className="cardSummary">{card.summary}</p>
       <div className="row split"><strong>Task</strong><span>{String(card.payload?.task_id || 'unknown')}</span></div>
+      {provider && <div className="row split"><strong>Provider</strong><span>{provider}</span></div>}
+      {operation && <div className="row split"><strong>Operation</strong><span>{operation}</span></div>}
       <div className="row split"><strong>Patch</strong><span>{String(card.payload?.patch_id || 'unknown')}</span></div>
       <div className="row split"><strong>Approval</strong><span>{String(card.payload?.approval_id || 'unknown')}</span></div>
       <div className="row"><strong>Patch hash</strong><span>{String(card.payload?.patch_hash || 'unknown')}</span></div>
@@ -389,6 +393,7 @@ function ApprovalBody({ card }: { card: ChatCard }) {
 
 function canApplyCard(card: ChatCard) {
   const payload = card.payload || {};
+  if (payload.provider === 'github_ops') return card.status !== 'applied' && card.status !== 'blocked' && payload.apply_safe === true && Boolean(payload.operation);
   return card.status !== 'applied'
     && card.status !== 'blocked'
     && payload.apply_safe === true

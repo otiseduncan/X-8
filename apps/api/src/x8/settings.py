@@ -3,7 +3,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="X8_", extra="ignore", protected_namespaces=("settings_",), populate_by_name=True)
+    model_config = SettingsConfigDict(env_prefix="X8_", env_file=".env", extra="ignore", protected_namespaces=("settings_",), populate_by_name=True)
 
     env: str = "development"
     database_url: str = Field("postgresql+psycopg://x8:x8_dev_password@x8-postgres:5432/x8", validation_alias="DATABASE_URL")
@@ -74,4 +74,5 @@ class Settings(BaseSettings):
     github_owner: str = Field("otiseduncan", validation_alias=AliasChoices("X8_GITHUB_OWNER", "GITHUB_OWNER"))
     github_repo: str = Field("X-8", validation_alias=AliasChoices("X8_GITHUB_REPO", "GITHUB_REPO"))
     github_default_branch: str = Field("main", validation_alias=AliasChoices("X8_GITHUB_DEFAULT_BRANCH", "GITHUB_DEFAULT_BRANCH"))
+    github_default_visibility: str = Field("private", validation_alias=AliasChoices("X8_GITHUB_DEFAULT_VISIBILITY", "GITHUB_DEFAULT_VISIBILITY"))
     cors_origins: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]

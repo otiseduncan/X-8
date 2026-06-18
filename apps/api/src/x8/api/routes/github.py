@@ -3,6 +3,8 @@ from pydantic import BaseModel
 
 from x8.adapters.integrations.github_adapter import GitHubAdapter, GitHubStatus
 from x8.contracts.base import ResultEnvelope
+from x8.contracts.receipts import Receipt
+from x8.managers.github_ops_manager import GitHubOpsManager
 
 router = APIRouter(prefix="/api/github", tags=["github"])
 
@@ -11,15 +13,123 @@ class CommitProposalRequest(BaseModel):
     message: str
 
 
+class GitPathRequest(BaseModel):
+    path: str = "."
+    approved: bool = False
+
+
+class ConnectRemoteRequest(GitPathRequest):
+    remote_url: str
+
+
+class CreateRepoRequest(BaseModel):
+    repo_name: str
+    owner: str | None = None
+    visibility: str | None = None
+    approved: bool = False
+
+
 def adapter(request: Request) -> GitHubAdapter:
     settings = request.app.state.settings
     return GitHubAdapter(settings.github_token, settings.github_owner, settings.github_repo, settings.github_default_branch)
+
+
+def ops(request: Request) -> GitHubOpsManager:
+    settings = request.app.state.settings
+    return GitHubOpsManager(settings.workspace_root, settings.github_token, settings.github_owner, settings.github_default_visibility)
+
+
+def ops_envelope(data: dict[str, object], message: str) -> ResultEnvelope[dict[str, object]]:
+    status = str(data.get("status", "ok"))
+    ok = status not in {"blocked", "failed"}
+    return ResultEnvelope(
+        ok=ok,
+        status=status,
+        data=data,
+        message=str(data.get("reason", message)),
+        receipts=[Receipt(action="github.ops", status=status, summary=str(data.get("reason", message)), metadata=data)],
+    )
 
 
 @router.get("/status", response_model=ResultEnvelope[GitHubStatus])
 def github_status(request: Request) -> ResultEnvelope[GitHubStatus]:
     data = adapter(request).status()
     return ResultEnvelope(ok=True, status=data.status, data=data, message=data.reason)
+
+
+@router.get("/ops/auth-status", response_model=ResultEnvelope[dict[str, object]])
+def github_ops_auth_status(request: Request) -> ResultEnvelope[dict[str, object]]:
+    data = ops(request).auth_status()
+    return ResultEnvelope(ok=True, status="ready", data=data, message="GitHub auth status loaded without exposing token.")
+
+
+@router.get("/ops/status", response_model=ResultEnvelope[dict[str, object]])
+def github_ops_status(request: Request) -> ResultEnvelope[dict[str, object]]:
+    try:
+        data = ops(request).local_status()
+    except ValueError as exc:
+        return ops_envelope({"status": "blocked", "reason": str(exc)}, "GitHub local status blocked.")
+    return ResultEnvelope(ok=True, status="ready", data=data, message="Local git status loaded.")
+
+
+@router.post("/ops/push-preview", response_model=ResultEnvelope[dict[str, object]])
+def github_ops_push_preview(payload: GitPathRequest, request: Request) -> ResultEnvelope[dict[str, object]]:
+    try:
+        data = ops(request).push_preview(payload.path)
+    except ValueError as exc:
+        return ops_envelope({"status": "blocked", "reason": str(exc)}, "GitHub push preview blocked.")
+    return ResultEnvelope(ok=True, status="preview", data=data, message="Push preview loaded without pushing.")
+
+
+@router.post("/ops/pull-preview", response_model=ResultEnvelope[dict[str, object]])
+def github_ops_pull_preview(payload: GitPathRequest, request: Request) -> ResultEnvelope[dict[str, object]]:
+    try:
+        data = ops(request).pull_preview(payload.path)
+    except ValueError as exc:
+        return ops_envelope({"status": "blocked", "reason": str(exc)}, "GitHub pull preview blocked.")
+    return ResultEnvelope(ok=True, status="preview", data=data, message="Pull preview loaded without pulling.")
+
+
+@router.post("/ops/init", response_model=ResultEnvelope[dict[str, object]])
+def github_ops_init(payload: GitPathRequest, request: Request) -> ResultEnvelope[dict[str, object]]:
+    try:
+        data = ops(request).init_repo(payload.path, payload.approved)
+    except ValueError as exc:
+        data = {"status": "blocked", "reason": str(exc), "changed_files": []}
+    return ops_envelope(data, "Git repository init completed.")
+
+
+@router.post("/ops/connect-remote", response_model=ResultEnvelope[dict[str, object]])
+def github_ops_connect_remote(payload: ConnectRemoteRequest, request: Request) -> ResultEnvelope[dict[str, object]]:
+    try:
+        data = ops(request).connect_remote(payload.remote_url, payload.path, payload.approved)
+    except ValueError as exc:
+        data = {"status": "blocked", "reason": str(exc), "changed_files": []}
+    return ops_envelope(data, "Git remote connection completed.")
+
+
+@router.post("/ops/create-repo", response_model=ResultEnvelope[dict[str, object]])
+def github_ops_create_repo(payload: CreateRepoRequest, request: Request) -> ResultEnvelope[dict[str, object]]:
+    data = ops(request).create_repo(payload.repo_name, payload.visibility, payload.owner, payload.approved)
+    return ops_envelope(data, "GitHub repo creation completed.")
+
+
+@router.post("/ops/pull", response_model=ResultEnvelope[dict[str, object]])
+def github_ops_pull(payload: GitPathRequest, request: Request) -> ResultEnvelope[dict[str, object]]:
+    try:
+        data = ops(request).pull(payload.path, payload.approved)
+    except ValueError as exc:
+        data = {"status": "blocked", "reason": str(exc), "changed_files": []}
+    return ops_envelope(data, "Git pull completed.")
+
+
+@router.post("/ops/push", response_model=ResultEnvelope[dict[str, object]])
+def github_ops_push(payload: GitPathRequest, request: Request) -> ResultEnvelope[dict[str, object]]:
+    try:
+        data = ops(request).push(payload.path, payload.approved)
+    except ValueError as exc:
+        data = {"status": "blocked", "reason": str(exc), "changed_files": []}
+    return ops_envelope(data, "Git push completed.")
 
 
 @router.get("/repository", response_model=ResultEnvelope[dict[str, str]])

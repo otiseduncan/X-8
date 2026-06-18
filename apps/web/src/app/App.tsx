@@ -2,7 +2,7 @@ import { Activity, Boxes, Check, ChevronDown, ChevronUp, Code2, Copy, FileText, 
 import { useEffect, useRef, useState } from 'react';
 import { SpeechInputManager, SpeechOutputManager } from '../audio/speechManagers';
 import type { SpeechReceipt, SttStatus, TtsStatus } from '../audio/speechManagers';
-import { applySelfBuildPatch, applyUpdate, createArtifactPreview, createSpeechReceipt, loadAvatarManifest, loadBridgeStatus, loadCapabilities, loadConfigImportStatus, loadDockerPresets, loadFiles, loadGitHubStatus, loadImageStatus, loadIntegrations, loadMemoryStatus, loadModelStatus, loadReceipts, loadSearchStatus, loadSession, loadSessions, loadSpeechStatus, loadTeam, proposeUpdate, readFile, requestImage, runSearch, runSelfBuildPrompt, loadSelfBuildTrustStatus, scanX7Configs, sendChat, uploadAttachment } from '../services/apiClient';
+import { applySelfBuildPatch, applyUpdate, connectGitHubRemote, createArtifactPreview, createGitHubRepo, createSpeechReceipt, loadAvatarManifest, loadBridgeStatus, loadCapabilities, loadConfigImportStatus, loadDockerPresets, loadFiles, loadGitHubOpsAuthStatus, loadGitHubOpsStatus, loadGitHubStatus, loadImageStatus, loadIntegrations, loadMemoryStatus, loadModelStatus, loadReceipts, loadSearchStatus, loadSession, loadSessions, loadSpeechStatus, loadTeam, previewGitHubPull, previewGitHubPush, proposeUpdate, readFile, requestImage, runGitHubOperation, runSearch, runSelfBuildPrompt, loadSelfBuildTrustStatus, scanX7Configs, sendChat, uploadAttachment } from '../services/apiClient';
 import type { AttachmentReference, Capability, FileEntry, IntegrationStatus, PatchProposal, SessionDetail, TeamSeat } from '../types/contracts';
 import { CodeEditor } from '../components/cockpit/CodeEditor';
 import { StatusPill } from '../components/ui/StatusPill';
@@ -22,6 +22,9 @@ export function App() {
   const [files, setFiles] = useState<FileEntry[]>([]);
   const [dockerPresets, setDockerPresets] = useState<string[]>([]);
   const [githubStatus, setGithubStatus] = useState('loading');
+  const [githubAuth, setGithubAuth] = useState<Record<string, unknown>>({});
+  const [githubOps, setGithubOps] = useState<Record<string, unknown>>({});
+  const [githubOpsResult, setGithubOpsResult] = useState('No GitHub op run yet.');
   const [searchStatus, setSearchStatus] = useState('loading');
   const [imageStatus, setImageStatus] = useState('loading');
   const [bridgeStatus, setBridgeStatus] = useState('loading');
@@ -68,14 +71,16 @@ export function App() {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    Promise.all([loadCapabilities(), loadIntegrations(), loadTeam(), loadFiles(), loadDockerPresets(), loadGitHubStatus(), loadSearchStatus(), loadImageStatus(), loadBridgeStatus(), loadConfigImportStatus(), loadAvatarManifest(), loadSpeechStatus()])
-      .then(([caps, ints, seats, fileList, presets, github, search, image, bridge, configImport, avatar, speech]) => {
+    Promise.all([loadCapabilities(), loadIntegrations(), loadTeam(), loadFiles(), loadDockerPresets(), loadGitHubStatus(), loadSearchStatus(), loadImageStatus(), loadBridgeStatus(), loadConfigImportStatus(), loadAvatarManifest(), loadSpeechStatus(), loadGitHubOpsAuthStatus(), loadGitHubOpsStatus()])
+      .then(([caps, ints, seats, fileList, presets, github, search, image, bridge, configImport, avatar, speech, githubAuthStatus, githubOpsStatus]) => {
         setCapabilities(caps.data);
         setIntegrations(ints.data);
         setTeam(seats.data);
         setFiles(fileList.data.filter((item) => item.kind === 'file').slice(0, 80));
         setDockerPresets(presets.data);
         setGithubStatus(github.data.status);
+        setGithubAuth(githubAuthStatus.data || {});
+        setGithubOps(githubOpsStatus.data || {});
         setSearchStatus(String(search.data.status || search.status));
         setImageStatus(String(image.data.status || image.status));
         setBridgeStatus(String(bridge.data.bridge_reachable ? 'reachable' : 'unreachable'));
@@ -167,6 +172,7 @@ export function App() {
 
   function classifyRequest(text: string) {
     const lower = text.toLowerCase();
+    if (lower.includes('github') || lower.includes('push this repo') || lower.includes('pull latest') || lower.includes('prepare to push') || lower.includes('initialize this as a repo') || lower.includes('connect this repo')) return 'github';
     if (lower.includes('self-build') || (lower.includes('patch') && lower.includes('do not commit')) || (lower.includes('completion rule') && lower.includes('tests'))) return 'self_build';
     if (lower.includes('open') && lower.includes('readme')) return 'file';
     if (lower.includes('propose') && (lower.includes('edit') || lower.includes('diff'))) return 'diff';
@@ -199,6 +205,7 @@ export function App() {
     if (intent === 'research') return createResearchCard(text);
     if (intent === 'image') return createImageCard(text);
     if (intent === 'test') return createTestCard(text);
+    if (intent === 'github') return createGitHubCards(text);
     if (intent === 'self_build') return createSelfBuildCards(text);
     return createAssistantReply(text, outgoingAttachments);
   }
@@ -540,6 +547,56 @@ export function App() {
     }
   }
 
+  async function createGitHubCards(text: string) {
+    const lower = text.toLowerCase();
+    try {
+      if (lower.includes('status') || lower.includes('check github')) {
+        await refreshGitHubOps();
+        appendMessage({ id: nowId(), role: 'assistant', text: 'GitHub status loaded without mutation.', cards: [{ id: nowId(), type: 'receipt', title: 'GitHub Ops status', status: 'ready', summary: 'Local git and GitHub auth status loaded.', payload: { auth: githubAuth, status: githubOps }, collapsed: false }] });
+        return;
+      }
+      if (lower.includes('prepare to push') || (lower.includes('push') && !lower.includes('push this repo'))) {
+        const response = await previewGitHubPush();
+        appendMessage({ id: nowId(), role: 'assistant', text: 'Push preview loaded. No push occurred.', cards: [{ id: nowId(), type: 'receipt', title: 'GitHub push preview', status: response.status, summary: response.message, payload: response.data, collapsed: false }, githubApprovalCard('push', 'Push this repo', response.data)] });
+        return;
+      }
+      if (lower.includes('pull latest')) {
+        const response = await previewGitHubPull();
+        appendMessage({ id: nowId(), role: 'assistant', text: 'Pull preview loaded. No pull occurred.', cards: [{ id: nowId(), type: 'receipt', title: 'GitHub pull preview', status: response.status, summary: response.message, payload: response.data, collapsed: false }, githubApprovalCard('pull', 'Pull latest', response.data)] });
+        return;
+      }
+      const operation = lower.includes('initialize') ? 'init' : lower.includes('create') ? 'create-repo' : lower.includes('connect') ? 'connect-remote' : 'push';
+      appendMessage({ id: nowId(), role: 'assistant', text: 'GitHub operation requires approval before any write.', cards: [githubApprovalCard(operation, `GitHub ${operation}`, {})] });
+    } catch {
+      appendMessage({ id: nowId(), role: 'assistant', text: 'GitHub operation could not be prepared.', cards: [errorCard('GitHub Ops unavailable', 'No GitHub write occurred.')] });
+    }
+  }
+
+  function githubApprovalCard(operation: string, title: string, preview: Record<string, unknown>): ChatCard {
+    return {
+      id: nowId(),
+      type: 'approval',
+      title,
+      status: 'approval_required',
+      summary: `${title} requires explicit approval. No GitHub write has run.`,
+      payload: { provider: 'github_ops', operation, apply_safe: true, validation_status: 'passed', changed_file_paths: preview.changed_files || [], preview },
+      collapsed: false
+    };
+  }
+
+  async function refreshGitHubOps() {
+    const [auth, status] = await Promise.all([loadGitHubOpsAuthStatus(), loadGitHubOpsStatus()]);
+    setGithubAuth(auth.data || {});
+    setGithubOps(status.data || {});
+    setGithubOpsResult(status.message);
+  }
+
+  async function previewGitHubOp(kind: 'pull' | 'push') {
+    const response = kind === 'pull' ? await previewGitHubPull() : await previewGitHubPush();
+    setGithubOpsResult(response.message);
+    setGithubOps({ ...githubOps, [`${kind}_preview`]: response.data });
+  }
+
   function createTestCard(text: string) {
     setLatestResult('Test run queued for approval');
     appendMessage({
@@ -563,6 +620,23 @@ export function App() {
 
   async function requestApply(card?: ChatCard) {
     const payload = card?.payload || {};
+    if (card?.type === 'approval' && payload.provider === 'github_ops' && payload.operation) {
+      updateCard(card.id, { status: 'applying', summary: 'Running approved GitHub operation.', collapsed: false });
+      try {
+        const operation = String(payload.operation);
+        const response = operation === 'create-repo'
+          ? await createGitHubRepo('xv8-lab-repo', true)
+          : operation === 'connect-remote'
+            ? await connectGitHubRemote('https://github.com/otiseduncan/xv8-lab-repo.git', true)
+            : await runGitHubOperation(operation as 'init' | 'pull' | 'push', true);
+        updateCard(card.id, { status: response.status, summary: response.message, payload: { ...payload, apply_result: response.data } });
+        setGithubOpsResult(response.message);
+        setLatestReceipt(response.receipts?.[0] || null);
+      } catch {
+        updateCard(card.id, { status: 'blocked', summary: 'GitHub operation failed or was blocked before completion.', payload: { ...payload, apply_result: { reason: 'GitHub operation failed or was blocked.', changed_files: [] } } });
+      }
+      return;
+    }
     if (card?.type === 'approval' && payload.apply_safe === true && payload.task_id && payload.patch_id && payload.approval_id && payload.patch_hash) {
       updateCard(card.id, { status: 'applying', summary: 'Applying through the locked self-build endpoint.', collapsed: false });
       try {
@@ -991,6 +1065,27 @@ export function App() {
               {dockerPresets.map((preset) => (
                 <div key={preset} className="row split"><strong>{preset}</strong><span>preset</span></div>
               ))}
+            </div>
+          </Panel>
+          <Panel icon={<GitBranch />} title="GitHub Ops">
+            <div className="list dense githubOpsPanel">
+              <div className="row split"><strong>Token configured</strong><span>{String(githubAuth.token_configured ?? false)}</span></div>
+              <div className="row split"><strong>Owner</strong><span>{String(githubAuth.owner || 'not configured')}</span></div>
+              <div className="row split"><strong>Branch</strong><span>{String(githubOps.branch || 'not a repo')}</span></div>
+              <div className="row"><strong>Remote</strong><span>{String(githubOps.remote_origin_url || 'none')}</span></div>
+              <div className="row split"><strong>Dirty</strong><span>{String(githubOps.dirty ?? false)}</span></div>
+              <div className="row split"><strong>Changed files</strong><span>{Array.isArray(githubOps.changed_files) ? githubOps.changed_files.length : 0}</span></div>
+              <div className="row"><strong>Last commit</strong><span>{String((githubOps.last_commit as Record<string, unknown> | undefined)?.message || 'none')}</span></div>
+              <div className="row split"><strong>Ahead / behind</strong><span>{String(githubOps.ahead ?? 'unknown')} / {String(githubOps.behind ?? 'unknown')}</span></div>
+              <div className="row"><strong>Result</strong><span>{githubOpsResult}</span></div>
+              <div className="inlineActions">
+                <button className="chipButton" onClick={() => void refreshGitHubOps()}>Refresh</button>
+                <button className="chipButton" onClick={() => void previewGitHubOp('pull')}>Pull preview</button>
+                <button className="chipButton" onClick={() => void previewGitHubOp('push')}>Push preview</button>
+                <button className="chipButton" onClick={() => appendMessage({ id: nowId(), role: 'assistant', text: 'Create repo requires approval.', cards: [githubApprovalCard('create-repo', 'Create repo', {})] })}>Create repo proposal</button>
+                <button className="chipButton" onClick={() => appendMessage({ id: nowId(), role: 'assistant', text: 'Connect remote requires approval.', cards: [githubApprovalCard('connect-remote', 'Connect remote', {})] })}>Connect remote proposal</button>
+                <button className="chipButton" onClick={() => appendMessage({ id: nowId(), role: 'assistant', text: 'Initialize repo requires approval.', cards: [githubApprovalCard('init', 'Init repo', {})] })}>Init repo</button>
+              </div>
             </div>
           </Panel>
           <Panel icon={<Server />} title="Config Import">

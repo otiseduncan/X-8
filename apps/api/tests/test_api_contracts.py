@@ -1,3 +1,5 @@
+import subprocess
+
 from fastapi.testclient import TestClient
 
 from x8.app_factory import create_app
@@ -343,6 +345,81 @@ def test_github_reports_not_configured_without_token() -> None:
     data = response.json()["data"]
     assert data["status"] == "not_configured"
     assert data["capability"] == "unavailable"
+
+
+def make_git_repo(root) -> None:
+    subprocess.run(["git", "init"], cwd=root, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "config", "user.email", "xv8@example.test"], cwd=root, check=True)
+    subprocess.run(["git", "config", "user.name", "XV8 Test"], cwd=root, check=True)
+    (root / "README.md").write_text("# Test\n", encoding="utf-8")
+    subprocess.run(["git", "add", "README.md"], cwd=root, check=True)
+    subprocess.run(["git", "commit", "-m", "Initial"], cwd=root, check=True, capture_output=True, text=True)
+
+
+def test_github_ops_auth_status_redacts_token(tmp_path) -> None:
+    settings = Settings(workspace_root=str(tmp_path), knowledge_root="/app/knowledge")
+    settings.github_token = "ghp_secret_test"
+    settings.github_owner = "otis"
+    api = client(settings)
+    payload = api.get("/api/github/ops/auth-status").json()
+    assert payload["data"]["token_configured"] is True
+    assert payload["data"]["owner_configured"] is True
+    assert "ghp_secret_test" not in str(payload)
+
+
+def test_github_ops_local_status_and_previews_do_not_mutate(tmp_path) -> None:
+    make_git_repo(tmp_path)
+    settings = Settings(workspace_root=str(tmp_path), knowledge_root="/app/knowledge")
+    settings.github_owner = "otis"
+    api = client(settings)
+    status = api.get("/api/github/ops/status").json()
+    assert status["data"]["is_repo"] is True
+    assert status["data"]["last_commit"]["message"] == "Initial"
+    assert api.post("/api/github/ops/push-preview", json={"path": "."}).json()["status"] == "preview"
+    assert api.post("/api/github/ops/pull-preview", json={"path": "."}).json()["status"] == "preview"
+
+
+def test_github_ops_write_routes_require_approval_and_safe_paths(tmp_path) -> None:
+    make_git_repo(tmp_path)
+    api = client(Settings(workspace_root=str(tmp_path), knowledge_root="/app/knowledge"))
+    assert api.post("/api/github/ops/push", json={"path": ".", "approved": False}).json()["status"] == "blocked"
+    assert api.post("/api/github/ops/pull", json={"path": ".", "approved": False}).json()["status"] == "blocked"
+    assert api.post("/api/github/ops/init", json={"path": "../outside", "approved": True}).json()["status"] == "blocked"
+    assert api.post("/api/github/ops/connect-remote", json={"path": ".", "remote_url": "https://token@github.com/owner/repo.git", "approved": True}).json()["status"] == "blocked"
+
+
+def test_github_ops_create_repo_validation_and_mocked_api(tmp_path, monkeypatch) -> None:
+    class FakeResponse:
+        status_code = 201
+
+        def json(self):
+            return {"html_url": "https://github.com/otis/xv8-lab", "clone_url": "https://github.com/otis/xv8-lab.git"}
+
+    calls = []
+
+    def fake_post(url, headers, json, timeout):
+        calls.append({"url": url, "headers": headers, "json": json, "timeout": timeout})
+        return FakeResponse()
+
+    monkeypatch.setattr("x8.managers.github_ops_manager.httpx.post", fake_post)
+    settings = Settings(workspace_root=str(tmp_path), knowledge_root="/app/knowledge")
+    settings.github_token = "ghp_secret_test"
+    settings.github_owner = "otis"
+    settings.github_default_visibility = "private"
+    api = client(settings)
+    invalid = api.post("/api/github/ops/create-repo", json={"repo_name": "bad name", "visibility": "internal", "approved": True}).json()
+    assert invalid["status"] == "blocked"
+    created = api.post("/api/github/ops/create-repo", json={"repo_name": "xv8 lab", "visibility": "private", "approved": True}).json()
+    assert created["status"] == "applied"
+    assert created["data"]["repo"] == "xv8-lab"
+    assert "ghp_secret_test" not in str(created)
+    assert calls[0]["json"] == {"name": "xv8-lab", "private": True}
+
+
+def test_github_ops_no_arbitrary_shell_input(tmp_path) -> None:
+    api = client(Settings(workspace_root=str(tmp_path), knowledge_root="/app/knowledge"))
+    payload = api.post("/api/github/ops/init", json={"path": ".; rm -rf /", "approved": True}).json()
+    assert payload["status"] == "blocked"
 
 
 def test_workspace_file_tree_and_read() -> None:

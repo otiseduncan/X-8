@@ -66,6 +66,16 @@ function mockRuntime() {
                     ? { seed: 123, image_url: '' }
                     : String(path).includes('docker/presets')
                       ? ['api_tests']
+                      : String(path).includes('github/ops/auth-status')
+                        ? { token_configured: true, owner_configured: true, owner: 'otiseduncan', default_visibility: 'private' }
+                      : String(path).includes('github/ops/status')
+                        ? { is_repo: true, branch: 'main', remote_origin_url: 'https://github.com/otiseduncan/X-8.git', dirty: true, changed_files: ['M README.md'], last_commit: { sha: 'abc123', message: 'Latest safe commit' }, ahead: 1, behind: 0 }
+                      : String(path).includes('github/ops/push-preview')
+                        ? { branch: 'main', remote: 'https://github.com/otiseduncan/X-8.git', commits_to_push: ['abc123 Latest safe commit'], dirty: true, allowed_after_approval: true }
+                      : String(path).includes('github/ops/pull-preview')
+                        ? { branch: 'main', remote: 'https://github.com/otiseduncan/X-8.git', dirty: true, allowed_after_approval: true }
+                      : String(path).includes('github/ops/')
+                        ? { status: text.approved ? 'blocked' : 'blocked', reason: text.approved ? 'GitHub token not configured.' : 'Approval required before GitHub operation.', changed_files: [] }
                       : String(path).includes('github/status')
                         ? { status: 'not_configured' }
                         : String(path).includes('search/status')
@@ -207,6 +217,53 @@ test('renders assistant mode without permanent dashboard panels', async () => {
   fireEvent.click(screen.getByRole('button', { name: /settings/i }));
   expect(await screen.findByText('Project File Tree')).toBeInTheDocument();
   expect(screen.getByText('Voice preference')).toBeInTheDocument();
+});
+
+test('renders GitHub Ops panel without exposing token values', async () => {
+  render(<App />);
+  fireEvent.click(screen.getByRole('button', { name: /settings/i }));
+  expect(await screen.findByText('GitHub Ops')).toBeInTheDocument();
+  expect(screen.getByText('Token configured')).toBeInTheDocument();
+  expect(screen.getByText('otiseduncan')).toBeInTheDocument();
+  expect(screen.getByText('main')).toBeInTheDocument();
+  expect(screen.getByText('Latest safe commit')).toBeInTheDocument();
+  expect(screen.queryByText(/ghp_/i)).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: /push preview/i }));
+  await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/github/ops/push-preview', expect.objectContaining({ method: 'POST' })));
+});
+
+test('renders GitHub operation approval cards before writes', async () => {
+  render(<App />);
+  fireEvent.click(screen.getByRole('button', { name: /settings/i }));
+  await screen.findByText('GitHub Ops');
+  fireEvent.click(screen.getByRole('button', { name: /create repo proposal/i }));
+  const approvalCard = await screen.findByTestId('inline-approval-card');
+  expect(within(approvalCard).getByText('github_ops')).toBeInTheDocument();
+  expect(within(approvalCard).getByText('create-repo')).toBeInTheDocument();
+  expect(within(approvalCard).getByRole('button', { name: /^Apply$/ })).toBeInTheDocument();
+});
+
+test('routes GitHub chat prompts to status, previews, and approval cards', async () => {
+  render(<App />);
+  await send('Check GitHub status');
+  expect(await screen.findByText('GitHub status loaded without mutation.')).toBeInTheDocument();
+  expect(screen.getByText('GitHub Ops status')).toBeInTheDocument();
+
+  await send('Prepare to push this repo');
+  expect(await screen.findByText('Push preview loaded. No push occurred.')).toBeInTheDocument();
+  await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/github/ops/push-preview', expect.objectContaining({ method: 'POST' })));
+  expect(screen.getByText('Push this repo')).toBeInTheDocument();
+
+  await send('Pull latest');
+  expect(await screen.findByText('Pull preview loaded. No pull occurred.')).toBeInTheDocument();
+  await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/github/ops/pull-preview', expect.objectContaining({ method: 'POST' })));
+  let approvalCards = screen.getAllByTestId('inline-approval-card');
+  expect(within(approvalCards[approvalCards.length - 1]).getByText('Pull latest')).toBeInTheDocument();
+
+  await send('Create a GitHub repo');
+  expect(await screen.findByText('GitHub operation requires approval before any write.')).toBeInTheDocument();
+  approvalCards = screen.getAllByTestId('inline-approval-card');
+  expect(within(approvalCards[approvalCards.length - 1]).getByText('create-repo')).toBeInTheDocument();
 });
 
 test('renders generated artifacts and file viewers inline', async () => {
