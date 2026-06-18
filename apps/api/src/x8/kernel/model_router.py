@@ -4,6 +4,7 @@ from x8.contracts.chat import ModelStatus
 from x8.kernel.contracts import ModelSelection
 from x8.managers.model_manager import BLOCKED_MODELS, OllamaAdapter, normalize_model
 
+# XV8 owner note: model routing is hardened through dedicated follow-up patches.
 
 class ModelProfileManager:
     def __init__(self, default_chat: str, fallback_chat: str, code: str = "", fast: str = "", embedding: str = "", reasoning: str = "", ollama_mode: str = "host_ollama_bridge", ollama_base_url: str = "") -> None:
