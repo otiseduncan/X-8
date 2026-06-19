@@ -229,6 +229,53 @@ export function loadBrainStatus() {
   return getJson<ResultEnvelope<Record<string, unknown>>>('/api/brain/status');
 }
 
+export function loadBrainMemories(params: Record<string, string> = {}) {
+  const query = new URLSearchParams(params);
+  return getJson<ResultEnvelope<Array<Record<string, unknown>>>>(`/api/brain/memories${query.toString() ? `?${query}` : ''}`);
+}
+
+export async function updateBrainMemory(id: string, patch: Record<string, unknown>) {
+  const response = await fetch(`/api/brain/memories/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch) });
+  if (!response.ok) throw new Error('Brain memory update failed');
+  return response.json() as Promise<ResultEnvelope<Record<string, unknown>>>;
+}
+
+export async function deleteBrainMemory(id: string) {
+  const response = await fetch(`/api/brain/memories/${id}`, { method: 'DELETE' });
+  if (!response.ok) throw new Error('Brain memory delete failed');
+  return response.json() as Promise<ResultEnvelope<Record<string, unknown>>>;
+}
+
+export async function approveBrainMemory(id: string) {
+  const response = await fetch(`/api/brain/memories/${id}/approve`, { method: 'POST' });
+  if (!response.ok) throw new Error('Brain memory approve failed');
+  return response.json() as Promise<ResultEnvelope<Record<string, unknown>>>;
+}
+
+export async function rejectBrainMemory(id: string) {
+  const response = await fetch(`/api/brain/memories/${id}/reject`, { method: 'POST' });
+  if (!response.ok) throw new Error('Brain memory reject failed');
+  return response.json() as Promise<ResultEnvelope<Record<string, unknown>>>;
+}
+
+export async function reactivateBrainMemory(id: string) {
+  const response = await fetch(`/api/brain/memories/${id}/reactivate`, { method: 'POST' });
+  if (!response.ok) throw new Error('Brain memory reactivate failed');
+  return response.json() as Promise<ResultEnvelope<Record<string, unknown>>>;
+}
+
+export async function retrieveBrainMemory(query: string) {
+  const response = await fetch('/api/brain/retrieve', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query }) });
+  if (!response.ok) throw new Error('Brain memory retrieve failed');
+  return response.json() as Promise<ResultEnvelope<Array<Record<string, unknown>>>>;
+}
+
+export async function updateBrainFocus(focus: string) {
+  const response = await fetch('/api/brain/focus', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ focus }) });
+  if (!response.ok) throw new Error('Brain focus update failed');
+  return response.json() as Promise<ResultEnvelope<Record<string, unknown>>>;
+}
+
 export function loadMemoryRecords() {
   return getJson<ResultEnvelope<Array<Record<string, unknown>>>>('/api/memory/records');
 }

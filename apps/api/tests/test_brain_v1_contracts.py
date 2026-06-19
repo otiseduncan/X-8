@@ -214,8 +214,47 @@ def test_sensitive_personal_memory_is_approval_gated() -> None:
     phrase = f"my family history includes {uuid4().hex[:8]}"
     payload = client().post("/api/brain/remember", json={"content": phrase}).json()
     assert payload["status"] == "approval_required"
-    assert payload["data"] is None
+    assert payload["data"]["requires_approval"] is True
+    assert payload["data"]["active"] is False
     assert payload["message"] == "That memory needs approval before I save it."
+
+
+def test_pending_memory_is_not_retrieved_until_approved() -> None:
+    api = client()
+    phrase = f"my family history includes phase2 {uuid4().hex[:8]}"
+    pending = api.post("/api/brain/remember", json={"content": phrase}).json()["data"]
+    miss = api.post("/api/brain/retrieve", json={"query": phrase}).json()
+    assert miss["message"] == MISS
+    approved = api.post(f"/api/brain/memories/{pending['id']}/approve").json()
+    assert approved["status"] == "approved"
+    found = api.post("/api/brain/retrieve", json={"query": phrase}).json()
+    assert "family history" in found["message"]
+
+
+def test_reject_pending_memory_keeps_it_out_of_retrieval() -> None:
+    api = client()
+    phrase = f"my family history includes reject {uuid4().hex[:8]}"
+    pending = api.post("/api/brain/remember", json={"content": phrase}).json()["data"]
+    rejected = api.post(f"/api/brain/memories/{pending['id']}/reject").json()
+    assert rejected["status"] == "rejected"
+    assert api.post("/api/brain/retrieve", json={"query": phrase}).json()["message"] == MISS
+
+
+def test_policy_safe_update_blocks_secret_content() -> None:
+    api = client()
+    record = api.post("/api/brain/remember", json={"content": f"I prefer {unique_phrase()}"}).json()["data"]
+    token = f"ghp_{uuid4().hex}abc"
+    blocked = api.patch(f"/api/brain/memories/{record['id']}", json={"content": f"token is {token}"}).json()
+    assert blocked["status"] == "blocked"
+    assert token not in str(blocked)
+
+
+def test_memory_list_filters_pending_records() -> None:
+    api = client()
+    phrase = f"my family history includes pending list {uuid4().hex[:8]}"
+    api.post("/api/brain/remember", json={"content": phrase})
+    pending = api.get("/api/brain/memories?status_filter=pending").json()
+    assert any(phrase in item["summary"] for item in pending["data"])
 
 
 def test_memory_routes_return_stable_json() -> None:
@@ -240,6 +279,8 @@ def test_chat_routes_retrieve_command_to_brain() -> None:
     api.post("/api/chat", json={"message": f"remember that I prefer {phrase}"})
     payload = api.post("/api/chat", json={"message": "what do you remember about how I like answers?"}).json()
     assert payload["receipts"][0]["metadata"]["kernel_lane"] == "brain_retrieve"
+    assert payload["data"]["assistant_message"]["cards"][0]["title"] == "Memory used"
+    assert payload["data"]["assistant_message"]["cards"][0]["payload"]["auto_capture"] is False
     assert phrase in payload["data"]["assistant_message"]["content"]
 
 

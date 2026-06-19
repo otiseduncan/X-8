@@ -1,6 +1,8 @@
 import { Activity, Boxes, Code2, FileText, GitBranch, Image, Search, Server, ShieldCheck, Users, Volume2 } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
 import { CodeEditor } from '../components/cockpit/CodeEditor';
 import { StatusPill } from '../components/ui/StatusPill';
+import { approveBrainMemory, deleteBrainMemory, loadBrainMemories, reactivateBrainMemory, rejectBrainMemory, retrieveBrainMemory, updateBrainFocus, updateBrainMemory } from '../services/apiClient';
 import type { ChatCard, ChatMessage } from './AssistantComponents';
 import { Panel } from './AssistantComponents';
 
@@ -96,7 +98,7 @@ export function DeveloperCockpit(props: DeveloperCockpitProps) {
           <div className="row"><strong>Missing models</strong><span>{Array.isArray(modelDetails.missing_models) && modelDetails.missing_models.length ? modelDetails.missing_models.join(', ') : 'none'}</span></div>
         </div>
       </Panel>
-      <Panel icon={<ShieldCheck />} title="Memory"><div className="list dense"><div className="row split"><strong>Memory</strong><StatusPill label={memoryStatus} status={memoryStatus} /></div><div className="row split"><strong>Brain ready</strong><span>{String(brainDetails.brain_ready ?? false)}</span></div><div className="row split"><strong>Backend</strong><span>{String(brainDetails.storage_backend || 'unknown')}</span></div><div className="row split"><strong>Brain active</strong><span>{String(brainDetails.active_memory_count ?? 0)}</span></div><div className="row split"><strong>Brain pending</strong><span>{String(brainDetails.pending_approval_count ?? 0)}</span></div><div className="row"><strong>Active focus</strong><span>{String(brainDetails.active_focus || 'none')}</span></div><div className="row"><strong>Last event</strong><span>{String((brainDetails.last_memory_event as Record<string, unknown> | undefined)?.event_type || 'none')}</span></div><div className="row split"><strong>Auto-capture</strong><span>{String(brainDetails.auto_capture_enabled ?? false)}</span></div><div className="row split"><strong>Embedding ready</strong><span>{String(memoryDetails.embedding_ready ? 'yes' : 'no')}</span></div><div className="row split"><strong>Vector store ready</strong><span>{String(memoryDetails.vector_store_ready ? 'yes' : 'no')}</span></div><div className="row split"><strong>Pending</strong><span>{String(memoryDetails.pending_count ?? 0)}</span></div><div className="row split"><strong>Active</strong><span>{String(memoryDetails.active_count ?? 0)}</span></div><div className="row"><strong>Reason</strong><span>{String(memoryDetails.failure_reason || 'ready')}</span></div></div></Panel>
+      <BrainMemoryPanel memoryStatus={memoryStatus} memoryDetails={memoryDetails} brainDetails={brainDetails} />
       <Panel icon={<Users />} title="Team Seats"><div className="list dense">{team.slice(0, 6).map((seat) => <div key={seat.name} className="row"><strong>{seat.name}</strong><span>{seat.responsibility}</span></div>)}</div></Panel>
       <Panel icon={<ShieldCheck />} title="Capabilities"><div className="chips">{capabilities.map((capability) => <StatusPill key={capability.name} label={capability.name} status={capability.status} />)}</div></Panel>
       <Panel icon={<Boxes />} title="Future Integrations"><div className="list dense">{integrations.slice(0, 8).map((integration) => <div key={integration.name} className="row split"><strong>{integration.name}</strong><StatusPill label={integration.status} status={integration.status} /></div>)}</div></Panel>
@@ -142,4 +144,218 @@ export function DeveloperCockpit(props: DeveloperCockpitProps) {
       </Panel>
     </section>
   );
+}
+
+type BrainRecord = Record<string, unknown> & {
+  id: string;
+  title?: string;
+  content?: string;
+  summary?: string;
+  layer?: string;
+  type?: string;
+  sensitivity?: string;
+  confidence?: number;
+  source?: string;
+  provenance?: string;
+  active?: boolean;
+  soft_deleted?: boolean;
+  requires_approval?: boolean;
+  approved_by_user?: boolean;
+  tags?: string[];
+  project_scope?: string;
+  session_scope?: string;
+  global_scope?: boolean;
+  created_at?: string;
+  updated_at?: string;
+  last_used_at?: string;
+};
+
+function BrainMemoryPanel({ memoryStatus, memoryDetails, brainDetails }: { memoryStatus: string; memoryDetails: Record<string, unknown>; brainDetails: Record<string, unknown> }) {
+  const [records, setRecords] = useState<BrainRecord[]>([]);
+  const [selectedId, setSelectedId] = useState('');
+  const [query, setQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [layerFilter, setLayerFilter] = useState('');
+  const [scopeFilter, setScopeFilter] = useState('');
+  const [actionStatus, setActionStatus] = useState('No memory action run yet.');
+  const [retrievalProof, setRetrievalProof] = useState<Record<string, unknown> | null>(null);
+  const selected = records.find((record) => record.id === selectedId) || records[0];
+  const [draft, setDraft] = useState({ title: '', content: '', summary: '', tags: '', active: true });
+
+  useEffect(() => { void refresh(); }, []);
+
+  useEffect(() => {
+    if (!selected) return;
+    setSelectedId(selected.id);
+    setDraft({
+      title: String(selected.title || ''),
+      content: String(selected.content || ''),
+      summary: String(selected.summary || ''),
+      tags: Array.isArray(selected.tags) ? selected.tags.join(', ') : '',
+      active: selected.active !== false
+    });
+  }, [selected?.id]);
+
+  const visible = useMemo(() => records.filter((record) => {
+    if (query) {
+      const haystack = `${record.title || ''} ${record.summary || ''} ${record.content || ''} ${(record.tags || []).join(' ')}`.toLowerCase();
+      if (!haystack.includes(query.toLowerCase())) return false;
+    }
+    if (statusFilter === 'active' && !(record.active && !record.soft_deleted && !record.requires_approval)) return false;
+    if (statusFilter === 'pending' && !(record.requires_approval && !record.approved_by_user && !record.soft_deleted)) return false;
+    if (statusFilter === 'deleted' && !(record.soft_deleted || !record.active)) return false;
+    if (layerFilter && record.layer !== layerFilter && record.type !== layerFilter) return false;
+    if (scopeFilter && record.project_scope !== scopeFilter && record.session_scope !== scopeFilter) return false;
+    return true;
+  }), [records, query, statusFilter, layerFilter, scopeFilter]);
+
+  const layers = Array.from(new Set(records.flatMap((record) => [record.layer, record.type]).filter(Boolean).map(String))).sort();
+  const scopes = Array.from(new Set(records.flatMap((record) => [record.project_scope, record.session_scope]).filter(Boolean).map(String))).sort();
+
+  async function refresh() {
+    const response = await loadBrainMemories({ include_deleted: 'true' });
+    const next = (response.data || []) as BrainRecord[];
+    setRecords(next);
+    if (!selectedId && next[0]) setSelectedId(next[0].id);
+  }
+
+  async function runAction(label: string, action: () => Promise<unknown>) {
+    try {
+      await action();
+      setActionStatus(label);
+      await refresh();
+    } catch (exc) {
+      setActionStatus(exc instanceof Error ? exc.message : 'Brain memory action failed.');
+    }
+  }
+
+  async function saveSelected() {
+    if (!selected) return;
+    await runAction('Brain memory updated.', () => updateBrainMemory(selected.id, {
+      title: draft.title,
+      content: draft.content,
+      summary: draft.summary,
+      tags: draft.tags.split(',').map((tag) => tag.trim()).filter(Boolean),
+      active: draft.active
+    }));
+  }
+
+  async function retrieve() {
+    const response = await retrieveBrainMemory(query || selected?.summary || '');
+    setRetrievalProof({ status: response.status, message: response.message, count: response.data?.length || 0 });
+    setActionStatus('Memory retrieval proof refreshed.');
+  }
+
+  async function updateFocus() {
+    const value = draft.summary || draft.title || selected?.summary || 'Brain V1 Phase 2';
+    await runAction('Active focus updated.', () => updateBrainFocus(value));
+  }
+
+  const latestRetrieval = retrievalProof || (brainDetails.latest_retrieval as Record<string, unknown> | null);
+  const lastEvent = brainDetails.last_memory_event as Record<string, unknown> | undefined;
+
+  return (
+    <Panel icon={<ShieldCheck />} title="Brain / Memory">
+      <div className="brainPanel">
+        <section className="brainStatusGrid" aria-label="Brain memory status">
+          <div className="row split"><strong>Memory</strong><StatusPill label={memoryStatus} status={memoryStatus} /></div>
+          <div className="row split"><strong>Backend</strong><span>{String(brainDetails.storage_backend || 'postgres')}</span></div>
+          <div className="row split"><strong>Global</strong><span>{String(brainDetails.global_memory_enabled ?? true)}</span></div>
+          <div className="row split"><strong>Project</strong><span>{String(brainDetails.project_memory_enabled ?? true)}</span></div>
+          <div className="row split"><strong>Session</strong><span>{String(brainDetails.session_memory_mode || 'enabled')}</span></div>
+          <div className="row split"><strong>Active</strong><span>{String(brainDetails.active_memory_count ?? 0)}</span></div>
+          <div className="row split"><strong>Pending</strong><span>{String(brainDetails.pending_approval_count ?? 0)}</span></div>
+          <div className="row split"><strong>Auto-capture</strong><span>{String(brainDetails.auto_capture_enabled ?? false)}</span></div>
+          <div className="row"><strong>Active focus</strong><span>{String(brainDetails.active_focus || 'none')}</span></div>
+          <div className="row"><strong>Last memory event</strong><span>{String(lastEvent?.event_type || 'none')}</span></div>
+          <div className="row"><strong>Latest retrieval proof</strong><span>{latestRetrieval ? `${String(latestRetrieval.status || 'recorded')} / ${String(latestRetrieval.count ?? latestRetrieval.injected_count ?? 0)} records` : 'none'}</span></div>
+          <div className="row"><strong>Legacy memory readiness</strong><span>{String(memoryDetails.failure_reason || 'ready')}</span></div>
+        </section>
+
+        <section className="brainToolbar" aria-label="Memory record filters">
+          <input aria-label="Search memory records" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search memory" />
+          <select aria-label="Filter memory status" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+            <option value="">All statuses</option>
+            <option value="active">Active</option>
+            <option value="pending">Pending</option>
+            <option value="deleted">Deleted / inactive</option>
+          </select>
+          <select aria-label="Filter memory layer" value={layerFilter} onChange={(event) => setLayerFilter(event.target.value)}>
+            <option value="">All layers/types</option>
+            {layers.map((layer) => <option key={layer} value={layer}>{layer}</option>)}
+          </select>
+          <select aria-label="Filter memory scope" value={scopeFilter} onChange={(event) => setScopeFilter(event.target.value)}>
+            <option value="">All scopes</option>
+            {scopes.map((scope) => <option key={scope} value={scope}>{scope}</option>)}
+          </select>
+          <button className="chipButton" onClick={() => void refresh()}>Refresh</button>
+          <button className="chipButton" onClick={() => void retrieve()}>Retrieve</button>
+        </section>
+
+        <section className="memoryRecords" aria-label="Memory records">
+          {visible.length === 0 && <p className="cardSummary">No memory records match.</p>}
+          {visible.map((record) => (
+            <button key={record.id} className={record.id === selected?.id ? 'memoryRow active' : 'memoryRow'} onClick={() => setSelectedId(record.id)}>
+              <strong>{String(record.title || record.summary || record.id)}</strong>
+              <span>{String(record.summary || record.content || '').slice(0, 120)}</span>
+              <small>{String(record.layer)} / {String(record.type)} / {memoryState(record)} / {String(record.sensitivity || 'low')}</small>
+              <small>{scopeLabel(record)} / {dateLabel(record.updated_at)}</small>
+            </button>
+          ))}
+        </section>
+
+        {selected && (
+          <section className="memoryDetail" aria-label="Memory detail">
+            <header><strong>Memory detail</strong><span>{selected.id}</span></header>
+            <label>Title<input aria-label="Memory title" value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} /></label>
+            <label>Content<textarea aria-label="Memory content" value={draft.content} onChange={(event) => setDraft({ ...draft, content: event.target.value })} /></label>
+            <label>Summary<textarea aria-label="Memory summary" value={draft.summary} onChange={(event) => setDraft({ ...draft, summary: event.target.value })} /></label>
+            <label>Tags<input aria-label="Memory tags" value={draft.tags} onChange={(event) => setDraft({ ...draft, tags: event.target.value })} /></label>
+            <label className="checkRow"><input aria-label="Memory active" type="checkbox" checked={draft.active} onChange={(event) => setDraft({ ...draft, active: event.target.checked })} /> Active</label>
+            <div className="memoryMeta">
+              <span>Layer/type: {String(selected.layer)} / {String(selected.type)}</span>
+              <span>Sensitivity: {String(selected.sensitivity || 'low')}</span>
+              <span>Confidence: {String(selected.confidence ?? 'unknown')}</span>
+              <span>Scope: {scopeLabel(selected)}</span>
+              <span>Created: {dateLabel(selected.created_at)}</span>
+              <span>Updated: {dateLabel(selected.updated_at)}</span>
+              <span>Last used: {dateLabel(selected.last_used_at)}</span>
+              <span>Source: {String(selected.source || 'unknown')}</span>
+              <span>Provenance: {String(selected.provenance || 'unknown')}</span>
+              <span>Active/deleted: {String(selected.active)} / {String(selected.soft_deleted)}</span>
+            </div>
+            <div className="inlineActions">
+              <button className="chipButton" onClick={() => void saveSelected()}>Save</button>
+              <button className="chipButton" onClick={() => selected && void runAction('Brain memory approved.', () => approveBrainMemory(selected.id))}>Approve</button>
+              <button className="chipButton" onClick={() => selected && void runAction('Brain memory rejected.', () => rejectBrainMemory(selected.id))}>Reject</button>
+              <button className="chipButton" onClick={() => selected && void runAction('Brain memory deleted.', () => deleteBrainMemory(selected.id))}>Delete</button>
+              <button className="chipButton" onClick={() => selected && void runAction('Brain memory reactivated.', () => reactivateBrainMemory(selected.id))}>Reactivate</button>
+              <button className="chipButton" disabled>Supersede unavailable</button>
+              <button className="chipButton" onClick={() => void updateFocus()}>Set focus</button>
+            </div>
+            <p className="cardSummary" role="status">{actionStatus}</p>
+          </section>
+        )}
+      </div>
+    </Panel>
+  );
+}
+
+function memoryState(record: BrainRecord) {
+  if (record.soft_deleted || !record.active) return 'inactive';
+  if (record.requires_approval && !record.approved_by_user) return 'pending';
+  return 'active';
+}
+
+function scopeLabel(record: BrainRecord) {
+  if (record.project_scope) return `project:${record.project_scope}`;
+  if (record.session_scope) return `session:${record.session_scope}`;
+  if (record.global_scope) return 'global';
+  return 'local';
+}
+
+function dateLabel(value: unknown) {
+  if (!value) return 'never';
+  const date = new Date(String(value));
+  return Number.isNaN(date.valueOf()) ? String(value) : date.toLocaleString();
 }

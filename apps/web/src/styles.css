@@ -760,6 +760,94 @@ input:focus {
   max-height: 180px;
 }
 
+.brainPanel {
+  display: grid;
+  gap: 14px;
+}
+
+.brainStatusGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.brainToolbar {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) repeat(3, minmax(130px, 0.45fr)) auto auto;
+  gap: 8px;
+}
+
+.brainToolbar input,
+.brainToolbar select,
+.memoryDetail input,
+.memoryDetail textarea {
+  width: 100%;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-bg);
+  color: var(--color-text);
+  padding: 9px 10px;
+}
+
+.memoryRecords {
+  display: grid;
+  max-height: 340px;
+  overflow: auto;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+}
+
+.memoryRow {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  border: 0;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.14);
+  background: transparent;
+  color: var(--color-text);
+  padding: 10px;
+  text-align: left;
+}
+
+.memoryRow.active,
+.memoryRow:hover {
+  background: rgba(34, 211, 238, 0.08);
+}
+
+.memoryRow span,
+.memoryRow small,
+.memoryMeta span {
+  color: var(--color-muted);
+}
+
+.memoryDetail {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.memoryDetail header,
+.checkRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.memoryDetail textarea {
+  min-height: 74px;
+  resize: vertical;
+}
+
+.memoryMeta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 6px;
+  font-size: 0.82rem;
+}
+
 iframe {
   width: 100%;
   min-height: 320px;
@@ -920,6 +1008,10 @@ iframe {
   }
 
   .developerCockpit {
+    grid-template-columns: 1fr;
+  }
+
+  .brainToolbar {
     grid-template-columns: 1fr;
   }
 

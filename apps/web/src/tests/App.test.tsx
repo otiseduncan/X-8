@@ -127,6 +127,26 @@ function mockRuntime() {
                                             ? { model_ready: false, selected_model: '', ollama_reachable: false }
                                             : String(path).includes('brain/status')
                                               ? { brain_ready: true, storage_backend: 'postgres', active_memory_count: 2, pending_approval_count: 0, active_focus: 'Brain V1 Batch 1', last_memory_event: { event_type: 'created' }, auto_capture_enabled: false }
+                                              : String(path).includes('brain/memories') && String(path).includes('/approve')
+                                                ? { id: 'brain_mem_pending', title: 'Pending memory', summary: 'approved sensitive memory', content: 'approved sensitive memory', layer: 'pending', type: 'approval_required', sensitivity: 'personal_sensitive', active: true, soft_deleted: false, requires_approval: false, approved_by_user: true, global_scope: true, tags: ['pending'], updated_at: new Date().toISOString() }
+                                              : String(path).includes('brain/memories') && String(path).includes('/reject')
+                                                ? { id: 'brain_mem_pending', title: 'Pending memory', summary: 'rejected sensitive memory', content: 'rejected sensitive memory', layer: 'pending', type: 'approval_required', sensitivity: 'personal_sensitive', active: false, soft_deleted: true, requires_approval: true, approved_by_user: false, global_scope: true, tags: ['pending'], updated_at: new Date().toISOString() }
+                                              : String(path).includes('brain/memories') && String(path).includes('/reactivate')
+                                                ? { id: 'brain_mem_deleted', title: 'Deleted memory', summary: 'reactivated memory', content: 'reactivated memory', layer: 'preferences', type: 'manual_memory', sensitivity: 'low', active: true, soft_deleted: false, requires_approval: false, approved_by_user: true, global_scope: true, tags: ['manual'], updated_at: new Date().toISOString() }
+                                              : String(path).includes('brain/memories') && options?.method === 'PATCH'
+                                                ? { id: 'brain_mem_active', title: text.title || 'Answer preference', summary: text.summary || 'you prefer direct senior-engineer answers', content: text.content || 'you prefer direct senior-engineer answers', layer: 'preferences', type: 'communication_preference', sensitivity: 'low', active: text.active ?? true, soft_deleted: false, requires_approval: false, approved_by_user: true, global_scope: true, tags: text.tags || ['manual'], updated_at: new Date().toISOString() }
+                                              : String(path).includes('brain/memories') && options?.method === 'DELETE'
+                                                ? { id: 'brain_mem_active', title: 'Answer preference', summary: 'you prefer direct senior-engineer answers', content: 'you prefer direct senior-engineer answers', layer: 'preferences', type: 'communication_preference', sensitivity: 'low', active: false, soft_deleted: true, requires_approval: false, approved_by_user: true, global_scope: true, tags: ['manual'], updated_at: new Date().toISOString() }
+                                              : String(path).includes('brain/memories')
+                                                ? [
+                                                    { id: 'brain_mem_active', title: 'Answer preference', summary: 'you prefer direct senior-engineer answers', content: 'you prefer direct senior-engineer answers', layer: 'preferences', type: 'communication_preference', sensitivity: 'low', confidence: 0.9, source: 'user_explicit', provenance: 'explicit_user_command', active: true, soft_deleted: false, requires_approval: false, approved_by_user: true, global_scope: true, tags: ['manual', 'answers'], created_at: new Date().toISOString(), updated_at: new Date().toISOString(), last_used_at: '' },
+                                                    { id: 'brain_mem_pending', title: 'Sensitive memory', summary: 'family history note', content: 'family history note', layer: 'pending', type: 'approval_required', sensitivity: 'personal_sensitive', confidence: 0.9, source: 'user_explicit', provenance: 'explicit_user_command', active: false, soft_deleted: false, requires_approval: true, approved_by_user: false, project_scope: 'x8', tags: ['pending'], created_at: new Date().toISOString(), updated_at: new Date().toISOString(), last_used_at: '' },
+                                                    { id: 'brain_mem_deleted', title: 'Deleted memory', summary: 'old deleted memory', content: 'old deleted memory', layer: 'memory', type: 'manual_memory', sensitivity: 'low', active: false, soft_deleted: true, requires_approval: false, approved_by_user: true, session_scope: 'sess_old', tags: [], created_at: new Date().toISOString(), updated_at: new Date().toISOString() }
+                                                  ]
+                                                : String(path).includes('brain/retrieve')
+                                                  ? [{ id: 'brain_mem_active', summary: 'you prefer direct senior-engineer answers' }]
+                                                : String(path).includes('brain/focus')
+                                                  ? { id: 'focus_1', focus: text.focus || 'Brain V1 Batch 1' }
                                             : String(path).includes('receipts')
                                               ? []
                                       : String(path).includes('chat')
@@ -258,6 +278,33 @@ test('renders assistant mode without permanent dashboard panels', async () => {
   expect(screen.getByText('postgres')).toBeInTheDocument();
   expect(screen.getByText('Brain V1 Batch 1')).toBeInTheDocument();
   expect(screen.getByText('created')).toBeInTheDocument();
+});
+
+test('Brain memory panel searches filters opens detail and runs actions', async () => {
+  render(<App />);
+  fireEvent.click(screen.getByRole('button', { name: /settings/i }));
+  expect(await screen.findByText('Brain / Memory')).toBeInTheDocument();
+  expect(screen.getByText('postgres')).toBeInTheDocument();
+  expect(screen.getByText('Brain V1 Batch 1')).toBeInTheDocument();
+  expect(await screen.findByText('Answer preference')).toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText('Search memory records'), { target: { value: 'senior-engineer' } });
+  expect(screen.getAllByText('you prefer direct senior-engineer answers').length).toBeGreaterThan(0);
+  fireEvent.change(screen.getByLabelText('Search memory records'), { target: { value: '' } });
+  fireEvent.change(screen.getByLabelText('Filter memory status'), { target: { value: 'pending' } });
+  expect(screen.getByText('Sensitive memory')).toBeInTheDocument();
+  fireEvent.click(screen.getByText('Sensitive memory'));
+  expect(screen.getByLabelText('Memory detail')).toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText('Memory title'), { target: { value: 'Updated memory title' } });
+  fireEvent.click(screen.getByRole('button', { name: /^Save$/ }));
+  await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/brain/memories/brain_mem_pending', expect.objectContaining({ method: 'PATCH' })));
+  fireEvent.click(screen.getByRole('button', { name: /^Approve$/ }));
+  await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/brain/memories/brain_mem_pending/approve', expect.objectContaining({ method: 'POST' })));
+  fireEvent.click(screen.getByRole('button', { name: /^Reject$/ }));
+  await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/brain/memories/brain_mem_pending/reject', expect.objectContaining({ method: 'POST' })));
+  fireEvent.click(screen.getByRole('button', { name: /^Delete$/ }));
+  await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/brain/memories/brain_mem_pending', expect.objectContaining({ method: 'DELETE' })));
+  expect(screen.getByRole('button', { name: /supersede unavailable/i })).toBeDisabled();
+  expect(document.body).not.toHaveTextContent(/ghp_/i);
 });
 
 test('conversation composer stays in the fixed bottom dock after messages and cards update', async () => {

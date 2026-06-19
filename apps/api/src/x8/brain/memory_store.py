@@ -92,6 +92,18 @@ class BrainMemoryStore:
                 )
                 """
             )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS brain_memory_retrievals (
+                    id TEXT PRIMARY KEY,
+                    query TEXT NOT NULL,
+                    selected_ids TEXT NOT NULL DEFAULT '[]',
+                    candidate_count INTEGER NOT NULL DEFAULT 0,
+                    injected_count INTEGER NOT NULL DEFAULT 0,
+                    created_at TIMESTAMPTZ NOT NULL
+                )
+                """
+            )
             conn.execute("ALTER TABLE brain_memory_records ADD COLUMN IF NOT EXISTS session_scope TEXT NOT NULL DEFAULT ''")
             conn.execute("ALTER TABLE brain_active_focus ADD COLUMN IF NOT EXISTS summary TEXT NOT NULL DEFAULT ''")
             conn.execute("ALTER TABLE brain_active_focus ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'user_explicit'")
@@ -105,6 +117,7 @@ class BrainMemoryStore:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_brain_memory_soft_deleted ON brain_memory_records(soft_deleted)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_brain_focus_session_scope ON brain_active_focus(session_scope)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_brain_focus_project_scope ON brain_active_focus(project_scope)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_brain_retrieval_created_at ON brain_memory_retrievals(created_at DESC)")
             conn.commit()
 
     def status(self) -> dict[str, Any]:
@@ -114,7 +127,11 @@ class BrainMemoryStore:
             pending = conn.execute("SELECT COUNT(*) AS count FROM brain_memory_records WHERE requires_approval=true AND approved_by_user=false AND soft_deleted=false").fetchone()["count"]
             focus = conn.execute("SELECT focus FROM brain_active_focus WHERE active=true ORDER BY updated_at DESC LIMIT 1").fetchone()
             last_event = conn.execute("SELECT * FROM brain_memory_events ORDER BY created_at DESC LIMIT 1").fetchone()
-        return {"brain_ready": True, "active_memory_count": active, "pending_approval_count": pending, "active_focus": focus["focus"] if focus else "", "last_memory_event": dict(last_event) if last_event else None}
+            retrieval = conn.execute("SELECT * FROM brain_memory_retrievals ORDER BY created_at DESC LIMIT 1").fetchone()
+        latest_retrieval = dict(retrieval) if retrieval else None
+        if latest_retrieval:
+            latest_retrieval["selected_ids"] = json.loads(latest_retrieval.get("selected_ids") or "[]")
+        return {"brain_ready": True, "active_memory_count": active, "pending_approval_count": pending, "active_focus": focus["focus"] if focus else "", "last_memory_event": dict(last_event) if last_event else None, "latest_retrieval": latest_retrieval}
 
     def create_memory(
         self,
@@ -191,12 +208,38 @@ class BrainMemoryStore:
             row = conn.execute("SELECT * FROM brain_memory_records WHERE id=%s", (memory_id,)).fetchone()
         return self._decode(row) if row else None
 
-    def list_memories(self, include_deleted: bool = False) -> list[dict[str, Any]]:
+    def list_memories(self, include_deleted: bool = False, query: str = "", status_filter: str = "", layer: str = "", memory_type: str = "", project_scope: str = "", session_scope: str = "") -> list[dict[str, Any]]:
         self.ensure()
-        where = "" if include_deleted else "WHERE soft_deleted=false"
+        clauses = []
+        params: list[Any] = []
+        if not include_deleted:
+            clauses.append("soft_deleted=false")
+        if layer:
+            clauses.append("layer=%s")
+            params.append(layer)
+        if memory_type:
+            clauses.append("type=%s")
+            params.append(memory_type)
+        if project_scope:
+            clauses.append("project_scope=%s")
+            params.append(project_scope)
+        if session_scope:
+            clauses.append("session_scope=%s")
+            params.append(session_scope)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         with self.connect() as conn:
-            rows = conn.execute(f"SELECT * FROM brain_memory_records {where} ORDER BY updated_at DESC LIMIT 200").fetchall()
-        return [self._decode(row) for row in rows]
+            rows = conn.execute(f"SELECT * FROM brain_memory_records {where} ORDER BY updated_at DESC LIMIT 300", params).fetchall()
+        items = [self._decode(row) for row in rows]
+        if status_filter == "active":
+            items = [item for item in items if item["active"] and not item["soft_deleted"] and item["approved_by_user"] and not item["requires_approval"]]
+        elif status_filter in {"pending", "approval_required"}:
+            items = [item for item in items if item["requires_approval"] and not item["approved_by_user"] and not item["soft_deleted"]]
+        elif status_filter in {"deleted", "inactive"}:
+            items = [item for item in self.list_memories(include_deleted=True) if item["soft_deleted"] or not item["active"]]
+        if query:
+            terms = self._terms(query)
+            items = [item for item in items if terms <= self._terms(f"{item.get('title', '')} {item.get('summary', '')} {item.get('content', '')} {' '.join(item.get('tags', []))}")]
+        return items
 
     def list_events(self, memory_id: str = "") -> list[dict[str, Any]]:
         self.ensure()
@@ -208,7 +251,7 @@ class BrainMemoryStore:
 
     def update_memory(self, memory_id: str, patch: dict[str, Any]) -> dict[str, Any] | None:
         self.ensure()
-        allowed = {"title", "content", "summary", "active", "soft_deleted", "approved_by_user", "requires_approval", "project_scope", "global_scope", "session_scope"}
+        allowed = {"title", "content", "summary", "tags", "active", "soft_deleted", "approved_by_user", "requires_approval", "project_scope", "global_scope", "session_scope"}
         pairs = [(key, value) for key, value in patch.items() if key in allowed]
         if not pairs:
             return self.get_memory(memory_id)
@@ -265,7 +308,35 @@ class BrainMemoryStore:
             with self.connect() as conn:
                 conn.execute("UPDATE brain_memory_records SET last_used_at=%s WHERE id = ANY(%s)", (_now(), ids))
                 conn.commit()
+        self.record_retrieval(query, selected, candidate_count=len(scored))
         return selected
+
+    def record_retrieval(self, query: str, selected: list[dict[str, Any]], candidate_count: int) -> None:
+        self.ensure()
+        with self.connect() as conn:
+            conn.execute(
+                "INSERT INTO brain_memory_retrievals(id, query, selected_ids, candidate_count, injected_count, created_at) VALUES (%s,%s,%s,%s,%s,%s)",
+                (f"brain_ret_{uuid4().hex[:12]}", query, json.dumps([item["id"] for item in selected]), candidate_count, len(selected), _now()),
+            )
+            conn.commit()
+
+    def approve_memory(self, memory_id: str) -> dict[str, Any] | None:
+        memory = self.update_memory(memory_id, {"active": True, "soft_deleted": False, "requires_approval": False, "approved_by_user": True})
+        if memory:
+            self.record_event(memory_id, "approved", f"Memory approved: {memory.get('summary') or memory.get('content')}", "brain")
+        return memory
+
+    def reject_memory(self, memory_id: str) -> dict[str, Any] | None:
+        memory = self.update_memory(memory_id, {"active": False, "soft_deleted": True, "requires_approval": True, "approved_by_user": False})
+        if memory:
+            self.record_event(memory_id, "rejected", f"Memory rejected: {memory.get('summary') or memory.get('content')}", "brain")
+        return memory
+
+    def reactivate_memory(self, memory_id: str) -> dict[str, Any] | None:
+        memory = self.update_memory(memory_id, {"active": True, "soft_deleted": False})
+        if memory:
+            self.record_event(memory_id, "reactivated", f"Memory reactivated: {memory.get('summary') or memory.get('content')}", "brain")
+        return memory
 
     def record_event(self, memory_id: str, event_type: str, event_summary: str, source: str = "brain") -> dict[str, Any]:
         self.ensure()

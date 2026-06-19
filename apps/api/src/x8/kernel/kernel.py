@@ -161,7 +161,9 @@ class XV8Kernel:
         if lane == "self_build":
             cards.append(ResponseCard(type="receipt", title="Self-build prompt detected", status="planned", summary="Self-build is routed before GitHub Ops. No files changed.", payload={"provider": "self_build", "operation": "proposal", "approval_required": True, "local_repo_mutation": False, "code_push": False}))
             cards.append(ResponseCard(type="approval", title="Self-build patch proposal", status="pending_click", summary="Self-build patch proposal requires exact approval before apply.", payload={"provider": "self_build", "operation": "proposal", "approval_required": True, "apply_safe": False, "local_repo_mutation": False, "code_push": False}))
-        if lane.startswith("brain_"):
+        if lane == "brain_retrieve":
+            cards.append(ResponseCard(type="receipt", title="Memory used", status=status, summary="Retrieved saved Brain memory without dumping raw records.", payload={"provider": "brain", "lane": lane, "auto_capture": False}))
+        elif lane.startswith("brain_"):
             cards.append(ResponseCard(type="receipt", title="Brain memory", status=status, summary="Explicit Brain command handled without model fallback.", payload={"provider": "brain", "lane": lane, "auto_capture": False}))
         if lane in {"web_search", "image_generation", "repo_inspection", "approval_required_action"}:
             cards.append(ResponseCard(type="status", title=f"Kernel lane: {lane}", status=status, summary="The kernel selected a tool-capable lane; tool execution remains routed through approved managers."))

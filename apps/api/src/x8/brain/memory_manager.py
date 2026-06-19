@@ -76,8 +76,25 @@ class BrainMemoryManager:
             receipt = brain_receipt("brain.memory_blocked", "blocked", "Memory blocked because it looked like a secret.", {"policy": "secret_blocked"})
             return BrainCommandResult(True, "I can’t save secrets or credentials in memory.", "blocked", [receipt], [brain_card("Memory blocked", "blocked", "Secret-like content was not saved.")])
         if decision.requires_approval:
-            receipt = brain_receipt("brain.memory_approval_required", "approval_required", "Sensitive memory requires approval before save.", {"sensitivity": decision.sensitivity})
-            return BrainCommandResult(True, "That memory needs approval before I save it.", "approval_required", [receipt], [brain_card("Memory needs approval", "approval_required", "That memory needs approval before I save it.")])
+            summary = self._summary(decision.redacted_content or content)
+            record = self.store.create_memory(
+                summary,
+                layer="pending",
+                memory_type="approval_required",
+                title=self._title(summary),
+                summary=summary,
+                source_turn_id=session_id,
+                sensitivity=decision.sensitivity,
+                active=False,
+                requires_approval=True,
+                approved_by_user=False,
+                tags=["pending", "approval_required"],
+                project_scope=project_scope,
+                session_scope=session_scope,
+                global_scope=global_scope,
+            )
+            receipt = brain_receipt("brain.memory_approval_required", "approval_required", "Sensitive memory requires approval before save.", {"sensitivity": decision.sensitivity, "memory_id": record.get("id")})
+            return BrainCommandResult(True, "That memory needs approval before I save it.", "approval_required", [receipt], [brain_card("Memory needs approval", "approval_required", "That memory needs approval before I save it.", {"memory_id": record.get("id")})], {"memory": record})
         summary = self._summary(content)
         record = self.store.create_memory(
             summary,
@@ -131,6 +148,48 @@ class BrainMemoryManager:
         message = f"Focus updated: {focus}."
         receipt = brain_receipt("brain.focus_updated", "passed", message, {"focus_id": data["id"], "session_id": session_id})
         return BrainCommandResult(True, message, "passed", [receipt], [brain_card("Focus updated", "passed", message)], {"focus": data})
+
+    def update_memory(self, memory_id: str, patch: dict[str, Any]) -> BrainCommandResult:
+        content = str(patch.get("content") or "")
+        if content:
+            decision = self.policy.decide(content)
+            if decision.blocked:
+                receipt = brain_receipt("brain.memory_update_blocked", "blocked", "Memory update blocked because it looked like a secret.", {"memory_id": memory_id})
+                return BrainCommandResult(True, "I can’t save secrets or credentials in memory.", "blocked", [receipt])
+            if decision.requires_approval:
+                patch["requires_approval"] = True
+                patch["approved_by_user"] = False
+                patch["active"] = False
+        memory = self.store.update_memory(memory_id, patch)
+        if not memory:
+            receipt = brain_receipt("brain.memory_update", "missing", "Brain memory not found.", {"memory_id": memory_id})
+            return BrainCommandResult(True, "Brain memory not found.", "missing", [receipt])
+        receipt = brain_receipt("brain.memory_updated", "updated", "Brain memory updated.", {"memory_id": memory_id})
+        return BrainCommandResult(True, "Brain memory updated.", "updated", [receipt], [brain_card("Memory updated", "updated", "Brain memory updated.")], {"memory": memory})
+
+    def approve(self, memory_id: str) -> BrainCommandResult:
+        memory = self.store.approve_memory(memory_id)
+        if not memory:
+            receipt = brain_receipt("brain.memory_approve", "missing", "Brain memory not found.", {"memory_id": memory_id})
+            return BrainCommandResult(True, "Brain memory not found.", "missing", [receipt])
+        receipt = brain_receipt("brain.memory_approved", "approved", "Brain memory approved.", {"memory_id": memory_id})
+        return BrainCommandResult(True, "Brain memory approved.", "approved", [receipt], [brain_card("Memory approved", "approved", "Brain memory approved.")], {"memory": memory})
+
+    def reject(self, memory_id: str) -> BrainCommandResult:
+        memory = self.store.reject_memory(memory_id)
+        if not memory:
+            receipt = brain_receipt("brain.memory_reject", "missing", "Brain memory not found.", {"memory_id": memory_id})
+            return BrainCommandResult(True, "Brain memory not found.", "missing", [receipt])
+        receipt = brain_receipt("brain.memory_rejected", "rejected", "Brain memory rejected.", {"memory_id": memory_id})
+        return BrainCommandResult(True, "Brain memory rejected.", "rejected", [receipt], [brain_card("Memory rejected", "rejected", "Brain memory rejected.")], {"memory": memory})
+
+    def reactivate(self, memory_id: str) -> BrainCommandResult:
+        memory = self.store.reactivate_memory(memory_id)
+        if not memory:
+            receipt = brain_receipt("brain.memory_reactivate", "missing", "Brain memory not found.", {"memory_id": memory_id})
+            return BrainCommandResult(True, "Brain memory not found.", "missing", [receipt])
+        receipt = brain_receipt("brain.memory_reactivated", "reactivated", "Brain memory reactivated.", {"memory_id": memory_id})
+        return BrainCommandResult(True, "Brain memory reactivated.", "reactivated", [receipt], [brain_card("Memory reactivated", "reactivated", "Brain memory reactivated.")], {"memory": memory})
 
     def _summary(self, content: str) -> str:
         cleaned = content.strip().rstrip(".")

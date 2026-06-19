@@ -28,6 +28,7 @@ class MemoryPatchRequest(BaseModel):
     title: str | None = None
     content: str | None = None
     summary: str | None = None
+    tags: list[str] | None = None
     active: bool | None = None
     soft_deleted: bool | None = None
 
@@ -69,8 +70,17 @@ def set_focus(payload: FocusRequest, request: Request) -> ResultEnvelope[dict[st
 
 
 @router.get("/memories", response_model=ResultEnvelope[list[dict[str, Any]]])
-def list_memories(request: Request) -> ResultEnvelope[list[dict[str, Any]]]:
-    data = _manager(request).store.list_memories()
+def list_memories(
+    request: Request,
+    q: str = "",
+    status_filter: str = "",
+    layer: str = "",
+    type: str = "",
+    project_scope: str = "",
+    session_scope: str = "",
+    include_deleted: bool = True,
+) -> ResultEnvelope[list[dict[str, Any]]]:
+    data = _manager(request).store.list_memories(include_deleted=include_deleted, query=q, status_filter=status_filter, layer=layer, memory_type=type, project_scope=project_scope, session_scope=session_scope)
     return ResultEnvelope(ok=True, status="ready", data=data, message=f"{len(data)} Brain memories found.")
 
 
@@ -83,14 +93,36 @@ def create_memory(payload: MemoryCreateRequest, request: Request) -> ResultEnvel
 @router.patch("/memories/{memory_id}", response_model=ResultEnvelope[dict[str, Any] | None])
 def patch_memory(memory_id: str, payload: MemoryPatchRequest, request: Request) -> ResultEnvelope[dict[str, Any] | None]:
     patch = {key: value for key, value in payload.model_dump().items() if value is not None}
-    data = _manager(request).store.update_memory(memory_id, patch)
-    return ResultEnvelope(ok=data is not None, status="updated" if data else "missing", data=data, message="Brain memory updated." if data else "Brain memory not found.")
+    if "tags" in patch:
+        import json
+
+        patch["tags"] = json.dumps(patch["tags"])
+    result = _manager(request).update_memory(memory_id, patch)
+    return ResultEnvelope(ok=result.status != "blocked" and result.status != "missing", status=result.status, data=result.data.get("memory"), message=result.message, receipts=result.receipts)
 
 
 @router.delete("/memories/{memory_id}", response_model=ResultEnvelope[dict[str, Any] | None])
 def delete_memory(memory_id: str, request: Request) -> ResultEnvelope[dict[str, Any] | None]:
     data = _manager(request).store.soft_delete_memory(memory_id, source="api")
     return ResultEnvelope(ok=data is not None, status="deleted" if data else "missing", data=data, message="Brain memory deleted." if data else "Brain memory not found.")
+
+
+@router.post("/memories/{memory_id}/approve", response_model=ResultEnvelope[dict[str, Any] | None])
+def approve_memory(memory_id: str, request: Request) -> ResultEnvelope[dict[str, Any] | None]:
+    result = _manager(request).approve(memory_id)
+    return ResultEnvelope(ok=result.status != "missing", status=result.status, data=result.data.get("memory"), message=result.message, receipts=result.receipts)
+
+
+@router.post("/memories/{memory_id}/reject", response_model=ResultEnvelope[dict[str, Any] | None])
+def reject_memory(memory_id: str, request: Request) -> ResultEnvelope[dict[str, Any] | None]:
+    result = _manager(request).reject(memory_id)
+    return ResultEnvelope(ok=result.status != "missing", status=result.status, data=result.data.get("memory"), message=result.message, receipts=result.receipts)
+
+
+@router.post("/memories/{memory_id}/reactivate", response_model=ResultEnvelope[dict[str, Any] | None])
+def reactivate_memory(memory_id: str, request: Request) -> ResultEnvelope[dict[str, Any] | None]:
+    result = _manager(request).reactivate(memory_id)
+    return ResultEnvelope(ok=result.status != "missing", status=result.status, data=result.data.get("memory"), message=result.message, receipts=result.receipts)
 
 
 @router.post("/remember", response_model=ResultEnvelope[dict[str, Any] | None])
