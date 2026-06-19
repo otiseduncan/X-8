@@ -225,6 +225,10 @@ export function loadMemoryStatus() {
   return getJson<ResultEnvelope<Record<string, unknown>>>('/api/memory/status');
 }
 
+export function loadBrainStatus() {
+  return getJson<ResultEnvelope<Record<string, unknown>>>('/api/brain/status');
+}
+
 export function loadMemoryRecords() {
   return getJson<ResultEnvelope<Array<Record<string, unknown>>>>('/api/memory/records');
 }

@@ -1,6 +1,7 @@
 import re
 from datetime import datetime, timezone
 
+from x8.brain.memory_manager import BrainMemoryManager
 from x8.kernel.context_assembler import KernelContextAssembler
 from x8.kernel.contracts import KernelDecision, KernelRequest, KernelResponse, KernelTrace, ResponseCard
 from x8.kernel.event_bus import EventBus
@@ -23,6 +24,7 @@ class XV8Kernel:
         safety_gate: SafetyGate | None = None,
         receipt_builder: KernelReceiptBuilder | None = None,
         event_bus: EventBus | None = None,
+        brain_manager: BrainMemoryManager | None = None,
     ) -> None:
         self.context_assembler = context_assembler
         self.model_router = model_router
@@ -31,6 +33,7 @@ class XV8Kernel:
         self.safety_gate = safety_gate or SafetyGate()
         self.receipt_builder = receipt_builder or KernelReceiptBuilder()
         self.events = event_bus or EventBus()
+        self.brain_manager = brain_manager
 
     def handle(self, request: KernelRequest) -> KernelResponse:
         started_at = datetime.now(timezone.utc)
@@ -98,6 +101,14 @@ class XV8Kernel:
 
     def _deterministic_response(self, request: KernelRequest, lane: str, bundle) -> tuple[str, str, list[str]] | None:
         lower = request.user_message.lower().strip()
+        if lane.startswith("brain_"):
+            if not self.brain_manager:
+                if lane != "brain_focus_query":
+                    return "Brain memory is unavailable right now.", "unavailable", ["Brain manager unavailable."]
+            else:
+                result = self.brain_manager.handle_chat_command(request.user_message, session_id=request.session_id or "")
+                if result.handled:
+                    return result.message, result.status if result.status != "approval_required" else "passed", result.limitations
         if lower in {"hi", "hi xv8", "hello", "hello xv8", "hey", "hey xv8", "good morning", "good afternoon", "good evening"}:
             return "Hello. I'm XV8.", "passed", []
         if "what is your name" in lower or lower in {"who are you", "who are you?"}:
@@ -150,6 +161,8 @@ class XV8Kernel:
         if lane == "self_build":
             cards.append(ResponseCard(type="receipt", title="Self-build prompt detected", status="planned", summary="Self-build is routed before GitHub Ops. No files changed.", payload={"provider": "self_build", "operation": "proposal", "approval_required": True, "local_repo_mutation": False, "code_push": False}))
             cards.append(ResponseCard(type="approval", title="Self-build patch proposal", status="pending_click", summary="Self-build patch proposal requires exact approval before apply.", payload={"provider": "self_build", "operation": "proposal", "approval_required": True, "apply_safe": False, "local_repo_mutation": False, "code_push": False}))
+        if lane.startswith("brain_"):
+            cards.append(ResponseCard(type="receipt", title="Brain memory", status=status, summary="Explicit Brain command handled without model fallback.", payload={"provider": "brain", "lane": lane, "auto_capture": False}))
         if lane in {"web_search", "image_generation", "repo_inspection", "approval_required_action"}:
             cards.append(ResponseCard(type="status", title=f"Kernel lane: {lane}", status=status, summary="The kernel selected a tool-capable lane; tool execution remains routed through approved managers."))
         return cards

@@ -2,7 +2,7 @@ import { Activity, Boxes, Check, ChevronDown, ChevronUp, Code2, Copy, FileText, 
 import { useEffect, useRef, useState } from 'react';
 import { SpeechInputManager, SpeechOutputManager } from '../audio/speechManagers';
 import type { SpeechReceipt, SttStatus, TtsStatus } from '../audio/speechManagers';
-import { CHAT_TIMEOUT_MS, applySelfBuildPatch, applyUpdate, connectGitHubRemote, createArtifactPreview, createGitHubRepo, createSpeechReceipt, loadAvatarManifest, loadBridgeStatus, loadCapabilities, loadConfigImportStatus, loadDockerPresets, loadFiles, loadGitHubOpsAuthStatus, loadGitHubOpsStatus, loadGitHubStatus, loadImageStatus, loadIntegrations, loadMemoryStatus, loadModelStatus, loadReceipts, loadSearchStatus, loadSession, loadSessions, loadSpeechStatus, loadTeam, previewGitHubPull, previewGitHubPush, proposeUpdate, readFile, requestImage, runGitHubOperation, runSearch, runSelfBuildPrompt, loadSelfBuildTrustStatus, scanX7Configs, sendChat, uploadAttachment } from '../services/apiClient';
+import { CHAT_TIMEOUT_MS, applySelfBuildPatch, applyUpdate, connectGitHubRemote, createArtifactPreview, createGitHubRepo, createSpeechReceipt, loadAvatarManifest, loadBrainStatus, loadBridgeStatus, loadCapabilities, loadConfigImportStatus, loadDockerPresets, loadFiles, loadGitHubOpsAuthStatus, loadGitHubOpsStatus, loadGitHubStatus, loadImageStatus, loadIntegrations, loadMemoryStatus, loadModelStatus, loadReceipts, loadSearchStatus, loadSession, loadSessions, loadSpeechStatus, loadTeam, previewGitHubPull, previewGitHubPush, proposeUpdate, readFile, requestImage, runGitHubOperation, runSearch, runSelfBuildPrompt, loadSelfBuildTrustStatus, scanX7Configs, sendChat, uploadAttachment } from '../services/apiClient';
 import type { AttachmentReference, Capability, FileEntry, IntegrationStatus, PatchProposal, SessionDetail, TeamSeat } from '../types/contracts';
 import { CodeEditor } from '../components/cockpit/CodeEditor';
 import { StatusPill } from '../components/ui/StatusPill';
@@ -64,6 +64,7 @@ export function App() {
   const [modelDetails, setModelDetails] = useState<Record<string, unknown>>({});
   const [memoryStatus, setMemoryStatus] = useState('checking');
   const [memoryDetails, setMemoryDetails] = useState<Record<string, unknown>>({});
+  const [brainDetails, setBrainDetails] = useState<Record<string, unknown>>({});
   const [selfBuildTrustStatus, setSelfBuildTrustStatus] = useState<Record<string, unknown>>({});
   const [selfBuildTrustSummary, setSelfBuildTrustSummary] = useState('checking');
   const [sessionId, setSessionId] = useState<string | undefined>(undefined);
@@ -128,7 +129,7 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    Promise.allSettled([loadSessions(), loadModelStatus(), loadMemoryStatus(), loadReceipts()]).then(([sessionsResult, modelResult, memoryResult, receiptResult]) => {
+    Promise.allSettled([loadSessions(), loadModelStatus(), loadMemoryStatus(), loadBrainStatus(), loadReceipts()]).then(([sessionsResult, modelResult, memoryResult, brainResult, receiptResult]) => {
       if (modelResult.status === 'fulfilled') {
         setModelDetails(modelResult.value.data || {});
         setModelStatus(`${String(modelResult.value.data?.selected_model || modelResult.value.status)} / ${String(modelResult.value.status)}`);
@@ -136,6 +137,9 @@ export function App() {
       if (memoryResult.status === 'fulfilled') {
         setMemoryDetails(memoryResult.value.data || {});
         setMemoryStatus(String(memoryResult.value.status));
+      }
+      if (brainResult.status === 'fulfilled') {
+        setBrainDetails(brainResult.value.data || {});
       }
       if (receiptResult.status === 'fulfilled' && receiptResult.value.data.length > 0) {
         const receipt = receiptResult.value.data[0];
@@ -1029,7 +1033,7 @@ export function App() {
         </section>
       </section>
 
-      {developerOpen && <DeveloperCockpit files={files} selectedPath={selectedPath} setSelectedPath={setSelectedPath} proposal={proposal} code={code} setCode={setCode} proposeDiffCard={proposeDiffCard} requestApply={requestApply} searchStatus={searchStatus} imageStatus={imageStatus} selfBuildTrustSummary={selfBuildTrustSummary} selfBuildTrustStatus={selfBuildTrustStatus} modelDetails={modelDetails} memoryStatus={memoryStatus} memoryDetails={memoryDetails} team={team} capabilities={capabilities} integrations={integrations} githubStatus={githubStatus} dockerPresets={dockerPresets} githubAuth={githubAuth} githubOps={githubOps} githubOpsResult={githubOpsResult} refreshGitHubOps={refreshGitHubOps} previewGitHubOp={previewGitHubOp} appendMessage={appendMessage} githubApprovalCard={githubApprovalCard} nowId={nowId} bridgeStatus={bridgeStatus} x7ImportStatus={x7ImportStatus} x6ImportStatus={x6ImportStatus} legacySignals={legacySignals} importStatus={importStatus} submitConfigScan={submitConfigScan} muted={muted} micStatus={micStatus} voiceStatus={voiceStatus} voiceName={voiceName} volume={volume} changeVolume={changeVolume} toggleMute={toggleMute} readAloud={readAloud} startMicrophone={startMicrophone} audioReceipts={audioReceipts} />}
+      {developerOpen && <DeveloperCockpit files={files} selectedPath={selectedPath} setSelectedPath={setSelectedPath} proposal={proposal} code={code} setCode={setCode} proposeDiffCard={proposeDiffCard} requestApply={requestApply} searchStatus={searchStatus} imageStatus={imageStatus} selfBuildTrustSummary={selfBuildTrustSummary} selfBuildTrustStatus={selfBuildTrustStatus} modelDetails={modelDetails} memoryStatus={memoryStatus} memoryDetails={memoryDetails} brainDetails={brainDetails} team={team} capabilities={capabilities} integrations={integrations} githubStatus={githubStatus} dockerPresets={dockerPresets} githubAuth={githubAuth} githubOps={githubOps} githubOpsResult={githubOpsResult} refreshGitHubOps={refreshGitHubOps} previewGitHubOp={previewGitHubOp} appendMessage={appendMessage} githubApprovalCard={githubApprovalCard} nowId={nowId} bridgeStatus={bridgeStatus} x7ImportStatus={x7ImportStatus} x6ImportStatus={x6ImportStatus} legacySignals={legacySignals} importStatus={importStatus} submitConfigScan={submitConfigScan} muted={muted} micStatus={micStatus} voiceStatus={voiceStatus} voiceName={voiceName} volume={volume} changeVolume={changeVolume} toggleMute={toggleMute} readAloud={readAloud} startMicrophone={startMicrophone} audioReceipts={audioReceipts} />}
       {approvalOpen && proposal?.approval && (
         <div className="modalBackdrop" role="dialog" aria-modal="true" aria-label="Approval request">
           <div className="modal">

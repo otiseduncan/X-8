@@ -20,6 +20,7 @@ type DeveloperCockpitProps = {
   modelDetails: Record<string, unknown>;
   memoryStatus: string;
   memoryDetails: Record<string, unknown>;
+  brainDetails: Record<string, unknown>;
   team: Array<{ name: string; responsibility: string }>;
   capabilities: Array<{ name: string; status: string }>;
   integrations: Array<{ name: string; status: string }>;
@@ -52,7 +53,7 @@ type DeveloperCockpitProps = {
 };
 
 export function DeveloperCockpit(props: DeveloperCockpitProps) {
-  const { files, selectedPath, setSelectedPath, proposal, code, setCode, proposeDiffCard, requestApply, searchStatus, imageStatus, selfBuildTrustSummary, selfBuildTrustStatus, modelDetails, memoryStatus, memoryDetails, team, capabilities, integrations, githubStatus, dockerPresets, githubAuth, githubOps, githubOpsResult, refreshGitHubOps, previewGitHubOp, appendMessage, githubApprovalCard, nowId, bridgeStatus, x7ImportStatus, x6ImportStatus, legacySignals, importStatus, submitConfigScan, muted, micStatus, voiceStatus, voiceName, volume, changeVolume, toggleMute, readAloud, startMicrophone, audioReceipts } = props;
+  const { files, selectedPath, setSelectedPath, proposal, code, setCode, proposeDiffCard, requestApply, searchStatus, imageStatus, selfBuildTrustSummary, selfBuildTrustStatus, modelDetails, memoryStatus, memoryDetails, brainDetails, team, capabilities, integrations, githubStatus, dockerPresets, githubAuth, githubOps, githubOpsResult, refreshGitHubOps, previewGitHubOp, appendMessage, githubApprovalCard, nowId, bridgeStatus, x7ImportStatus, x6ImportStatus, legacySignals, importStatus, submitConfigScan, muted, micStatus, voiceStatus, voiceName, volume, changeVolume, toggleMute, readAloud, startMicrophone, audioReceipts } = props;
   return (
     <section className="developerCockpit" aria-label="Developer Cockpit Mode">
       <Panel icon={<FileText />} title="Project File Tree">
@@ -95,7 +96,7 @@ export function DeveloperCockpit(props: DeveloperCockpitProps) {
           <div className="row"><strong>Missing models</strong><span>{Array.isArray(modelDetails.missing_models) && modelDetails.missing_models.length ? modelDetails.missing_models.join(', ') : 'none'}</span></div>
         </div>
       </Panel>
-      <Panel icon={<ShieldCheck />} title="Memory"><div className="list dense"><div className="row split"><strong>Memory</strong><StatusPill label={memoryStatus} status={memoryStatus} /></div><div className="row split"><strong>Embedding ready</strong><span>{String(memoryDetails.embedding_ready ? 'yes' : 'no')}</span></div><div className="row split"><strong>Vector store ready</strong><span>{String(memoryDetails.vector_store_ready ? 'yes' : 'no')}</span></div><div className="row split"><strong>Pending</strong><span>{String(memoryDetails.pending_count ?? 0)}</span></div><div className="row split"><strong>Active</strong><span>{String(memoryDetails.active_count ?? 0)}</span></div><div className="row"><strong>Reason</strong><span>{String(memoryDetails.failure_reason || 'ready')}</span></div></div></Panel>
+      <Panel icon={<ShieldCheck />} title="Memory"><div className="list dense"><div className="row split"><strong>Memory</strong><StatusPill label={memoryStatus} status={memoryStatus} /></div><div className="row split"><strong>Brain ready</strong><span>{String(brainDetails.brain_ready ?? false)}</span></div><div className="row split"><strong>Brain active</strong><span>{String(brainDetails.active_memory_count ?? 0)}</span></div><div className="row split"><strong>Brain pending</strong><span>{String(brainDetails.pending_approval_count ?? 0)}</span></div><div className="row split"><strong>Auto-capture</strong><span>{String(brainDetails.auto_capture_enabled ?? false)}</span></div><div className="row split"><strong>Embedding ready</strong><span>{String(memoryDetails.embedding_ready ? 'yes' : 'no')}</span></div><div className="row split"><strong>Vector store ready</strong><span>{String(memoryDetails.vector_store_ready ? 'yes' : 'no')}</span></div><div className="row split"><strong>Pending</strong><span>{String(memoryDetails.pending_count ?? 0)}</span></div><div className="row split"><strong>Active</strong><span>{String(memoryDetails.active_count ?? 0)}</span></div><div className="row"><strong>Reason</strong><span>{String(memoryDetails.failure_reason || 'ready')}</span></div></div></Panel>
       <Panel icon={<Users />} title="Team Seats"><div className="list dense">{team.slice(0, 6).map((seat) => <div key={seat.name} className="row"><strong>{seat.name}</strong><span>{seat.responsibility}</span></div>)}</div></Panel>
       <Panel icon={<ShieldCheck />} title="Capabilities"><div className="chips">{capabilities.map((capability) => <StatusPill key={capability.name} label={capability.name} status={capability.status} />)}</div></Panel>
       <Panel icon={<Boxes />} title="Future Integrations"><div className="list dense">{integrations.slice(0, 8).map((integration) => <div key={integration.name} className="row split"><strong>{integration.name}</strong><StatusPill label={integration.status} status={integration.status} /></div>)}</div></Panel>

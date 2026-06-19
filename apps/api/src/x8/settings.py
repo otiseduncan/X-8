@@ -18,6 +18,12 @@ class Settings(BaseSettings):
     embedding_model: str = "nomic-embed-text:latest"
     model_health_prompt: str = "Reply with XV8_READY only."
     memory_enabled: bool = True
+    brain_memory_enabled: bool = True
+    brain_memory_global_enabled: bool = True
+    brain_memory_project_enabled: bool = True
+    brain_memory_session_enabled: bool = True
+    brain_memory_auto_capture_enabled: bool = False
+    brain_memory_sensitive_approval_required: bool = True
     memory_activation_mode: str = "ready_when_chat_model_and_embedding_ready"
     embedding_required_for_memory: bool = True
     embedding_required_for_basic_chat: bool = False
