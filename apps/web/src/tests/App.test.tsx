@@ -125,6 +125,8 @@ function mockRuntime() {
                                           ? []
                                           : String(path).includes('models/status')
                                             ? { model_ready: false, selected_model: '', ollama_reachable: false }
+                                            : String(path).includes('brain/status')
+                                              ? { brain_ready: true, storage_backend: 'postgres', active_memory_count: 2, pending_approval_count: 0, active_focus: 'Brain V1 Batch 1', last_memory_event: { event_type: 'created' }, auto_capture_enabled: false }
                                             : String(path).includes('receipts')
                                               ? []
                                       : String(path).includes('chat')
@@ -252,6 +254,10 @@ test('renders assistant mode without permanent dashboard panels', async () => {
   fireEvent.click(screen.getByRole('button', { name: /settings/i }));
   expect(await screen.findByText('Project File Tree')).toBeInTheDocument();
   expect(screen.getByText('Voice preference')).toBeInTheDocument();
+  expect(screen.getByText('Backend')).toBeInTheDocument();
+  expect(screen.getByText('postgres')).toBeInTheDocument();
+  expect(screen.getByText('Brain V1 Batch 1')).toBeInTheDocument();
+  expect(screen.getByText('created')).toBeInTheDocument();
 });
 
 test('conversation composer stays in the fixed bottom dock after messages and cards update', async () => {

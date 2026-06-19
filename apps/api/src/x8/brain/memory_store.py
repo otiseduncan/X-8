@@ -8,6 +8,8 @@ from uuid import uuid4
 import psycopg
 from psycopg.rows import dict_row
 
+from x8.brain.memory_policy import redact_secret
+
 
 def _dsn(database_url: str) -> str:
     return database_url.replace("postgresql+psycopg://", "postgresql://", 1)
@@ -56,6 +58,7 @@ class BrainMemoryStore:
                     tags TEXT NOT NULL DEFAULT '[]',
                     project_scope TEXT NOT NULL DEFAULT '',
                     global_scope BOOLEAN NOT NULL DEFAULT TRUE,
+                    session_scope TEXT NOT NULL DEFAULT '',
                     linked_receipt_id TEXT NOT NULL DEFAULT '',
                     version INTEGER NOT NULL DEFAULT 1
                 )
@@ -78,7 +81,10 @@ class BrainMemoryStore:
                 CREATE TABLE IF NOT EXISTS brain_active_focus (
                     id TEXT PRIMARY KEY,
                     focus TEXT NOT NULL,
+                    summary TEXT NOT NULL DEFAULT '',
+                    source TEXT NOT NULL DEFAULT 'user_explicit',
                     project_scope TEXT NOT NULL DEFAULT '',
+                    session_scope TEXT NOT NULL DEFAULT '',
                     session_id TEXT NOT NULL DEFAULT '',
                     created_at TIMESTAMPTZ NOT NULL,
                     updated_at TIMESTAMPTZ NOT NULL,
@@ -86,12 +92,19 @@ class BrainMemoryStore:
                 )
                 """
             )
+            conn.execute("ALTER TABLE brain_memory_records ADD COLUMN IF NOT EXISTS session_scope TEXT NOT NULL DEFAULT ''")
+            conn.execute("ALTER TABLE brain_active_focus ADD COLUMN IF NOT EXISTS summary TEXT NOT NULL DEFAULT ''")
+            conn.execute("ALTER TABLE brain_active_focus ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'user_explicit'")
+            conn.execute("ALTER TABLE brain_active_focus ADD COLUMN IF NOT EXISTS session_scope TEXT NOT NULL DEFAULT ''")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_brain_memory_active ON brain_memory_records(active, soft_deleted)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_brain_memory_layer_type ON brain_memory_records(layer, type)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_brain_memory_project_scope ON brain_memory_records(project_scope)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_brain_memory_session_scope ON brain_memory_records(session_scope)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_brain_memory_global_scope ON brain_memory_records(global_scope)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_brain_memory_updated_at ON brain_memory_records(updated_at DESC)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_brain_memory_soft_deleted ON brain_memory_records(soft_deleted)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_brain_focus_session_scope ON brain_active_focus(session_scope)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_brain_focus_project_scope ON brain_active_focus(project_scope)")
             conn.commit()
 
     def status(self) -> dict[str, Any]:
@@ -100,7 +113,8 @@ class BrainMemoryStore:
             active = conn.execute("SELECT COUNT(*) AS count FROM brain_memory_records WHERE active=true AND soft_deleted=false").fetchone()["count"]
             pending = conn.execute("SELECT COUNT(*) AS count FROM brain_memory_records WHERE requires_approval=true AND approved_by_user=false AND soft_deleted=false").fetchone()["count"]
             focus = conn.execute("SELECT focus FROM brain_active_focus WHERE active=true ORDER BY updated_at DESC LIMIT 1").fetchone()
-        return {"brain_ready": True, "active_memory_count": active, "pending_approval_count": pending, "active_focus": focus["focus"] if focus else ""}
+            last_event = conn.execute("SELECT * FROM brain_memory_events ORDER BY created_at DESC LIMIT 1").fetchone()
+        return {"brain_ready": True, "active_memory_count": active, "pending_approval_count": pending, "active_focus": focus["focus"] if focus else "", "last_memory_event": dict(last_event) if last_event else None}
 
     def create_memory(
         self,
@@ -123,6 +137,7 @@ class BrainMemoryStore:
         tags: list[str] | None = None,
         project_scope: str = "",
         global_scope: bool = True,
+        session_scope: str = "",
         linked_receipt_id: str = "",
     ) -> dict[str, Any]:
         self.ensure()
@@ -136,9 +151,9 @@ class BrainMemoryStore:
                     id, layer, type, title, content, summary, source, source_turn_id, source_tool, provenance,
                     confidence, sensitivity, retention_policy, created_at, updated_at, active, soft_deleted,
                     user_editable, requires_approval, approved_by_user, tags, project_scope, global_scope,
-                    linked_receipt_id, version
+                    session_scope, linked_receipt_id, version
                 )
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,false,true,%s,%s,%s,%s,%s,%s,1)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,false,true,%s,%s,%s,%s,%s,%s,%s,1)
                 """,
                 (
                     memory_id,
@@ -162,6 +177,7 @@ class BrainMemoryStore:
                     json.dumps(tags or []),
                     project_scope,
                     global_scope,
+                    session_scope,
                     linked_receipt_id,
                 ),
             )
@@ -182,9 +198,17 @@ class BrainMemoryStore:
             rows = conn.execute(f"SELECT * FROM brain_memory_records {where} ORDER BY updated_at DESC LIMIT 200").fetchall()
         return [self._decode(row) for row in rows]
 
+    def list_events(self, memory_id: str = "") -> list[dict[str, Any]]:
+        self.ensure()
+        where = "WHERE memory_id=%s" if memory_id else ""
+        params = (memory_id,) if memory_id else ()
+        with self.connect() as conn:
+            rows = conn.execute(f"SELECT * FROM brain_memory_events {where} ORDER BY created_at DESC LIMIT 200", params).fetchall()
+        return [dict(row) for row in rows]
+
     def update_memory(self, memory_id: str, patch: dict[str, Any]) -> dict[str, Any] | None:
         self.ensure()
-        allowed = {"title", "content", "summary", "active", "soft_deleted", "approved_by_user", "requires_approval", "project_scope", "global_scope"}
+        allowed = {"title", "content", "summary", "active", "soft_deleted", "approved_by_user", "requires_approval", "project_scope", "global_scope", "session_scope"}
         pairs = [(key, value) for key, value in patch.items() if key in allowed]
         if not pairs:
             return self.get_memory(memory_id)
@@ -207,7 +231,7 @@ class BrainMemoryStore:
         matches = self.search(query, limit=1)
         return matches[0] if matches else None
 
-    def search(self, query: str, limit: int = 5) -> list[dict[str, Any]]:
+    def search(self, query: str, limit: int = 5, project_scope: str = "", session_scope: str = "") -> list[dict[str, Any]]:
         self.ensure()
         terms = self._terms(query)
         required_terms = {term for term in terms if any(char.isdigit() for char in term)}
@@ -216,9 +240,11 @@ class BrainMemoryStore:
                 """
                 SELECT * FROM brain_memory_records
                 WHERE active=true AND soft_deleted=false AND approved_by_user=true AND requires_approval=false
+                AND (global_scope=true OR project_scope=%s OR session_scope=%s)
                 ORDER BY updated_at DESC
                 LIMIT 200
-                """
+                """,
+                (project_scope, session_scope),
             ).fetchall()
         scored: list[tuple[float, dict[str, Any]]] = []
         for row in rows:
@@ -244,7 +270,7 @@ class BrainMemoryStore:
     def record_event(self, memory_id: str, event_type: str, event_summary: str, source: str = "brain") -> dict[str, Any]:
         self.ensure()
         event = {"id": f"brain_evt_{uuid4().hex[:12]}", "memory_id": memory_id, "event_type": event_type, "event_summary": event_summary, "source": source, "created_at": _now()}
-        safe_summary = self._redact(event_summary)
+        safe_summary = redact_secret(event_summary)
         with self.connect() as conn:
             conn.execute(
                 "INSERT INTO brain_memory_events(id, memory_id, event_type, event_summary, source, created_at) VALUES (%s,%s,%s,%s,%s,%s)",
@@ -268,9 +294,3 @@ class BrainMemoryStore:
         if "prefer" in raw or "preference" in raw:
             terms.add("prefer")
         return terms
-
-    def _redact(self, text: str) -> str:
-        text = re.sub(r"\bgh[pousr]_[A-Za-z0-9_]+", "[redacted-token]", text, flags=re.IGNORECASE)
-        text = re.sub(r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*", "[redacted-private-key]", text, flags=re.IGNORECASE | re.DOTALL)
-        text = re.sub(r"(?i)(password|token|api[_ -]?key|secret)\s*(is|=|:)\s*\S+", r"\1 [redacted]", text)
-        return text

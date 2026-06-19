@@ -13,11 +13,15 @@ class FocusRequest(BaseModel):
     focus: str
     session_id: str = ""
     project_scope: str = ""
+    session_scope: str = ""
 
 
 class MemoryCreateRequest(BaseModel):
     content: str
     session_id: str = ""
+    project_scope: str = ""
+    session_scope: str = ""
+    global_scope: bool = True
 
 
 class MemoryPatchRequest(BaseModel):
@@ -31,11 +35,19 @@ class MemoryPatchRequest(BaseModel):
 class MemoryQueryRequest(BaseModel):
     query: str
     limit: int = 5
+    project_scope: str = ""
+    session_scope: str = ""
 
 
 def _manager(request: Request) -> BrainMemoryManager:
     settings = request.app.state.settings
-    return BrainMemoryManager(settings.database_url, memory_enabled=settings.brain_memory_enabled and settings.memory_enabled)
+    return BrainMemoryManager(
+        settings.database_url,
+        memory_enabled=settings.brain_memory_enabled and settings.memory_enabled,
+        global_enabled=settings.brain_memory_global_enabled,
+        project_enabled=settings.brain_memory_project_enabled,
+        session_enabled=settings.brain_memory_session_enabled,
+    )
 
 
 @router.get("/status", response_model=ResultEnvelope[dict[str, Any]])
@@ -52,7 +64,7 @@ def get_focus(request: Request, session_id: str = "", project_scope: str = "") -
 
 @router.post("/focus", response_model=ResultEnvelope[dict[str, Any]])
 def set_focus(payload: FocusRequest, request: Request) -> ResultEnvelope[dict[str, Any]]:
-    result = _manager(request).set_focus(payload.focus, session_id=payload.session_id)
+    result = _manager(request).set_focus(payload.focus, session_id=payload.session_id, project_scope=payload.project_scope)
     return ResultEnvelope(ok=True, status=result.status, data=result.data["focus"], message=result.message, receipts=result.receipts)
 
 
@@ -64,7 +76,7 @@ def list_memories(request: Request) -> ResultEnvelope[list[dict[str, Any]]]:
 
 @router.post("/memories", response_model=ResultEnvelope[dict[str, Any] | None])
 def create_memory(payload: MemoryCreateRequest, request: Request) -> ResultEnvelope[dict[str, Any] | None]:
-    result = _manager(request).remember(payload.content, session_id=payload.session_id)
+    result = _manager(request).remember(payload.content, session_id=payload.session_id, project_scope=payload.project_scope, session_scope=payload.session_scope, global_scope=payload.global_scope)
     return ResultEnvelope(ok=result.status == "passed", status=result.status, data=result.data.get("memory"), message=result.message, receipts=result.receipts, errors=result.limitations)
 
 
@@ -83,17 +95,17 @@ def delete_memory(memory_id: str, request: Request) -> ResultEnvelope[dict[str, 
 
 @router.post("/remember", response_model=ResultEnvelope[dict[str, Any] | None])
 def remember(payload: MemoryCreateRequest, request: Request) -> ResultEnvelope[dict[str, Any] | None]:
-    result = _manager(request).remember(payload.content, session_id=payload.session_id)
+    result = _manager(request).remember(payload.content, session_id=payload.session_id, project_scope=payload.project_scope, session_scope=payload.session_scope, global_scope=payload.global_scope)
     return ResultEnvelope(ok=result.status == "passed", status=result.status, data=result.data.get("memory"), message=result.message, receipts=result.receipts)
 
 
 @router.post("/forget", response_model=ResultEnvelope[dict[str, Any] | None])
 def forget(payload: MemoryQueryRequest, request: Request) -> ResultEnvelope[dict[str, Any] | None]:
-    result = _manager(request).forget(payload.query)
+    result = _manager(request).forget(payload.query, project_scope=payload.project_scope, session_scope=payload.session_scope)
     return ResultEnvelope(ok=True, status=result.status, data=result.data.get("memory"), message=result.message, receipts=result.receipts)
 
 
 @router.post("/retrieve", response_model=ResultEnvelope[list[dict[str, Any]]])
 def retrieve(payload: MemoryQueryRequest, request: Request) -> ResultEnvelope[list[dict[str, Any]]]:
-    result = _manager(request).retrieve(payload.query, limit=payload.limit)
+    result = _manager(request).retrieve(payload.query, limit=payload.limit, project_scope=payload.project_scope, session_scope=payload.session_scope)
     return ResultEnvelope(ok=True, status=result.status, data=result.data.get("memories", []), message=result.message, receipts=result.receipts)

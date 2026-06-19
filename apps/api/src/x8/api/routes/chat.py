@@ -46,7 +46,13 @@ def _kernel(request: Request) -> XV8Kernel:
         settings.ollama_mode,
         settings.ollama_base_url,
     )
-    brain_manager = BrainMemoryManager(settings.database_url, memory_enabled=settings.brain_memory_enabled and settings.memory_enabled)
+    brain_manager = BrainMemoryManager(
+        settings.database_url,
+        memory_enabled=settings.brain_memory_enabled and settings.memory_enabled,
+        global_enabled=settings.brain_memory_global_enabled,
+        project_enabled=settings.brain_memory_project_enabled,
+        session_enabled=settings.brain_memory_session_enabled,
+    )
     return XV8Kernel(context, ModelRouter(OllamaAdapter(settings.ollama_base_url), profiles), brain_manager=brain_manager)
 
 
