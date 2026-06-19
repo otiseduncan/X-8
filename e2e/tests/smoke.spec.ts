@@ -245,3 +245,46 @@ test('Brain auto-capture saves deduplicates gates secrets and respects toggle', 
   expect(manual.data.length).toBeGreaterThan(0);
   await request.post('/api/brain/auto-capture/toggle', { data: { enabled: true } });
 });
+
+test('Brain semantic retrieval indexes approved memory and excludes inactive records', async ({ request }) => {
+  const embeddingStatus = await (await request.get('/api/brain/embedding-status')).json();
+  test.skip(!embeddingStatus.data?.available, `Embedding unavailable: ${embeddingStatus.data?.failure_reason || 'unknown'}`);
+
+  const stamp = Date.now().toString();
+  const preference = await (await request.post('/api/brain/remember', { data: { content: `I prefer direct senior-engineer answers phase4e2e ${stamp}` } })).json();
+  const routing = await (await request.post('/api/brain/remember', { data: { content: `GitHub prompts must not steal self-build routing phase4e2e ${stamp}` } })).json();
+  const proof = await (await request.post('/api/brain/remember', { data: { content: `Self-build approved apply proof uses runtime/self_build_smoke/approved_apply_proof.md phase4e2e ${stamp}` } })).json();
+
+  const preferenceRecall = await (await request.post('/api/brain/retrieve', { data: { query: `how should you respond to me phase4e2e ${stamp}` } })).json();
+  expect(preferenceRecall.data.retrieval_proof.retrieval_mode).toBe('semantic');
+  expect(preferenceRecall.data.retrieval_proof.memory_ids_used).toContain(preference.data.memory.id);
+  expect(preferenceRecall.message).toContain('direct senior-engineer answers');
+
+  const routingRecall = await (await request.post('/api/brain/retrieve', { data: { query: `what was the routing issue we fixed phase4e2e ${stamp}` } })).json();
+  expect(routingRecall.data.retrieval_proof.retrieval_mode).toBe('semantic');
+  expect(routingRecall.data.retrieval_proof.memory_ids_used).toContain(routing.data.memory.id);
+  expect(routingRecall.message).toContain('self-build routing');
+
+  const proofRecall = await (await request.post('/api/brain/retrieve', { data: { query: `how do we prove self-build apply works phase4e2e ${stamp}` } })).json();
+  expect(proofRecall.data.retrieval_proof.retrieval_mode).toBe('semantic');
+  expect(proofRecall.data.retrieval_proof.memory_ids_used).toContain(proof.data.memory.id);
+  expect(proofRecall.message).toContain('approved_apply_proof.md');
+
+  const pending = await (await request.post('/api/brain/remember', { data: { content: `my family history includes phase4 pending ${stamp}` } })).json();
+  const pendingMiss = await (await request.post('/api/brain/retrieve', { data: { query: `phase4 pending ${stamp}` } })).json();
+  expect(pendingMiss.data.retrieval_proof.memory_ids_used || []).not.toContain(pending.data.memory.id);
+
+  const rejected = await (await request.post('/api/brain/remember', { data: { content: `my family history includes phase4 rejected ${stamp}` } })).json();
+  await request.post(`/api/brain/memories/${rejected.data.memory.id}/reject`, { data: {} });
+  const rejectedMiss = await (await request.post('/api/brain/retrieve', { data: { query: `phase4 rejected ${stamp}` } })).json();
+  expect(rejectedMiss.data.retrieval_proof.memory_ids_used || []).not.toContain(rejected.data.memory.id);
+
+  await request.delete(`/api/brain/memories/${routing.data.memory.id}`);
+  const deletedMiss = await (await request.post('/api/brain/retrieve', { data: { query: `routing issue phase4e2e ${stamp}` } })).json();
+  expect(deletedMiss.data.retrieval_proof.memory_ids_used || []).not.toContain(routing.data.memory.id);
+
+  const reindex = await (await request.post('/api/brain/reindex')).json();
+  expect(reindex.status).toBe('passed');
+  expect(JSON.stringify([preferenceRecall, routingRecall, proofRecall, reindex])).not.toContain('embedding_json');
+  expect(JSON.stringify([preferenceRecall, routingRecall, proofRecall, reindex])).not.toContain('ghp_');
+});

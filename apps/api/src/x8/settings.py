@@ -28,6 +28,10 @@ class Settings(BaseSettings):
     memory_auto_capture_min_confidence: float = 0.70
     memory_auto_capture_max_per_turn: int = 3
     memory_auto_capture_receipts_enabled: bool = True
+    memory_semantic_retrieval_enabled: bool = True
+    memory_embedding_enabled: bool = True
+    memory_retrieval_max_results: int = 5
+    memory_retrieval_min_score: float = 0.20
     memory_activation_mode: str = "ready_when_chat_model_and_embedding_ready"
     embedding_required_for_memory: bool = True
     embedding_required_for_basic_chat: bool = False

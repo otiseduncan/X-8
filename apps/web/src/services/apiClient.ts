@@ -244,6 +244,16 @@ export function loadBrainEvents(params: Record<string, string> = {}) {
   return getJson<ResultEnvelope<Array<Record<string, unknown>>>>(`/api/brain/events${query.toString() ? `?${query}` : ''}`);
 }
 
+export function loadBrainEmbeddingStatus() {
+  return getJson<ResultEnvelope<Record<string, unknown>>>('/api/brain/embedding-status');
+}
+
+export async function reindexBrainMemories() {
+  const response = await fetch('/api/brain/reindex', { method: 'POST' });
+  if (!response.ok) throw new Error('Brain memory reindex failed');
+  return response.json() as Promise<ResultEnvelope<Record<string, unknown>>>;
+}
+
 export async function toggleBrainAutoCapture(enabled: boolean) {
   const response = await fetch('/api/brain/auto-capture/toggle', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled }) });
   if (!response.ok) throw new Error('Brain auto-capture toggle failed');
@@ -283,7 +293,7 @@ export async function reactivateBrainMemory(id: string) {
 export async function retrieveBrainMemory(query: string) {
   const response = await fetch('/api/brain/retrieve', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query }) });
   if (!response.ok) throw new Error('Brain memory retrieve failed');
-  return response.json() as Promise<ResultEnvelope<Array<Record<string, unknown>>>>;
+  return response.json() as Promise<ResultEnvelope<Record<string, unknown>>>;
 }
 
 export async function updateBrainFocus(focus: string) {

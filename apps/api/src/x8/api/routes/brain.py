@@ -3,6 +3,7 @@ from typing import Any
 from fastapi import APIRouter, Request
 from pydantic import BaseModel
 
+from x8.brain.embedding_client import OllamaEmbeddingClient
 from x8.brain.memory_manager import BrainMemoryManager
 from x8.contracts.base import ResultEnvelope
 
@@ -65,6 +66,12 @@ def _manager(request: Request) -> BrainMemoryManager:
         auto_capture_min_confidence=settings.memory_auto_capture_min_confidence,
         auto_capture_max_per_turn=settings.memory_auto_capture_max_per_turn,
         auto_capture_receipts_enabled=settings.memory_auto_capture_receipts_enabled,
+        semantic_retrieval_enabled=settings.memory_semantic_retrieval_enabled,
+        embedding_enabled=settings.memory_embedding_enabled,
+        embedding_client=OllamaEmbeddingClient(settings.ollama_base_url, settings.embedding_model),
+        embedding_model=settings.embedding_model,
+        retrieval_max_results=settings.memory_retrieval_max_results,
+        retrieval_min_score=settings.memory_retrieval_min_score,
     )
 
 
@@ -72,6 +79,18 @@ def _manager(request: Request) -> BrainMemoryManager:
 def brain_status(request: Request) -> ResultEnvelope[dict[str, Any]]:
     data = _manager(request).status()
     return ResultEnvelope(ok=True, status="ready", data=data, message="Brain status loaded.")
+
+
+@router.get("/embedding-status", response_model=ResultEnvelope[dict[str, Any]])
+def embedding_status(request: Request) -> ResultEnvelope[dict[str, Any]]:
+    data = _manager(request).embedding_status()
+    return ResultEnvelope(ok=True, status="ready" if data.get("available") else "unavailable", data=data, message="Brain embedding status loaded.")
+
+
+@router.post("/reindex", response_model=ResultEnvelope[dict[str, Any]])
+def reindex(request: Request) -> ResultEnvelope[dict[str, Any]]:
+    result = _manager(request).reindex()
+    return ResultEnvelope(ok=True, status=result.status, data=result.data, message=result.message, receipts=result.receipts)
 
 
 @router.get("/focus", response_model=ResultEnvelope[dict[str, Any] | None])
@@ -187,7 +206,7 @@ def forget(payload: MemoryQueryRequest, request: Request) -> ResultEnvelope[dict
     return ResultEnvelope(ok=True, status=result.status, data=result.data.get("memory"), message=result.message, receipts=result.receipts)
 
 
-@router.post("/retrieve", response_model=ResultEnvelope[list[dict[str, Any]]])
-def retrieve(payload: MemoryQueryRequest, request: Request) -> ResultEnvelope[list[dict[str, Any]]]:
+@router.post("/retrieve", response_model=ResultEnvelope[dict[str, Any]])
+def retrieve(payload: MemoryQueryRequest, request: Request) -> ResultEnvelope[dict[str, Any]]:
     result = _manager(request).retrieve(payload.query, limit=payload.limit, project_scope=payload.project_scope, session_scope=payload.session_scope)
-    return ResultEnvelope(ok=True, status=result.status, data=result.data.get("memories", []), message=result.message, receipts=result.receipts)
+    return ResultEnvelope(ok=True, status=result.status, data={"memories": result.data.get("memories", []), "retrieval_proof": result.data.get("retrieval_proof", {})}, message=result.message, receipts=result.receipts)

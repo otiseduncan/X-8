@@ -2,7 +2,7 @@ import { Activity, Boxes, Code2, FileText, GitBranch, Image, Search, Server, Shi
 import { useEffect, useMemo, useState } from 'react';
 import { CodeEditor } from '../components/cockpit/CodeEditor';
 import { StatusPill } from '../components/ui/StatusPill';
-import { approveBrainMemory, deleteBrainMemory, loadBrainCandidates, loadBrainEvents, loadBrainMemories, reactivateBrainMemory, rejectBrainMemory, retrieveBrainMemory, toggleBrainAutoCapture, updateBrainFocus, updateBrainMemory } from '../services/apiClient';
+import { approveBrainMemory, deleteBrainMemory, loadBrainCandidates, loadBrainEmbeddingStatus, loadBrainEvents, loadBrainMemories, reactivateBrainMemory, rejectBrainMemory, reindexBrainMemories, retrieveBrainMemory, toggleBrainAutoCapture, updateBrainFocus, updateBrainMemory } from '../services/apiClient';
 import type { ChatCard, ChatMessage } from './AssistantComponents';
 import { Panel } from './AssistantComponents';
 
@@ -194,6 +194,7 @@ function BrainMemoryPanel({ memoryStatus, memoryDetails, brainDetails }: { memor
   const [scopeFilter, setScopeFilter] = useState('');
   const [actionStatus, setActionStatus] = useState('No memory action run yet.');
   const [retrievalProof, setRetrievalProof] = useState<Record<string, unknown> | null>(null);
+  const [embeddingStatus, setEmbeddingStatus] = useState<Record<string, unknown>>({});
   const [autoCapture, setAutoCapture] = useState(Boolean(brainDetails.auto_capture_enabled));
   const selected = records.find((record) => record.id === selectedId) || records[0];
   const selectedCandidate = candidates.find((candidate) => candidate.id === selectedCandidateId) || candidates[0];
@@ -232,10 +233,11 @@ function BrainMemoryPanel({ memoryStatus, memoryDetails, brainDetails }: { memor
   const scopes = Array.from(new Set(records.flatMap((record) => [record.project_scope, record.session_scope]).filter(Boolean).map(String))).sort();
 
   async function refresh() {
-    const [response, candidateResponse, eventResponse] = await Promise.all([
+    const [response, candidateResponse, eventResponse, embeddingResponse] = await Promise.all([
       loadBrainMemories({ include_deleted: 'true' }),
       loadBrainCandidates(candidateFilter ? { decision: candidateFilter } : {}),
-      loadBrainEvents({})
+      loadBrainEvents({}),
+      loadBrainEmbeddingStatus()
     ]);
     const next = (response.data || []) as BrainRecord[];
     setRecords(next);
@@ -244,6 +246,7 @@ function BrainMemoryPanel({ memoryStatus, memoryDetails, brainDetails }: { memor
     setCandidates(nextCandidates);
     if (!selectedCandidateId && nextCandidates[0]) setSelectedCandidateId(nextCandidates[0].id);
     setEvents(eventResponse.data || []);
+    setEmbeddingStatus(embeddingResponse.data || {});
   }
 
   async function runAction(label: string, action: () => Promise<unknown>) {
@@ -269,8 +272,14 @@ function BrainMemoryPanel({ memoryStatus, memoryDetails, brainDetails }: { memor
 
   async function retrieve() {
     const response = await retrieveBrainMemory(query || selected?.summary || '');
-    setRetrievalProof({ status: response.status, message: response.message, count: response.data?.length || 0 });
+    const data = response.data || {};
+    const memories = Array.isArray(data.memories) ? data.memories : [];
+    setRetrievalProof({ status: response.status, message: response.message, count: memories.length, ...((data.retrieval_proof as Record<string, unknown>) || {}) });
     setActionStatus('Memory retrieval proof refreshed.');
+  }
+
+  async function reindex() {
+    await runAction('Brain memories reindexed.', () => reindexBrainMemories());
   }
 
   async function updateFocus() {
@@ -301,13 +310,21 @@ function BrainMemoryPanel({ memoryStatus, memoryDetails, brainDetails }: { memor
           <div className="row split"><strong>Active</strong><span>{String(brainDetails.active_memory_count ?? 0)}</span></div>
           <div className="row split"><strong>Pending</strong><span>{String(brainDetails.pending_approval_count ?? 0)}</span></div>
           <div className="row split"><strong>Auto-capture</strong><span>{String(autoCapture)}</span></div>
+          <div className="row split"><strong>Semantic retrieval</strong><span>{String(brainDetails.semantic_retrieval_enabled ?? true)}</span></div>
+          <div className="row split"><strong>Embedding available</strong><span>{String(embeddingStatus.available ?? brainDetails.embedding_available ?? false)}</span></div>
+          <div className="row split"><strong>Indexed memories</strong><span>{String(embeddingStatus.indexed_memory_count ?? brainDetails.indexed_memory_count ?? 0)}</span></div>
           <div className="row split"><strong>Min confidence</strong><span>{String(brainDetails.auto_capture_min_confidence ?? '0.7')}</span></div>
           <div className="row split"><strong>Max per turn</strong><span>{String(brainDetails.auto_capture_max_per_turn ?? '3')}</span></div>
+          <div className="row"><strong>Embedding model</strong><span>{String(embeddingStatus.embedding_model ?? brainDetails.embedding_model ?? 'nomic-embed-text:latest')}</span></div>
           <div className="row"><strong>Active focus</strong><span>{String(brainDetails.active_focus || 'none')}</span></div>
           <div className="row"><strong>Last memory event</strong><span>{String(lastEvent?.event_type || 'none')}</span></div>
+          <div className="row"><strong>Last embedding event</strong><span>{String((brainDetails.last_embedding_event as Record<string, unknown> | undefined)?.event_type || 'none')}</span></div>
           <div className="row"><strong>Latest auto-capture event</strong><span>{String(latestAuto?.decision || 'none')}</span></div>
           <div className="row"><strong>Last ignored/blocked reason</strong><span>{String(brainDetails.last_ignored_or_blocked_reason || 'none')}</span></div>
-          <div className="row"><strong>Latest retrieval proof</strong><span>{latestRetrieval ? `${String(latestRetrieval.status || 'recorded')} / ${String(latestRetrieval.count ?? latestRetrieval.injected_count ?? 0)} records` : 'none'}</span></div>
+          <div className="row"><strong>Last retrieval mode</strong><span>{String(latestRetrieval?.retrieval_mode || 'none')}</span></div>
+          <div className="row"><strong>Fallback reason</strong><span>{String(latestRetrieval?.fallback_reason || embeddingStatus.failure_reason || 'none')}</span></div>
+          <div className="row"><strong>Memory ids used</strong><span>{Array.isArray(latestRetrieval?.memory_ids_used) ? latestRetrieval.memory_ids_used.join(', ') : Array.isArray(latestRetrieval?.selected_ids) ? latestRetrieval.selected_ids.join(', ') : 'none'}</span></div>
+          <div className="row"><strong>Retrieval score</strong><span>{Array.isArray(latestRetrieval?.scores) ? latestRetrieval.scores.join(', ') : 'none'}</span></div>
           <div className="row"><strong>Legacy memory readiness</strong><span>{String(memoryDetails.failure_reason || 'ready')}</span></div>
         </section>
 
@@ -329,6 +346,7 @@ function BrainMemoryPanel({ memoryStatus, memoryDetails, brainDetails }: { memor
           </select>
           <button className="chipButton" onClick={() => void refresh()}>Refresh</button>
           <button className="chipButton" onClick={() => void retrieve()}>Retrieve</button>
+          <button className="chipButton" onClick={() => void reindex()}>Reindex active memories</button>
           <button className="chipButton" onClick={() => void toggleCapture(false)}>Disable auto-capture</button>
           <button className="chipButton" onClick={() => void toggleCapture(true)}>Enable auto-capture</button>
         </section>

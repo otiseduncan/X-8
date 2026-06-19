@@ -4,6 +4,7 @@ from x8.contracts.base import ResultEnvelope
 from x8.contracts.chat import AttachmentReference, ChatRequest, ChatResponse, ChatRoleMessage, PromptReceipt
 from x8.contracts.receipts import Receipt
 from x8.brain.memory_manager import BrainMemoryManager
+from x8.brain.embedding_client import OllamaEmbeddingClient
 from x8.kernel.brain_context import BrainContextAssembler
 from x8.kernel.context_assembler import KernelContextAssembler
 from x8.kernel.contracts import KernelRequest
@@ -56,6 +57,12 @@ def _kernel(request: Request) -> XV8Kernel:
         auto_capture_min_confidence=settings.memory_auto_capture_min_confidence,
         auto_capture_max_per_turn=settings.memory_auto_capture_max_per_turn,
         auto_capture_receipts_enabled=settings.memory_auto_capture_receipts_enabled,
+        semantic_retrieval_enabled=settings.memory_semantic_retrieval_enabled,
+        embedding_enabled=settings.memory_embedding_enabled,
+        embedding_client=OllamaEmbeddingClient(settings.ollama_base_url, settings.embedding_model),
+        embedding_model=settings.embedding_model,
+        retrieval_max_results=settings.memory_retrieval_max_results,
+        retrieval_min_score=settings.memory_retrieval_min_score,
     )
     return XV8Kernel(context, ModelRouter(OllamaAdapter(settings.ollama_base_url), profiles), brain_manager=brain_manager)
 

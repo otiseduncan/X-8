@@ -121,8 +121,12 @@ function mockRuntime() {
                                           ? []
                                           : String(path).includes('models/status')
                                             ? { model_ready: false, selected_model: '', ollama_reachable: false }
+                                            : String(path).includes('brain/embedding-status')
+                                              ? { enabled: true, available: true, embedding_model: 'nomic-embed-text:latest', indexed_memory_count: 2, failure_reason: '' }
+                                            : String(path).includes('brain/reindex')
+                                              ? { indexed: 2, skipped: 0, embedding_status: { available: true, indexed_memory_count: 2 } }
                                             : String(path).includes('brain/status')
-                                              ? { brain_ready: true, storage_backend: 'postgres', active_memory_count: 2, pending_approval_count: 1, active_focus: 'Brain V1 Batch 1', last_memory_event: { event_type: 'auto_saved' }, latest_auto_capture_event: { decision: 'auto_save', reason: 'Clear low-risk preference.' }, last_ignored_or_blocked_reason: 'Low-value chatter.', auto_capture_enabled: true, auto_capture_min_confidence: 0.7, auto_capture_max_per_turn: 3 }
+                                              ? { brain_ready: true, storage_backend: 'postgres', active_memory_count: 2, pending_approval_count: 1, active_focus: 'Brain V1 Batch 1', last_memory_event: { event_type: 'auto_saved' }, latest_auto_capture_event: { decision: 'auto_save', reason: 'Clear low-risk preference.' }, last_ignored_or_blocked_reason: 'Low-value chatter.', auto_capture_enabled: true, auto_capture_min_confidence: 0.7, auto_capture_max_per_turn: 3, semantic_retrieval_enabled: true, embedding_available: true, indexed_memory_count: 2, embedding_model: 'nomic-embed-text:latest', last_embedding_event: { event_type: 'embedding_indexed' }, latest_retrieval: { retrieval_mode: 'semantic', selected_ids: ['brain_mem_active'], scores: [0.91], fallback_reason: '', embedding_model: 'nomic-embed-text:latest' } }
                                               : String(path).includes('brain/auto-capture/toggle')
                                                 ? { brain_ready: true, storage_backend: 'postgres', auto_capture_enabled: text.enabled, auto_capture_min_confidence: 0.7, auto_capture_max_per_turn: 3 }
                                               : String(path).includes('brain/candidates')
@@ -153,7 +157,7 @@ function mockRuntime() {
                                                     { id: 'brain_mem_deleted', title: 'Deleted memory', summary: 'old deleted memory', content: 'old deleted memory', layer: 'memory', type: 'manual_memory', sensitivity: 'low', active: false, soft_deleted: true, requires_approval: false, approved_by_user: true, session_scope: 'sess_old', tags: [], created_at: new Date().toISOString(), updated_at: new Date().toISOString() }
                                                   ]
                                                 : String(path).includes('brain/retrieve')
-                                                  ? [{ id: 'brain_mem_active', summary: 'you prefer direct senior-engineer answers' }]
+                                                  ? { memories: [{ id: 'brain_mem_active', summary: 'you prefer direct senior-engineer answers' }], retrieval_proof: { retrieval_mode: 'semantic', memory_ids_used: ['brain_mem_active'], scores: [0.91], fallback_used: false, fallback_reason: '', embedding_available: true, embedding_model: 'nomic-embed-text:latest', semantic_index_count: 2 } }
                                                 : String(path).includes('brain/focus')
                                                   ? { id: 'focus_1', focus: text.focus || 'Brain V1 Batch 1' }
                                             : String(path).includes('receipts')
@@ -296,6 +300,12 @@ test('Brain memory panel searches filters opens detail and runs actions', async 
   expect(screen.getByText('Brain V1 Batch 1')).toBeInTheDocument();
   expect(screen.getByText('Latest auto-capture event')).toBeInTheDocument();
   expect(screen.getByText('auto_save')).toBeInTheDocument();
+  expect(screen.getByText('Semantic retrieval')).toBeInTheDocument();
+  expect(screen.getByText('Embedding available')).toBeInTheDocument();
+  expect(screen.getByText('Indexed memories')).toBeInTheDocument();
+  expect(screen.getByText('nomic-embed-text:latest')).toBeInTheDocument();
+  expect(screen.getByText('embedding_indexed')).toBeInTheDocument();
+  expect(screen.getByText('semantic')).toBeInTheDocument();
   expect(screen.getByText('Candidate history')).toBeInTheDocument();
   expect(screen.getByText('Latest events')).toBeInTheDocument();
   expect((await screen.findAllByText('Answer preference')).length).toBeGreaterThan(0);
@@ -322,8 +332,11 @@ test('Brain memory panel searches filters opens detail and runs actions', async 
   await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/brain/auto-capture/toggle', expect.objectContaining({ method: 'POST' })));
   fireEvent.click(screen.getByRole('button', { name: /enable auto-capture/i }));
   await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/brain/auto-capture/toggle', expect.objectContaining({ method: 'POST' })));
+  fireEvent.click(screen.getByRole('button', { name: /reindex active memories/i }));
+  await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/brain/reindex', expect.objectContaining({ method: 'POST' })));
   expect(screen.getByRole('button', { name: /supersede unavailable/i })).toBeDisabled();
   expect(document.body).not.toHaveTextContent(/ghp_/i);
+  expect(document.body).not.toHaveTextContent(/embedding_json/i);
 });
 test('Brain auto-capture receipts render compactly and redact blocked secrets', async () => {
   render(<App />);

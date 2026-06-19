@@ -1,5 +1,7 @@
 import json
 import re
+import hashlib
+import math
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Any
@@ -100,7 +102,28 @@ class BrainMemoryStore:
                     selected_ids TEXT NOT NULL DEFAULT '[]',
                     candidate_count INTEGER NOT NULL DEFAULT 0,
                     injected_count INTEGER NOT NULL DEFAULT 0,
+                    retrieval_mode TEXT NOT NULL DEFAULT 'none',
+                    scores TEXT NOT NULL DEFAULT '[]',
+                    fallback_used BOOLEAN NOT NULL DEFAULT FALSE,
+                    fallback_reason TEXT NOT NULL DEFAULT '',
+                    embedding_available BOOLEAN NOT NULL DEFAULT FALSE,
+                    embedding_model TEXT NOT NULL DEFAULT '',
+                    semantic_index_count INTEGER NOT NULL DEFAULT 0,
                     created_at TIMESTAMPTZ NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS brain_memory_embeddings (
+                    memory_id TEXT PRIMARY KEY,
+                    embedding_json TEXT NOT NULL,
+                    embedding_model TEXT NOT NULL,
+                    vector_dimension INTEGER NOT NULL,
+                    content_hash TEXT NOT NULL,
+                    active BOOLEAN NOT NULL DEFAULT TRUE,
+                    created_at TIMESTAMPTZ NOT NULL,
+                    updated_at TIMESTAMPTZ NOT NULL
                 )
                 """
             )
@@ -142,6 +165,13 @@ class BrainMemoryStore:
             conn.execute("ALTER TABLE brain_active_focus ADD COLUMN IF NOT EXISTS summary TEXT NOT NULL DEFAULT ''")
             conn.execute("ALTER TABLE brain_active_focus ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'user_explicit'")
             conn.execute("ALTER TABLE brain_active_focus ADD COLUMN IF NOT EXISTS session_scope TEXT NOT NULL DEFAULT ''")
+            conn.execute("ALTER TABLE brain_memory_retrievals ADD COLUMN IF NOT EXISTS retrieval_mode TEXT NOT NULL DEFAULT 'none'")
+            conn.execute("ALTER TABLE brain_memory_retrievals ADD COLUMN IF NOT EXISTS scores TEXT NOT NULL DEFAULT '[]'")
+            conn.execute("ALTER TABLE brain_memory_retrievals ADD COLUMN IF NOT EXISTS fallback_used BOOLEAN NOT NULL DEFAULT FALSE")
+            conn.execute("ALTER TABLE brain_memory_retrievals ADD COLUMN IF NOT EXISTS fallback_reason TEXT NOT NULL DEFAULT ''")
+            conn.execute("ALTER TABLE brain_memory_retrievals ADD COLUMN IF NOT EXISTS embedding_available BOOLEAN NOT NULL DEFAULT FALSE")
+            conn.execute("ALTER TABLE brain_memory_retrievals ADD COLUMN IF NOT EXISTS embedding_model TEXT NOT NULL DEFAULT ''")
+            conn.execute("ALTER TABLE brain_memory_retrievals ADD COLUMN IF NOT EXISTS semantic_index_count INTEGER NOT NULL DEFAULT 0")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_brain_memory_active ON brain_memory_records(active, soft_deleted)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_brain_memory_layer_type ON brain_memory_records(layer, type)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_brain_memory_project_scope ON brain_memory_records(project_scope)")
@@ -152,6 +182,8 @@ class BrainMemoryStore:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_brain_focus_session_scope ON brain_active_focus(session_scope)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_brain_focus_project_scope ON brain_active_focus(project_scope)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_brain_retrieval_created_at ON brain_memory_retrievals(created_at DESC)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_brain_embedding_active ON brain_memory_embeddings(active)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_brain_embedding_model ON brain_memory_embeddings(embedding_model)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_brain_candidate_decision ON brain_memory_candidates(decision, created_at DESC)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_brain_candidate_created_at ON brain_memory_candidates(created_at DESC)")
             conn.commit()
@@ -164,11 +196,14 @@ class BrainMemoryStore:
             focus = conn.execute("SELECT focus FROM brain_active_focus WHERE active=true ORDER BY updated_at DESC LIMIT 1").fetchone()
             last_event = conn.execute("SELECT * FROM brain_memory_events ORDER BY created_at DESC LIMIT 1").fetchone()
             retrieval = conn.execute("SELECT * FROM brain_memory_retrievals ORDER BY created_at DESC LIMIT 1").fetchone()
+            indexed = conn.execute("SELECT COUNT(*) AS count FROM brain_memory_embeddings WHERE active=true").fetchone()["count"]
+            embedding_event = conn.execute("SELECT * FROM brain_memory_events WHERE event_type LIKE 'embedding_%' ORDER BY created_at DESC LIMIT 1").fetchone()
             latest_auto = conn.execute("SELECT * FROM brain_memory_candidates WHERE decision IN ('auto_save','pending_approval','blocked','duplicate','correction') ORDER BY created_at DESC LIMIT 1").fetchone()
             latest_noise = conn.execute("SELECT * FROM brain_memory_candidates WHERE decision IN ('ignored','blocked') ORDER BY created_at DESC LIMIT 1").fetchone()
         latest_retrieval = dict(retrieval) if retrieval else None
         if latest_retrieval:
             latest_retrieval["selected_ids"] = json.loads(latest_retrieval.get("selected_ids") or "[]")
+            latest_retrieval["scores"] = json.loads(latest_retrieval.get("scores") or "[]")
         return {
             "brain_ready": True,
             "active_memory_count": active,
@@ -176,6 +211,8 @@ class BrainMemoryStore:
             "active_focus": focus["focus"] if focus else "",
             "last_memory_event": dict(last_event) if last_event else None,
             "latest_retrieval": latest_retrieval,
+            "indexed_memory_count": indexed,
+            "last_embedding_event": dict(embedding_event) if embedding_event else None,
             "latest_auto_capture_event": dict(latest_auto) if latest_auto else None,
             "last_ignored_or_blocked_reason": latest_noise["reason"] if latest_noise else "",
         }
@@ -385,6 +422,7 @@ class BrainMemoryStore:
     def soft_delete_memory(self, memory_id: str, source: str = "brain") -> dict[str, Any] | None:
         memory = self.update_memory(memory_id, {"active": False, "soft_deleted": True})
         if memory:
+            self.deactivate_embedding(memory_id, "embedding_deactivated")
             self.record_event(memory_id, "soft_deleted", f"Memory forgotten: {memory.get('summary') or memory.get('content')}", source)
         return memory
 
@@ -447,6 +485,10 @@ class BrainMemoryStore:
         return matches[0] if matches else None
 
     def search(self, query: str, limit: int = 5, project_scope: str = "", session_scope: str = "") -> list[dict[str, Any]]:
+        selected, _proof = self.keyword_search_with_proof(query, limit=limit, project_scope=project_scope, session_scope=session_scope)
+        return selected
+
+    def keyword_search_with_proof(self, query: str, limit: int = 5, project_scope: str = "", session_scope: str = "", record: bool = True) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         self.ensure()
         terms = self._terms(query)
         required_terms = {term for term in terms if any(char.isdigit() for char in term)}
@@ -474,23 +516,167 @@ class BrainMemoryStore:
                 hits += 2
             if hits:
                 scored.append((hits * float(item.get("confidence") or 0.8), item))
-        selected = [item for _, item in sorted(scored, key=lambda pair: pair[0], reverse=True)[:limit]]
+        sorted_scored = sorted(scored, key=lambda pair: pair[0], reverse=True)[:limit]
+        selected = [item for _, item in sorted_scored]
         if selected:
             ids = [item["id"] for item in selected]
             with self.connect() as conn:
                 conn.execute("UPDATE brain_memory_records SET last_used_at=%s WHERE id = ANY(%s)", (_now(), ids))
                 conn.commit()
-        self.record_retrieval(query, selected, candidate_count=len(scored))
-        return selected
+        proof = self.retrieval_proof(
+            retrieval_mode="keyword" if selected else "none",
+            selected=selected,
+            scores=[score for score, _ in sorted_scored],
+            fallback_used=False,
+            fallback_reason="",
+            embedding_available=False,
+            embedding_model="",
+            semantic_index_count=self.semantic_index_count(),
+            candidate_count=len(scored),
+        )
+        if record:
+            self.record_retrieval(query, selected, proof)
+        return selected, proof
 
-    def record_retrieval(self, query: str, selected: list[dict[str, Any]], candidate_count: int) -> None:
+    def record_retrieval(self, query: str, selected: list[dict[str, Any]], proof: dict[str, Any] | None = None, candidate_count: int = 0) -> None:
         self.ensure()
+        proof = proof or self.retrieval_proof(retrieval_mode="keyword" if selected else "none", selected=selected, candidate_count=candidate_count)
         with self.connect() as conn:
             conn.execute(
-                "INSERT INTO brain_memory_retrievals(id, query, selected_ids, candidate_count, injected_count, created_at) VALUES (%s,%s,%s,%s,%s,%s)",
-                (f"brain_ret_{uuid4().hex[:12]}", query, json.dumps([item["id"] for item in selected]), candidate_count, len(selected), _now()),
+                """
+                INSERT INTO brain_memory_retrievals(
+                    id, query, selected_ids, candidate_count, injected_count, retrieval_mode, scores,
+                    fallback_used, fallback_reason, embedding_available, embedding_model, semantic_index_count, created_at
+                )
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                """,
+                (
+                    f"brain_ret_{uuid4().hex[:12]}",
+                    query,
+                    json.dumps([item["id"] for item in selected]),
+                    int(proof.get("candidate_count") or candidate_count),
+                    len(selected),
+                    str(proof.get("retrieval_mode") or "none"),
+                    json.dumps(proof.get("scores") or []),
+                    bool(proof.get("fallback_used", False)),
+                    redact_secret(str(proof.get("fallback_reason") or "")),
+                    bool(proof.get("embedding_available", False)),
+                    str(proof.get("embedding_model") or ""),
+                    int(proof.get("semantic_index_count") or 0),
+                    _now(),
+                ),
             )
             conn.commit()
+
+    def upsert_embedding(self, memory: dict[str, Any], vector: list[float], model: str) -> dict[str, Any]:
+        self.ensure()
+        memory_id = str(memory["id"])
+        now = _now()
+        content_hash = self.embedding_content_hash(memory)
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO brain_memory_embeddings(memory_id, embedding_json, embedding_model, vector_dimension, content_hash, active, created_at, updated_at)
+                VALUES (%s,%s,%s,%s,%s,true,%s,%s)
+                ON CONFLICT (memory_id) DO UPDATE SET
+                    embedding_json=EXCLUDED.embedding_json,
+                    embedding_model=EXCLUDED.embedding_model,
+                    vector_dimension=EXCLUDED.vector_dimension,
+                    content_hash=EXCLUDED.content_hash,
+                    active=true,
+                    updated_at=EXCLUDED.updated_at
+                """,
+                (memory_id, json.dumps(vector), model, len(vector), content_hash, now, now),
+            )
+            conn.commit()
+        self.record_event(memory_id, "embedding_indexed", f"Memory embedding indexed with {model}.", "brain")
+        return {"memory_id": memory_id, "embedding_model": model, "vector_dimension": len(vector), "content_hash": content_hash, "active": True}
+
+    def deactivate_embedding(self, memory_id: str, event_type: str = "embedding_deactivated") -> None:
+        self.ensure()
+        with self.connect() as conn:
+            conn.execute("UPDATE brain_memory_embeddings SET active=false, updated_at=%s WHERE memory_id=%s", (_now(), memory_id))
+            conn.commit()
+        self.record_event(memory_id, event_type, "Memory embedding deactivated.", "brain")
+
+    def embedding_for(self, memory_id: str) -> dict[str, Any] | None:
+        self.ensure()
+        with self.connect() as conn:
+            row = conn.execute("SELECT memory_id, embedding_model, vector_dimension, content_hash, active, created_at, updated_at FROM brain_memory_embeddings WHERE memory_id=%s", (memory_id,)).fetchone()
+        return dict(row) if row else None
+
+    def semantic_index_count(self) -> int:
+        self.ensure()
+        with self.connect() as conn:
+            return int(conn.execute("SELECT COUNT(*) AS count FROM brain_memory_embeddings WHERE active=true").fetchone()["count"])
+
+    def indexable_memories(self) -> list[dict[str, Any]]:
+        return [item for item in self.list_memories(include_deleted=False, status_filter="active") if self.is_indexable_memory(item)]
+
+    def is_indexable_memory(self, memory: dict[str, Any]) -> bool:
+        text = f"{memory.get('title', '')} {memory.get('summary', '')} {memory.get('content', '')}"
+        return bool(memory.get("active") and not memory.get("soft_deleted") and memory.get("approved_by_user") and not memory.get("requires_approval") and "[redacted" not in text.lower())
+
+    def embedding_text(self, memory: dict[str, Any]) -> str:
+        return redact_secret(" ".join(str(memory.get(key) or "") for key in ("title", "summary", "content")).strip())
+
+    def embedding_content_hash(self, memory: dict[str, Any]) -> str:
+        return hashlib.sha256(self.embedding_text(memory).encode("utf-8")).hexdigest()
+
+    def semantic_search(self, query_vector: list[float], limit: int = 5, min_score: float = 0.2, project_scope: str = "", session_scope: str = "") -> tuple[list[dict[str, Any]], list[float], int]:
+        self.ensure()
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT e.memory_id, e.embedding_json, r.*
+                FROM brain_memory_embeddings e
+                JOIN brain_memory_records r ON r.id=e.memory_id
+                WHERE e.active=true AND r.active=true AND r.soft_deleted=false AND r.approved_by_user=true AND r.requires_approval=false
+                AND (r.global_scope=true OR r.project_scope=%s OR r.session_scope=%s)
+                """,
+                (project_scope, session_scope),
+            ).fetchall()
+        scored: list[tuple[float, dict[str, Any]]] = []
+        for row in rows:
+            vector = json.loads(row.get("embedding_json") or "[]")
+            score = cosine(query_vector, vector)
+            if score >= min_score:
+                record = dict(row)
+                record.pop("embedding_json", None)
+                scored.append((score, self._decode(record)))
+        selected_pairs = sorted(scored, key=lambda pair: pair[0], reverse=True)[:limit]
+        selected = [item for _score, item in selected_pairs]
+        if selected:
+            ids = [item["id"] for item in selected]
+            with self.connect() as conn:
+                conn.execute("UPDATE brain_memory_records SET last_used_at=%s WHERE id = ANY(%s)", (_now(), ids))
+                conn.commit()
+        return selected, [round(score, 4) for score, _ in selected_pairs], len(rows)
+
+    def retrieval_proof(
+        self,
+        *,
+        retrieval_mode: str,
+        selected: list[dict[str, Any]],
+        scores: list[float] | None = None,
+        fallback_used: bool = False,
+        fallback_reason: str = "",
+        embedding_available: bool = False,
+        embedding_model: str = "",
+        semantic_index_count: int | None = None,
+        candidate_count: int = 0,
+    ) -> dict[str, Any]:
+        return {
+            "retrieval_mode": retrieval_mode,
+            "memory_ids_used": [item["id"] for item in selected],
+            "scores": scores or [],
+            "fallback_used": fallback_used,
+            "fallback_reason": redact_secret(fallback_reason),
+            "embedding_available": embedding_available,
+            "embedding_model": embedding_model,
+            "semantic_index_count": self.semantic_index_count() if semantic_index_count is None else semantic_index_count,
+            "candidate_count": candidate_count,
+        }
 
     def approve_memory(self, memory_id: str) -> dict[str, Any] | None:
         memory = self.update_memory(memory_id, {"active": True, "soft_deleted": False, "requires_approval": False, "approved_by_user": True})
@@ -501,6 +687,7 @@ class BrainMemoryStore:
     def reject_memory(self, memory_id: str) -> dict[str, Any] | None:
         memory = self.update_memory(memory_id, {"active": False, "soft_deleted": True, "requires_approval": True, "approved_by_user": False})
         if memory:
+            self.deactivate_embedding(memory_id, "embedding_deactivated")
             self.record_event(memory_id, "rejected", f"Memory rejected: {memory.get('summary') or memory.get('content')}", "brain")
         return memory
 
@@ -537,3 +724,14 @@ class BrainMemoryStore:
         if "prefer" in raw or "preference" in raw:
             terms.add("prefer")
         return terms
+
+
+def cosine(left: list[float], right: list[float]) -> float:
+    if not left or not right or len(left) != len(right):
+        return 0.0
+    dot = sum(a * b for a, b in zip(left, right, strict=True))
+    left_norm = math.sqrt(sum(a * a for a in left))
+    right_norm = math.sqrt(sum(b * b for b in right))
+    if left_norm == 0 or right_norm == 0:
+        return 0.0
+    return dot / (left_norm * right_norm)

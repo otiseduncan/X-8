@@ -4,6 +4,7 @@ from typing import Any
 
 from x8.brain.brain_receipts import brain_card, brain_receipt
 from x8.brain.active_focus_manager import ActiveFocusManager
+from x8.brain.embedding_client import OllamaEmbeddingClient
 from x8.brain.memory_candidate_extractor import MemoryCandidateExtractor
 from x8.brain.memory_policy import MemoryPolicyManager
 from x8.brain.memory_store import BrainMemoryStore
@@ -35,6 +36,12 @@ class BrainMemoryManager:
         auto_capture_min_confidence: float = 0.7,
         auto_capture_max_per_turn: int = 3,
         auto_capture_receipts_enabled: bool = True,
+        semantic_retrieval_enabled: bool = True,
+        embedding_enabled: bool = True,
+        embedding_client: OllamaEmbeddingClient | None = None,
+        embedding_model: str = "nomic-embed-text:latest",
+        retrieval_max_results: int = 5,
+        retrieval_min_score: float = 0.2,
     ) -> None:
         self.store = BrainMemoryStore(database_url)
         self.policy = MemoryPolicyManager()
@@ -48,6 +55,12 @@ class BrainMemoryManager:
         self.auto_capture_min_confidence = auto_capture_min_confidence
         self.auto_capture_max_per_turn = auto_capture_max_per_turn
         self.auto_capture_receipts_enabled = auto_capture_receipts_enabled
+        self.semantic_retrieval_enabled = semantic_retrieval_enabled
+        self.embedding_enabled = embedding_enabled
+        self.embedding_client = embedding_client
+        self.embedding_model = embedding_model
+        self.retrieval_max_results = retrieval_max_results
+        self.retrieval_min_score = retrieval_min_score
 
     def status(self) -> dict[str, Any]:
         data = self.store.status()
@@ -64,8 +77,23 @@ class BrainMemoryManager:
         data["auto_capture_min_confidence"] = self.auto_capture_min_confidence
         data["auto_capture_max_per_turn"] = self.auto_capture_max_per_turn
         data["auto_capture_receipts_enabled"] = self.auto_capture_receipts_enabled
-        data["semantic_retrieval_enabled"] = False
+        data["semantic_retrieval_enabled"] = self.semantic_retrieval_enabled
+        data["embedding_enabled"] = self.embedding_enabled
+        data["embedding_model"] = self.embedding_model
+        data["embedding_available"] = self.embedding_status()["available"]
+        data["retrieval_min_score"] = self.retrieval_min_score
+        data["retrieval_max_results"] = self.retrieval_max_results
         return data
+
+    def embedding_status(self) -> dict[str, Any]:
+        indexed = self.store.semantic_index_count()
+        if not self.embedding_enabled:
+            return {"enabled": False, "available": False, "embedding_model": self.embedding_model, "indexed_memory_count": indexed, "failure_reason": "Embedding is disabled."}
+        if not self.embedding_client:
+            return {"enabled": True, "available": False, "embedding_model": self.embedding_model, "indexed_memory_count": indexed, "failure_reason": "Embedding client unavailable."}
+        result = self.embedding_client.embed("XV8 embedding readiness")
+        failure_reason = "" if result.ok else f"Embedding unavailable: {result.failure_reason or 'unknown'}"
+        return {"enabled": True, "available": result.ok, "embedding_model": result.model, "indexed_memory_count": indexed, "failure_reason": failure_reason}
 
     def auto_capture_enabled(self) -> bool:
         value = self.store.runtime_setting("auto_capture_enabled", "true" if self.auto_capture_default_enabled else "false")
@@ -140,6 +168,7 @@ class BrainMemoryManager:
             session_scope=session_scope,
             global_scope=global_scope,
         )
+        self._index_memory(record)
         message = f"Remembered: {summary}."
         receipt = brain_receipt("brain.memory_remembered", "passed", message, {"memory_id": record.get("id"), "layer": record.get("layer"), "type": record.get("type")})
         return BrainCommandResult(True, message, "passed", [receipt], [brain_card("Memory saved", "passed", message, {"memory_id": record.get("id")})], {"memory": record})
@@ -148,17 +177,17 @@ class BrainMemoryManager:
         if not self.memory_enabled:
             receipt = brain_receipt("brain.memory_retrieved", "disabled", "Brain memory is disabled.", {"query": query})
             return BrainCommandResult(True, "Brain memory is disabled.", "disabled", [receipt], [brain_card("Memory recall", "disabled", "Brain memory is disabled.")])
-        matches = self.store.search(query, limit=limit, project_scope=project_scope, session_scope=session_scope)
+        matches, proof = self._retrieve_with_proof(query, limit=limit, project_scope=project_scope, session_scope=session_scope)
         if not matches:
-            receipt = brain_receipt("brain.memory_retrieved", "no_matches", MISS_PHRASE, {"query": query, "count": 0})
+            receipt = brain_receipt("brain.memory_retrieved", "no_matches", MISS_PHRASE, {"query": query, "count": 0, **proof})
             return BrainCommandResult(True, MISS_PHRASE, "passed", [receipt], [brain_card("Memory recall", "no_matches", MISS_PHRASE)])
         summaries = [str(item.get("summary") or item.get("content")) for item in matches]
         if len(summaries) == 1:
             answer = f"You prefer {self._preference_fragment(summaries[0])}." if "prefer" in summaries[0].lower() else summaries[0]
         else:
             answer = "Here is what I remember: " + "; ".join(summaries) + "."
-        receipt = brain_receipt("brain.memory_retrieved", "passed", "Memory retrieved.", {"count": len(matches), "memory_ids": [item["id"] for item in matches]})
-        return BrainCommandResult(True, answer, "passed", [receipt], [brain_card("Memory recall", "passed", "Retrieved saved memory.", {"count": len(matches)})], {"memories": matches})
+        receipt = brain_receipt("brain.memory_retrieved", "passed", "Memory retrieved.", {"count": len(matches), "memory_ids": [item["id"] for item in matches], **proof})
+        return BrainCommandResult(True, answer, "passed", [receipt], [brain_card("Memory recall", "passed", "Retrieved saved memory.", {"count": len(matches), "retrieval_mode": proof.get("retrieval_mode")})], {"memories": matches, "retrieval_proof": proof})
 
     def auto_capture(
         self,
@@ -267,6 +296,7 @@ class BrainMemoryManager:
                     session_scope=session_scope or session_id if candidate.scope == "session" else "",
                     global_scope=candidate.scope != "session",
                 )
+                self._index_memory(memory)
                 event_type = "auto_saved"
                 if candidate.type == "active_work_context":
                     self.set_focus(candidate.summary, session_id=session_id, project_scope=project_scope)
@@ -320,6 +350,7 @@ class BrainMemoryManager:
             receipt = brain_receipt("brain.memory_update", "missing", "Brain memory not found.", {"memory_id": memory_id})
             return BrainCommandResult(True, "Brain memory not found.", "missing", [receipt])
         receipt = brain_receipt("brain.memory_updated", "updated", "Brain memory updated.", {"memory_id": memory_id})
+        self._index_memory(memory)
         return BrainCommandResult(True, "Brain memory updated.", "updated", [receipt], [brain_card("Memory updated", "updated", "Brain memory updated.")], {"memory": memory})
 
     def approve(self, memory_id: str) -> BrainCommandResult:
@@ -328,6 +359,7 @@ class BrainMemoryManager:
             receipt = brain_receipt("brain.memory_approve", "missing", "Brain memory not found.", {"memory_id": memory_id})
             return BrainCommandResult(True, "Brain memory not found.", "missing", [receipt])
         receipt = brain_receipt("brain.memory_approved", "approved", "Brain memory approved.", {"memory_id": memory_id})
+        self._index_memory(memory)
         return BrainCommandResult(True, "Brain memory approved.", "approved", [receipt], [brain_card("Memory approved", "approved", "Brain memory approved.")], {"memory": memory})
 
     def reject(self, memory_id: str) -> BrainCommandResult:
@@ -344,7 +376,62 @@ class BrainMemoryManager:
             receipt = brain_receipt("brain.memory_reactivate", "missing", "Brain memory not found.", {"memory_id": memory_id})
             return BrainCommandResult(True, "Brain memory not found.", "missing", [receipt])
         receipt = brain_receipt("brain.memory_reactivated", "reactivated", "Brain memory reactivated.", {"memory_id": memory_id})
+        self._index_memory(memory)
         return BrainCommandResult(True, "Brain memory reactivated.", "reactivated", [receipt], [brain_card("Memory reactivated", "reactivated", "Brain memory reactivated.")], {"memory": memory})
+
+    def reindex(self) -> BrainCommandResult:
+        indexed = 0
+        skipped = 0
+        for memory in self.store.indexable_memories():
+            if self._index_memory(memory):
+                indexed += 1
+            else:
+                skipped += 1
+        message = f"Reindexed {indexed} active Brain memories."
+        receipt = brain_receipt("brain.memory_reindexed", "passed", message, {"indexed": indexed, "skipped": skipped, "embedding_model": self.embedding_model})
+        return BrainCommandResult(True, message, "passed", [receipt], [brain_card("Memory reindexed", "passed", message)], {"indexed": indexed, "skipped": skipped, "embedding_status": self.embedding_status()})
+
+    def _retrieve_with_proof(self, query: str, limit: int = 3, project_scope: str = "", session_scope: str = "") -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        effective_limit = min(limit or self.retrieval_max_results, self.retrieval_max_results)
+        if query.startswith("brain_mem_"):
+            memory = self.store.get_memory(query)
+            selected = [memory] if memory and self.store.is_indexable_memory(memory) else []
+            proof = self.store.retrieval_proof(retrieval_mode="exact" if selected else "none", selected=selected, embedding_available=bool(self.embedding_client), embedding_model=self.embedding_model)
+            self.store.record_retrieval(query, selected, proof)
+            return selected, proof
+        if self.semantic_retrieval_enabled and self.embedding_enabled and self.embedding_client:
+            embedded = self.embedding_client.embed(query)
+            if embedded.ok:
+                selected, scores, candidate_count = self.store.semantic_search(embedded.vector, limit=effective_limit, min_score=self.retrieval_min_score, project_scope=project_scope, session_scope=session_scope)
+                if selected:
+                    proof = self.store.retrieval_proof(retrieval_mode="semantic", selected=selected, scores=scores, embedding_available=True, embedding_model=embedded.model, candidate_count=candidate_count)
+                    self.store.record_retrieval(query, selected, proof)
+                    return selected, proof
+                fallback_reason = "Semantic retrieval found no memory above threshold."
+            else:
+                fallback_reason = embedded.failure_reason or "Embedding unavailable."
+            selected, keyword_proof = self.store.keyword_search_with_proof(query, limit=effective_limit, project_scope=project_scope, session_scope=session_scope, record=False)
+            keyword_proof.update({"retrieval_mode": "keyword" if selected else "none", "fallback_used": True, "fallback_reason": fallback_reason, "embedding_available": False, "embedding_model": self.embedding_model})
+            self.store.record_retrieval(query, selected, keyword_proof)
+            return selected, keyword_proof
+        selected, proof = self.store.keyword_search_with_proof(query, limit=effective_limit, project_scope=project_scope, session_scope=session_scope, record=False)
+        proof.update({"fallback_used": self.semantic_retrieval_enabled, "fallback_reason": "Semantic retrieval disabled or embedding unavailable.", "embedding_model": self.embedding_model})
+        self.store.record_retrieval(query, selected, proof)
+        return selected, proof
+
+    def _index_memory(self, memory: dict[str, Any] | None) -> bool:
+        if not memory or not self.embedding_enabled or not self.embedding_client or not self.store.is_indexable_memory(memory):
+            return False
+        current = self.store.embedding_for(memory["id"])
+        content_hash = self.store.embedding_content_hash(memory)
+        if current and current.get("active") and current.get("content_hash") == content_hash and current.get("embedding_model") == self.embedding_model:
+            return True
+        result = self.embedding_client.embed(self.store.embedding_text(memory))
+        if not result.ok:
+            self.store.record_event(memory["id"], "embedding_unavailable", f"Embedding unavailable: {result.failure_reason}", "brain")
+            return False
+        self.store.upsert_embedding(memory, result.vector, result.model)
+        return True
 
     def _summary(self, content: str) -> str:
         cleaned = content.strip().rstrip(".")

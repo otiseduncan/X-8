@@ -3,6 +3,8 @@ from uuid import uuid4
 from fastapi.testclient import TestClient
 
 from x8.app_factory import create_app
+from x8.brain.embedding_client import EmbeddingResult
+from x8.brain.memory_manager import BrainMemoryManager
 from x8.brain.memory_store import BrainMemoryStore
 from x8.kernel.brain_context import BrainContextAssembler
 from x8.kernel.context_assembler import KernelContextAssembler
@@ -40,6 +42,38 @@ def store(settings: Settings | None = None) -> BrainMemoryStore:
 
 def unique_phrase() -> str:
     return f"direct senior-engineer answers {uuid4().hex[:8]}"
+
+
+class FakeEmbeddingClient:
+    model = "nomic-embed-text:latest"
+
+    def __init__(self, available: bool = True) -> None:
+        self.available = available
+        self.calls: list[str] = []
+
+    def embed(self, text: str) -> EmbeddingResult:
+        self.calls.append(text)
+        if not self.available:
+            return EmbeddingResult(False, [], self.model, "mock embedding unavailable")
+        lower = text.lower()
+        if any(word in lower for word in ("respond", "answer", "senior-engineer", "direct")):
+            vector = [1.0, 0.0, 0.0]
+        elif any(word in lower for word in ("routing", "github", "self-build", "steal")):
+            vector = [0.0, 1.0, 0.0]
+        elif any(word in lower for word in ("proof", "apply", "runtime/self_build_smoke")):
+            vector = [0.0, 0.0, 1.0]
+        else:
+            vector = [0.2, 0.2, 0.2]
+        return EmbeddingResult(True, vector, self.model)
+
+
+def semantic_manager(settings: Settings | None = None, available: bool = True) -> BrainMemoryManager:
+    return BrainMemoryManager(
+        (settings or make_settings()).database_url,
+        embedding_client=FakeEmbeddingClient(available),
+        embedding_model="nomic-embed-text:latest",
+        retrieval_min_score=0.5,
+    )
 
 
 def test_manual_remember_saves_low_risk_preference() -> None:
@@ -464,3 +498,105 @@ def test_phase3_github_and_self_build_routes_not_stolen_by_auto_capture() -> Non
     assert self_build["receipts"][0]["metadata"]["kernel_lane"] == "self_build"
     assert not any(receipt["action"] == "brain.memory_auto_saved" for receipt in github["receipts"])
     assert not any(receipt["action"] == "brain.memory_auto_saved" for receipt in self_build["receipts"])
+
+
+def test_embedding_unavailable_does_not_break_manual_remember() -> None:
+    api = client()
+    phrase = f"phase4 unavailable {uuid4().hex[:8]}"
+    payload = api.post("/api/brain/remember", json={"content": f"I prefer {phrase}"}).json()
+    assert payload["status"] == "passed"
+    status = api.get("/api/brain/embedding-status").json()
+    assert status["status"] == "unavailable"
+    assert "embedding" in status["data"]["failure_reason"].lower()
+
+
+def test_manual_remember_creates_embedding_with_available_client() -> None:
+    manager = semantic_manager()
+    result = manager.remember(f"I prefer phase4 direct senior-engineer answers {uuid4().hex[:8]}")
+    memory_id = result.data["memory"]["id"]
+    embedding = manager.store.embedding_for(memory_id)
+    assert embedding is not None
+    assert embedding["embedding_model"] == "nomic-embed-text:latest"
+    assert embedding["vector_dimension"] == 3
+
+
+def test_auto_saved_and_approved_pending_memories_create_embeddings() -> None:
+    manager = semantic_manager()
+    auto = manager.auto_capture(f"I prefer phase4 auto direct answers {uuid4().hex[:8]}.", lane="normal_chat")
+    assert auto.data["saved"]
+    assert manager.store.embedding_for(auto.data["saved"][0]["id"]) is not None
+    pending = manager.remember(f"my family history includes phase4 pending {uuid4().hex[:8]}")
+    memory_id = pending.data["memory"]["id"]
+    assert manager.store.embedding_for(memory_id) is None
+    approved = manager.approve(memory_id)
+    assert approved.status == "approved"
+    assert manager.store.embedding_for(memory_id) is not None
+
+
+def test_memory_edit_reactivate_and_reindex_update_embeddings() -> None:
+    manager = semantic_manager()
+    result = manager.remember(f"I prefer phase4 edit direct answers {uuid4().hex[:8]}")
+    memory_id = result.data["memory"]["id"]
+    before = manager.store.embedding_for(memory_id)
+    manager.update_memory(memory_id, {"summary": f"you prefer phase4 routing memory {uuid4().hex[:8]}", "content": "GitHub prompts must not steal self-build routing."})
+    after = manager.store.embedding_for(memory_id)
+    assert before and after and before["content_hash"] != after["content_hash"]
+    manager.store.soft_delete_memory(memory_id)
+    assert manager.store.embedding_for(memory_id)["active"] is False
+    manager.reactivate(memory_id)
+    assert manager.store.embedding_for(memory_id)["active"] is True
+    assert manager.reindex().data["indexed"] >= 1
+
+
+def test_semantic_retrieval_finds_paraphrased_memory_examples() -> None:
+    manager = semantic_manager()
+    manager.remember(f"I prefer direct senior-engineer answers {uuid4().hex[:8]}")
+    manager.remember(f"GitHub prompts must not steal self-build routing {uuid4().hex[:8]}")
+    manager.remember(f"Self-build approved apply proof uses runtime/self_build_smoke/approved_apply_proof.md {uuid4().hex[:8]}")
+    preference = manager.retrieve("how should you respond to me?")
+    routing = manager.retrieve("what was the routing issue we fixed?")
+    proof = manager.retrieve("how do we prove self-build apply works?")
+    assert preference.data["retrieval_proof"]["retrieval_mode"] == "semantic"
+    assert "senior-engineer" in preference.message
+    assert "self-build routing" in routing.message
+    assert "runtime/self_build_smoke/approved_apply_proof.md" in proof.message
+
+
+def test_semantic_retrieval_excludes_pending_rejected_deleted_and_secret_records() -> None:
+    manager = semantic_manager()
+    pending = manager.remember(f"my family history includes phase4 semantic pending {uuid4().hex[:8]}")
+    rejected = manager.remember(f"my family history includes phase4 semantic rejected {uuid4().hex[:8]}")
+    manager.reject(rejected.data["memory"]["id"])
+    deleted = manager.remember(f"I prefer phase4 deleted direct answers {uuid4().hex[:8]}")
+    manager.store.soft_delete_memory(deleted.data["memory"]["id"])
+    blocked = manager.remember(f"my GitHub token is ghp_{uuid4().hex}abc")
+    retrieved = manager.retrieve("family direct token")
+    assert pending.data["memory"]["id"] not in retrieved.data["retrieval_proof"]["memory_ids_used"]
+    assert rejected.data["memory"]["id"] not in retrieved.data["retrieval_proof"]["memory_ids_used"]
+    assert deleted.data["memory"]["id"] not in retrieved.data["retrieval_proof"]["memory_ids_used"]
+    assert blocked.status == "blocked"
+    assert not any("ghp_" in text for text in manager.embedding_client.calls)
+
+
+def test_keyword_fallback_and_exact_miss_phrase_when_embedding_unavailable() -> None:
+    manager = semantic_manager(available=False)
+    marker = uuid4().hex[:8]
+    manager.remember(f"I prefer phase4 fallback direct answers {marker}")
+    found = manager.retrieve(f"fallback direct answers {marker}")
+    missing = manager.retrieve(f"not present {uuid4().hex}")
+    assert found.data["retrieval_proof"]["fallback_used"] is True
+    assert found.data["retrieval_proof"]["retrieval_mode"] == "keyword"
+    assert missing.message == MISS
+
+
+def test_retrieval_proof_and_embedding_routes_are_stable() -> None:
+    api = client()
+    phrase = f"phase4 stable direct answers {uuid4().hex[:8]}"
+    api.post("/api/brain/remember", json={"content": f"I prefer {phrase}"})
+    retrieved = api.post("/api/brain/retrieve", json={"query": phrase}).json()
+    status = api.get("/api/brain/embedding-status").json()
+    reindex = api.post("/api/brain/reindex").json()
+    proof = retrieved["data"]["retrieval_proof"]
+    assert {"retrieval_mode", "memory_ids_used", "fallback_used", "fallback_reason", "embedding_available", "embedding_model", "semantic_index_count"} <= set(proof)
+    assert "embedding_json" not in str(status)
+    assert "embedding_json" not in str(reindex)
