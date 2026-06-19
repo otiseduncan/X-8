@@ -1,9 +1,13 @@
 import difflib
 import hashlib
+from datetime import datetime, timezone
 
 from x8.self_build.contracts import PatchFileChange, PatchProposal, SelfBuildPlan, SelfBuildTask
 from x8.self_build.repo_context import RepoContextReader
 from x8.self_build.validation import PatchValidationManager
+
+SMOKE_PROOF_FILE = "runtime/self_build_smoke/approved_apply_proof.md"
+DESTRUCTIVE_PROMPT_PHRASES = ("delete", "remove", "wipe", "erase", "destroy", "drop table", "rm -rf", "credential", "token", "secret", "password")
 
 
 class PatchProposalManager:
@@ -13,6 +17,12 @@ class PatchProposalManager:
 
     def create(self, task: SelfBuildTask, plan: SelfBuildPlan) -> PatchProposal:
         changes: list[PatchFileChange] = []
+        if self._has_destructive_prompt(task.request.user_prompt):
+            validation = self.validation.validate(changes)
+            validation.reasons.append("Destructive or secret-related self-build request is blocked.")
+            validation.passed = False
+            validation.status = "failed"
+            return PatchProposal(task_id=task.task_id, plan_id=plan.plan_id, changes=changes, patch_hash=self.hash_changes(changes), validation=validation, status="blocked")
         if plan.task_type == "unknown_safe":
             validation = self.validation.validate(changes)
             return PatchProposal(task_id=task.task_id, plan_id=plan.plan_id, changes=changes, patch_hash=self.hash_changes(changes), validation=validation, status="blocked")
@@ -51,6 +61,10 @@ class PatchProposalManager:
     def _proposed_content(self, path: str, before: str, prompt: str, task_type: str) -> str:
         lower_path = path.lower()
         lower_prompt = prompt.lower()
+        if path.replace("\\", "/") == SMOKE_PROOF_FILE and self._asks_for_validation_note(lower_prompt):
+            return self._append_validation_note(before, "self-build approved apply proof")
+        if task_type == "docs_only" and lower_path.startswith("docs/") and lower_path.endswith(".md") and self._asks_for_validation_note(lower_prompt):
+            return self._append_validation_note(before, "bounded docs self-build proof")
         if task_type == "ui_feature" and "trust status" in lower_prompt:
             if lower_path == "apps/web/src/services/apiclient.ts":
                 return self._add_trust_status_client(before)
@@ -63,6 +77,18 @@ class PatchProposalManager:
             section = "\n\n## XV8 Validation Smoke Note\n\nThis proposed docs-only note validates the self-build approval flow without applying changes automatically.\n"
             return before.rstrip() + section + "\n"
         return before
+
+    def _asks_for_validation_note(self, lower_prompt: str) -> bool:
+        return any(phrase in lower_prompt for phrase in ("validation note", "timestamped", "proof note", "smoke note", "checklist line"))
+
+    def _has_destructive_prompt(self, prompt: str) -> bool:
+        lower_prompt = prompt.lower()
+        return any(phrase in lower_prompt for phrase in DESTRUCTIVE_PROMPT_PHRASES)
+
+    def _append_validation_note(self, before: str, label: str) -> str:
+        stamp = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+        note = f"- {stamp} - {label}."
+        return before.rstrip() + "\n" + note + "\n"
 
     def _add_trust_status_client(self, before: str) -> str:
         if "loadSelfBuildTrustStatus" in before:

@@ -30,6 +30,15 @@ class SafePatchApplier:
                 return PatchApplyResult(patch_id=proposal.patch_id, applied=False, status="blocked", reason=str(exc), changed_files=changed, backup_paths=backups)
             before = target.read_text(encoding="utf-8", errors="ignore") if target.exists() else ""
             before_hash = hashlib.sha256(before.encode("utf-8")).hexdigest()
+            if before_hash == change.after_hash:
+                return PatchApplyResult(
+                    patch_id=proposal.patch_id,
+                    applied=False,
+                    status="blocked",
+                    changed_files=changed,
+                    backup_paths=backups,
+                    reason=f"Patch already applied: {change.file_path}",
+                )
             if before_hash != change.before_hash:
                 return PatchApplyResult(
                     patch_id=proposal.patch_id,

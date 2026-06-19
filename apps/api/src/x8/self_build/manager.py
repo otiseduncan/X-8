@@ -192,6 +192,7 @@ class SelfBuildManager:
         return False, False
 
     def trust_status(self) -> dict[str, object]:
+        approved_apply_proven = self._approved_apply_proven()
         return {
             "approval_required": True,
             "approval_hash_required": True,
@@ -201,5 +202,13 @@ class SelfBuildManager:
             "writes_without_approval": False,
             "commit_allowed_by_default": False,
             "push_allowed_by_default": False,
+            "readiness": {
+                "approved_apply_proven": approved_apply_proven,
+                "status": "passed" if approved_apply_proven else "failed",
+                "message": "Approved self-build apply was proven." if approved_apply_proven else "FAILED: approved self-build apply was not proven.",
+            },
             "status": "ready",
         }
+
+    def _approved_apply_proven(self) -> bool:
+        return any(receipt.action_type == "patch_applied" and receipt.applied for task in self.tasks.values() for receipt in task.receipts)

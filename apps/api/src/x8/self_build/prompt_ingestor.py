@@ -1,5 +1,7 @@
 import re
 
+SMOKE_PROOF_FILE = "runtime/self_build_smoke/approved_apply_proof.md"
+
 
 class BuildPromptIngestor:
     NEEDLES = ("self-build", "build prompt", "patch", "files", "tests", "completion rule", "do not commit", "inspect")
@@ -43,6 +45,7 @@ class BuildPromptIngestor:
         "wiring",
     )
     SELF_BUILD_MARKERS = ("self-build", "self build", "patch proposal", "proposal-only", "approval", "patch hash")
+    DESTRUCTIVE_PHRASES = ("delete", "remove", "wipe", "erase", "destroy", "drop table", "rm -rf", "credential", "token", "secret", "password", "push")
     INSPECT_PHRASES = (
         "show proposal details",
         "show latest proposal",
@@ -118,6 +121,8 @@ class BuildPromptIngestor:
         lower = text.lower()
         files = sorted(set(re.findall(r"[\w./-]+\.(?:py|ts|tsx|js|jsx|css|md|yaml|yml|json|toml)|README\.md|compose\.yaml", text)))
         task_type = self.classify_task_type(text)
+        if self._mentions_smoke_proof(lower) and SMOKE_PROOF_FILE not in files:
+            files = [SMOKE_PROOF_FILE, *files]
         if not files:
             files = self.default_files_for_task(task_type)
         tests = [name for name in ("architecture_guard", "api_tests", "web_tests", "e2e_tests", "web_build", "compose_config") if name.replace("_", " ") in lower or name in lower]
@@ -130,7 +135,7 @@ class BuildPromptIngestor:
             "task_type": task_type,
             "files_to_inspect": files,
             "constraints": self._lines_matching(text, ("must", "should", "keep", "only", "never")),
-            "blocked_actions": self._lines_matching(text, ("do not", "never", "not acceptable")),
+            "blocked_actions": [*self._lines_matching(text, ("do not", "never", "not acceptable")), *[phrase for phrase in self.DESTRUCTIVE_PHRASES if phrase in lower]],
             "required_tests": tests,
             "completion_rule": "\n".join(self._lines_matching(text, ("completion", "expected")))[:1000],
             "commit_instruction": "do_not_commit" if "do not commit" in lower or "commit" not in lower else "commit_requires_approval",
@@ -142,6 +147,8 @@ class BuildPromptIngestor:
 
     def classify_task_type(self, text: str) -> str:
         lower = text.lower()
+        if self._mentions_smoke_proof(lower):
+            return "smoke_proof"
         if any(word in lower for word in ("readme", "documentation", "docs", "document ")):
             return "docs_only"
         if any(word in lower for word in ("test only", "tests only", "add test", "unit test", "api test", "web test")):
@@ -153,6 +160,9 @@ class BuildPromptIngestor:
         if any(word in lower for word in ("api", "endpoint", "route", "manager", "backend")):
             return "api_feature"
         return "unknown_safe"
+
+    def _mentions_smoke_proof(self, lower: str) -> bool:
+        return "self-build apply proof file" in lower or "self build apply proof file" in lower or "smoke proof file" in lower or SMOKE_PROOF_FILE in lower
 
     def default_files_for_task(self, task_type: str) -> list[str]:
         if task_type == "ui_feature":

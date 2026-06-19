@@ -699,6 +699,15 @@ export async function runSelfBuildPrompt(prompt: string) {
     )
 
 
+def create_self_build_smoke_workspace(root) -> None:
+    target = root / "runtime" / "self_build_smoke"
+    target.mkdir(parents=True)
+    (target / "approved_apply_proof.md").write_text(
+        "# Self-Build Approved Apply Proof\n\nThis file exists only for self-build repair-loop validation.\n",
+        encoding="utf-8",
+    )
+
+
 def test_self_build_plan_and_proposal_do_not_write(tmp_path) -> None:
     readme = tmp_path / "README.md"
     readme.write_text("# XV8\n", encoding="utf-8")
@@ -747,6 +756,104 @@ def test_self_build_apply_blocks_if_file_changed_since_proposal(tmp_path) -> Non
     assert result.status == "blocked"
     assert "changed since proposal" in result.reason
     assert "Self-Build Mode" not in readme.read_text(encoding="utf-8")
+
+
+def test_self_build_smoke_proposal_creates_non_empty_bounded_patch(tmp_path) -> None:
+    create_self_build_smoke_workspace(tmp_path)
+    manager = SelfBuildManager(str(tmp_path))
+
+    task = manager.create_task(SelfBuildRequest(user_prompt="create a self-build proposal to add a timestamped validation note to the self-build apply proof file"))
+    detail = manager.proposal_detail(task)
+
+    assert task.proposal is not None
+    assert task.proposal.validation.passed is True
+    assert task.proposal.approval_id
+    assert detail["task_id"] == task.task_id
+    assert detail["patch_id"] == task.proposal.patch_id
+    assert detail["approval_id"] == task.proposal.approval_id
+    assert detail["patch_hash"] == task.proposal.patch_hash
+    assert detail["changed_file_paths"] == ["runtime/self_build_smoke/approved_apply_proof.md"]
+    assert detail["changes"][0]["before_hash"]
+    assert detail["changes"][0]["after_hash"]
+    assert detail["changes"][0]["before_hash"] != detail["changes"][0]["after_hash"]
+    assert "self-build approved apply proof" in detail["changes"][0]["unified_diff"]
+    assert detail["tests_to_run"] == ["architecture_guard"]
+    assert detail["rollback_plan"]
+    assert detail["apply_safe"] is True
+
+
+def test_self_build_smoke_denied_approved_duplicate_and_readiness(tmp_path) -> None:
+    create_self_build_smoke_workspace(tmp_path)
+    proof = tmp_path / "runtime" / "self_build_smoke" / "approved_apply_proof.md"
+    original = proof.read_text(encoding="utf-8")
+    manager = SelfBuildManager(str(tmp_path))
+    assert manager.trust_status()["readiness"]["message"] == "FAILED: approved self-build apply was not proven."
+    task = manager.create_task(SelfBuildRequest(user_prompt="create a self-build proposal to add a timestamped validation note to the self-build apply proof file"))
+    proposal = task.proposal
+    assert proposal is not None
+
+    denied = manager.apply_patch(task.task_id, PatchApplyRequest(patch_id=proposal.patch_id, approval_id=proposal.approval_id, patch_hash=proposal.patch_hash, approved=False))
+    assert denied.applied is False
+    assert proof.read_text(encoding="utf-8") == original
+    assert manager.trust_status()["readiness"]["approved_apply_proven"] is False
+
+    applied = manager.apply_patch(task.task_id, PatchApplyRequest(patch_id=proposal.patch_id, approval_id=proposal.approval_id, patch_hash=proposal.patch_hash, approved=True))
+    assert applied.applied is True
+    assert applied.changed_files == ["runtime/self_build_smoke/approved_apply_proof.md"]
+    assert applied.backup_paths
+    assert "self-build approved apply proof" in proof.read_text(encoding="utf-8")
+    assert manager.trust_status()["readiness"]["approved_apply_proven"] is True
+    assert manager.trust_status()["readiness"]["status"] == "passed"
+
+    duplicate = manager.apply_patch(task.task_id, PatchApplyRequest(patch_id=proposal.patch_id, approval_id=proposal.approval_id, patch_hash=proposal.patch_hash, approved=True))
+    assert duplicate.applied is False
+    assert duplicate.status == "blocked"
+    assert "already applied" in duplicate.reason
+
+
+def test_self_build_smoke_stale_apply_is_blocked(tmp_path) -> None:
+    create_self_build_smoke_workspace(tmp_path)
+    proof = tmp_path / "runtime" / "self_build_smoke" / "approved_apply_proof.md"
+    manager = SelfBuildManager(str(tmp_path))
+    task = manager.create_task(SelfBuildRequest(user_prompt="create a self-build proposal to add a timestamped validation note to the self-build apply proof file"))
+    proposal = task.proposal
+    assert proposal is not None
+    proof.write_text(proof.read_text(encoding="utf-8") + "\nManual stale edit.\n", encoding="utf-8")
+
+    stale = manager.apply_patch(task.task_id, PatchApplyRequest(patch_id=proposal.patch_id, approval_id=proposal.approval_id, patch_hash=proposal.patch_hash, approved=True))
+
+    assert stale.applied is False
+    assert stale.status == "blocked"
+    assert "changed since proposal" in stale.reason
+
+
+def test_self_build_rejects_outside_destructive_and_unbounded_requests(tmp_path) -> None:
+    create_self_build_smoke_workspace(tmp_path)
+    manager = SelfBuildManager(str(tmp_path))
+
+    outside = manager.create_task(SelfBuildRequest(user_prompt="create a self-build proposal to add a timestamped validation note to ../outside.md"))
+    assert outside.proposal is not None
+    assert outside.proposal.validation.passed is False
+    assert outside.proposal.approval_id == ""
+    assert manager.proposal_detail(outside)["apply_safe"] is False
+
+    destructive = manager.create_task(SelfBuildRequest(user_prompt="create a self-build proposal to delete the self-build apply proof file"))
+    assert destructive.proposal is not None
+    assert destructive.proposal.validation.passed is False
+    assert destructive.proposal.approval_id == ""
+    assert "Destructive" in destructive.proposal.validation.reasons[-1]
+
+    mixed_destructive = manager.create_task(SelfBuildRequest(user_prompt="create a self-build proposal to add a timestamped validation note and delete the self-build apply proof file"))
+    assert mixed_destructive.proposal is not None
+    assert mixed_destructive.proposal.validation.passed is False
+    assert mixed_destructive.proposal.approval_id == ""
+    assert not mixed_destructive.proposal.changes
+
+    unbounded = manager.create_task(SelfBuildRequest(user_prompt="create a self-build proposal to improve the system"))
+    assert unbounded.proposal is not None
+    assert unbounded.proposal.validation.passed is False
+    assert unbounded.plan is not None
+    assert "bounded safe target path" in unbounded.plan.known_limitations[0]
 
 
 def test_self_build_validation_presets_are_allowlisted(tmp_path) -> None:

@@ -132,12 +132,64 @@ test('inline diff proposal requires approval before mutation', async ({ page }) 
 
 test('self-build prompt creates plan proposal and approval card without applying', async ({ page }) => {
   await page.goto('/');
-  await ask(page, 'Self-build test. Inspect README.md and propose a patch that adds a short validation smoke note. Do not apply the patch until I approve. Do not commit.');
+  await ask(page, 'create a self-build proposal to add a timestamped validation note to the self-build apply proof file');
   await expect(page.getByText('Self-build prompt detected')).toBeVisible({ timeout: 15000 });
   await expect(page.getByTestId('self-build-patch-plan-text')).toBeVisible();
   await expect(page.getByTestId('self-build-proposal-card')).toHaveCount(1);
   await expect(page.getByTestId('inline-diff-card')).toBeVisible();
   await expect(page.getByTestId('inline-approval-card')).toBeVisible();
+});
+
+test('self-build smoke proof applies once and blocks duplicate and stale apply', async ({ page, request }) => {
+  const proofPath = 'runtime/self_build_smoke/approved_apply_proof.md';
+  await page.goto('/');
+  await ask(page, 'create a self-build proposal to add a timestamped validation note to the self-build apply proof file');
+  await expect(page.getByText('Self-build prompt detected')).toBeVisible({ timeout: 15000 });
+  await expect(page.getByTestId('inline-approval-card')).toBeVisible();
+  await expect(page.getByTestId('inline-approval-card')).toContainText(proofPath);
+  await page.getByRole('button', { name: /expand self-build patch proposal/i }).click();
+  await expect(page.getByTestId('inline-diff-card')).toContainText('self-build approved apply proof');
+  await expect(page.getByText(/git push|auto-push|auto push/i)).toHaveCount(0);
+
+  const latest = await (await request.get('/api/self-build/tasks/latest/proposal')).json();
+  const detail = latest.data;
+  expect(detail.changed_file_paths).toEqual([proofPath]);
+  expect(detail.changes[0].unified_diff).toContain('self-build approved apply proof');
+  const before = await (await request.post('/api/workspace/read', { data: { path: proofPath } })).json();
+
+  const denied = await (await request.post(`/api/self-build/tasks/${detail.task_id}/apply`, {
+    data: { patch_id: detail.patch_id, approval_id: detail.approval_id, patch_hash: detail.patch_hash, approved: false }
+  })).json();
+  expect(denied.data.applied).toBe(false);
+  const afterDenied = await (await request.post('/api/workspace/read', { data: { path: proofPath } })).json();
+  expect(afterDenied.data.content).toBe(before.data.content);
+
+  await page.getByTestId('inline-approval-card').getByRole('button', { name: /^Apply$/ }).click();
+  await expect(page.getByTestId('inline-approval-card')).toContainText('Patch applied after exact approval hash match.', { timeout: 15000 });
+  await expect(page.getByTestId('inline-approval-card')).toContainText(proofPath);
+  const afterApproved = await (await request.post('/api/workspace/read', { data: { path: proofPath } })).json();
+  expect(afterApproved.data.content).not.toBe(before.data.content);
+  expect(afterApproved.data.content).toContain('self-build approved apply proof');
+
+  const duplicate = await (await request.post(`/api/self-build/tasks/${detail.task_id}/apply`, {
+    data: { patch_id: detail.patch_id, approval_id: detail.approval_id, patch_hash: detail.patch_hash, approved: true }
+  })).json();
+  expect(duplicate.status).toBe('blocked');
+  expect(duplicate.message).toContain('already applied');
+
+  const staleProposal = await (await request.post('/api/self-build/prompt', {
+    data: { prompt: 'create a self-build proposal to add a timestamped validation note to the self-build apply proof file' }
+  })).json();
+  const staleDetail = staleProposal.data.proposal_detail;
+  await request.post('/api/repo/apply-update', { data: { path: proofPath, proposed_content: `${afterApproved.data.content}\nManual stale e2e edit.\n`, approved: true } });
+  const stale = await (await request.post(`/api/self-build/tasks/${staleDetail.task_id}/apply`, {
+    data: { patch_id: staleDetail.patch_id, approval_id: staleDetail.approval_id, patch_hash: staleDetail.patch_hash, approved: true }
+  })).json();
+  expect(stale.status).toBe('blocked');
+  expect(stale.message).toContain('changed since proposal');
+
+  const trust = await (await request.get('/api/self-build/trust-status')).json();
+  expect(trust.data.readiness.approved_apply_proven).toBe(true);
 });
 
 test('inline research and image status cards render honestly', async ({ page }) => {
@@ -149,4 +201,47 @@ test('inline research and image status cards render honestly', async ({ page }) 
   await ask(page, 'generate an image of a console');
   await expect(page.locator('[data-testid="inline-image-card"], [data-testid="inline-error-card"]')).toBeVisible({ timeout: 15000 });
   await expect(page.getByText('Image Studio')).toHaveCount(0);
+});
+
+test('Brain auto-capture saves deduplicates gates secrets and respects toggle', async ({ page, request }) => {
+  test.setTimeout(90000);
+  const stamp = Date.now().toString();
+  await request.post('/api/brain/auto-capture/toggle', { data: { enabled: true } });
+
+  await page.goto('/');
+  await ask(page, `I prefer direct senior-engineer answers ${stamp}.`);
+  await expect(page.getByText('Memory saved').last()).toBeVisible({ timeout: 30000 });
+  let memories = await (await request.get(`/api/brain/memories?q=${stamp}&include_deleted=true`)).json();
+  expect(memories.data.filter((item: Record<string, unknown>) => String(item.summary).includes(stamp) && item.active).length).toBe(1);
+
+  await ask(page, `I prefer direct senior-engineer answers ${stamp}.`);
+  await expect(page.getByText('Already remembered').last()).toBeVisible({ timeout: 30000 });
+  memories = await (await request.get(`/api/brain/memories?q=${stamp}&include_deleted=true`)).json();
+  expect(memories.data.filter((item: Record<string, unknown>) => String(item.summary).includes(stamp) && item.active).length).toBe(1);
+
+  await ask(page, `Actually, I prefer short direct answers unless we are debugging ${stamp}.`);
+  await expect(page.getByText('Memory updated').last()).toBeVisible({ timeout: 30000 });
+
+  const sensitive = `my family history includes e2e pending ${stamp}`;
+  await ask(page, sensitive);
+  await expect(page.getByText('Memory pending approval').last()).toBeVisible({ timeout: 30000 });
+  const pending = await (await request.get(`/api/brain/memories?status_filter=pending&q=${stamp}`)).json();
+  const pendingMemory = pending.data.find((item: Record<string, unknown>) => String(item.summary).includes(sensitive));
+  expect(pendingMemory).toBeTruthy();
+  await request.post(`/api/brain/memories/${pendingMemory.id}/approve`, { data: {} });
+  const retrieved = await (await request.post('/api/brain/retrieve', { data: { query: sensitive } })).json();
+  expect(retrieved.message).toContain('family history');
+
+  await ask(page, `my GitHub token is ghp_secret_${stamp}`);
+  await expect(page.getByText('Memory blocked').last()).toBeVisible({ timeout: 30000 });
+  await expect(page.getByText(`ghp_secret_${stamp}`)).toHaveCount(0);
+
+  await request.post('/api/brain/auto-capture/toggle', { data: { enabled: false } });
+  await ask(page, `I prefer disabled auto capture ${stamp}.`);
+  const disabled = await (await request.get(`/api/brain/memories?q=disabled auto capture ${stamp}`)).json();
+  expect(disabled.data).toHaveLength(0);
+  await request.post('/api/brain/remember', { data: { content: `I prefer manual while disabled ${stamp}` } });
+  const manual = await (await request.get(`/api/brain/memories?q=manual while disabled ${stamp}`)).json();
+  expect(manual.data.length).toBeGreaterThan(0);
+  await request.post('/api/brain/auto-capture/toggle', { data: { enabled: true } });
 });

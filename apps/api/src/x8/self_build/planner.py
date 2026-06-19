@@ -6,7 +6,7 @@ class BuildTaskPlanner:
         task_type = self._task_type(task)
         targets = self._targets(task_type, task)
         tests = task.required_tests or ["architecture_guard"]
-        limitations = [] if targets else ["Task type is unknown_safe; no generic README patch was generated. Ask for a specific UI, API, test, docs, or config change."]
+        limitations = [] if targets else ["Self-build needs a bounded safe target path. Ask for a docs-only, smoke-proof, small config/comment, or test-fixture proposal inside the workspace."]
         return SelfBuildPlan(
             status="created",
             task_type=task_type,
@@ -31,6 +31,6 @@ class BuildTaskPlanner:
 
     def _targets(self, task_type: str, task: SelfBuildTask) -> list[str]:
         read_files = task.context.files_read if task.context else []
-        if task_type in {"ui_feature", "api_feature", "test_only", "docs_only", "config_change"}:
+        if task_type in {"ui_feature", "api_feature", "test_only", "docs_only", "config_change", "smoke_proof"}:
             return read_files
         return []

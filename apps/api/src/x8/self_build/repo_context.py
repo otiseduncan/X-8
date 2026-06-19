@@ -6,6 +6,7 @@ from x8.self_build.contracts import FileReadResult, RepoContextSnapshot
 
 ALLOWED_ROOTS = ("apps", "docs", "config", "docker", "e2e", "knowledge", "scripts")
 ALLOWED_FILES = {"README.md", "compose.yaml", ".env.example", ".gitignore"}
+SMOKE_PROOF_FILE = "runtime/self_build_smoke/approved_apply_proof.md"
 BLOCKED_PARTS = {"runtime", "imports", "node_modules", "dist", "build", "coverage", "playwright-report", "test-results", "__pycache__", "attachments", "logs", ".git"}
 BLOCKED_SUFFIXES = {".pyc", ".log"}
 
@@ -15,12 +16,15 @@ class RepoContextReader:
         self.root = Path(workspace_root).resolve()
 
     def allowed_paths(self) -> list[str]:
-        return [*ALLOWED_ROOTS, *sorted(ALLOWED_FILES)]
+        return [*ALLOWED_ROOTS, SMOKE_PROOF_FILE, *sorted(ALLOWED_FILES)]
 
     def blocked_paths(self) -> list[str]:
         return [*sorted(BLOCKED_PARTS), "*.pyc", "*.log", ".env", ".env.*"]
 
     def is_allowed(self, relative_path: str) -> bool:
+        relative_path = relative_path.replace("\\", "/")
+        if relative_path == SMOKE_PROOF_FILE:
+            return True
         path = Path(relative_path)
         parts = set(path.parts)
         if relative_path == ".env" or relative_path.startswith(".env."):
