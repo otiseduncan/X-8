@@ -52,6 +52,10 @@ def _kernel(request: Request) -> XV8Kernel:
         global_enabled=settings.brain_memory_global_enabled,
         project_enabled=settings.brain_memory_project_enabled,
         session_enabled=settings.brain_memory_session_enabled,
+        auto_capture_enabled=settings.memory_auto_capture_enabled,
+        auto_capture_min_confidence=settings.memory_auto_capture_min_confidence,
+        auto_capture_max_per_turn=settings.memory_auto_capture_max_per_turn,
+        auto_capture_receipts_enabled=settings.memory_auto_capture_receipts_enabled,
     )
     return XV8Kernel(context, ModelRouter(OllamaAdapter(settings.ollama_base_url), profiles), brain_manager=brain_manager)
 
@@ -127,5 +131,5 @@ def chat(payload: ChatRequest, request: Request) -> ResultEnvelope[ChatResponse]
             receipt=receipt,
             attachments=attachments,
         ),
-        receipts=[envelope_receipt],
+        receipts=[envelope_receipt, *kernel_response.extra_receipts],
     )

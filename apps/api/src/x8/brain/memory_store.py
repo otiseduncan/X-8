@@ -104,6 +104,40 @@ class BrainMemoryStore:
                 )
                 """
             )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS brain_memory_candidates (
+                    id TEXT PRIMARY KEY,
+                    source_text_redacted TEXT NOT NULL DEFAULT '',
+                    suggested_title TEXT NOT NULL DEFAULT '',
+                    suggested_content TEXT NOT NULL DEFAULT '',
+                    summary TEXT NOT NULL DEFAULT '',
+                    layer TEXT NOT NULL DEFAULT '',
+                    type TEXT NOT NULL DEFAULT '',
+                    confidence DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+                    sensitivity TEXT NOT NULL DEFAULT 'low',
+                    scope TEXT NOT NULL DEFAULT 'global',
+                    reason TEXT NOT NULL DEFAULT '',
+                    decision TEXT NOT NULL DEFAULT 'ignored',
+                    source_turn_id TEXT NOT NULL DEFAULT '',
+                    source_tool TEXT NOT NULL DEFAULT '',
+                    project_scope TEXT NOT NULL DEFAULT '',
+                    session_scope TEXT NOT NULL DEFAULT '',
+                    global_scope BOOLEAN NOT NULL DEFAULT TRUE,
+                    linked_memory_id TEXT NOT NULL DEFAULT '',
+                    created_at TIMESTAMPTZ NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS brain_runtime_settings (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL,
+                    updated_at TIMESTAMPTZ NOT NULL
+                )
+                """
+            )
             conn.execute("ALTER TABLE brain_memory_records ADD COLUMN IF NOT EXISTS session_scope TEXT NOT NULL DEFAULT ''")
             conn.execute("ALTER TABLE brain_active_focus ADD COLUMN IF NOT EXISTS summary TEXT NOT NULL DEFAULT ''")
             conn.execute("ALTER TABLE brain_active_focus ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'user_explicit'")
@@ -118,6 +152,8 @@ class BrainMemoryStore:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_brain_focus_session_scope ON brain_active_focus(session_scope)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_brain_focus_project_scope ON brain_active_focus(project_scope)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_brain_retrieval_created_at ON brain_memory_retrievals(created_at DESC)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_brain_candidate_decision ON brain_memory_candidates(decision, created_at DESC)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_brain_candidate_created_at ON brain_memory_candidates(created_at DESC)")
             conn.commit()
 
     def status(self) -> dict[str, Any]:
@@ -128,10 +164,21 @@ class BrainMemoryStore:
             focus = conn.execute("SELECT focus FROM brain_active_focus WHERE active=true ORDER BY updated_at DESC LIMIT 1").fetchone()
             last_event = conn.execute("SELECT * FROM brain_memory_events ORDER BY created_at DESC LIMIT 1").fetchone()
             retrieval = conn.execute("SELECT * FROM brain_memory_retrievals ORDER BY created_at DESC LIMIT 1").fetchone()
+            latest_auto = conn.execute("SELECT * FROM brain_memory_candidates WHERE decision IN ('auto_save','pending_approval','blocked','duplicate','correction') ORDER BY created_at DESC LIMIT 1").fetchone()
+            latest_noise = conn.execute("SELECT * FROM brain_memory_candidates WHERE decision IN ('ignored','blocked') ORDER BY created_at DESC LIMIT 1").fetchone()
         latest_retrieval = dict(retrieval) if retrieval else None
         if latest_retrieval:
             latest_retrieval["selected_ids"] = json.loads(latest_retrieval.get("selected_ids") or "[]")
-        return {"brain_ready": True, "active_memory_count": active, "pending_approval_count": pending, "active_focus": focus["focus"] if focus else "", "last_memory_event": dict(last_event) if last_event else None, "latest_retrieval": latest_retrieval}
+        return {
+            "brain_ready": True,
+            "active_memory_count": active,
+            "pending_approval_count": pending,
+            "active_focus": focus["focus"] if focus else "",
+            "last_memory_event": dict(last_event) if last_event else None,
+            "latest_retrieval": latest_retrieval,
+            "latest_auto_capture_event": dict(latest_auto) if latest_auto else None,
+            "last_ignored_or_blocked_reason": latest_noise["reason"] if latest_noise else "",
+        }
 
     def create_memory(
         self,
@@ -241,13 +288,84 @@ class BrainMemoryStore:
             items = [item for item in items if terms <= self._terms(f"{item.get('title', '')} {item.get('summary', '')} {item.get('content', '')} {' '.join(item.get('tags', []))}")]
         return items
 
-    def list_events(self, memory_id: str = "") -> list[dict[str, Any]]:
+    def list_events(self, memory_id: str = "", event_type: str = "") -> list[dict[str, Any]]:
         self.ensure()
-        where = "WHERE memory_id=%s" if memory_id else ""
-        params = (memory_id,) if memory_id else ()
+        clauses = []
+        params: list[Any] = []
+        if memory_id:
+            clauses.append("memory_id=%s")
+            params.append(memory_id)
+        if event_type:
+            clauses.append("event_type=%s")
+            params.append(event_type)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         with self.connect() as conn:
             rows = conn.execute(f"SELECT * FROM brain_memory_events {where} ORDER BY created_at DESC LIMIT 200", params).fetchall()
         return [dict(row) for row in rows]
+
+    def record_candidate(self, candidate: dict[str, Any], *, decision: str, reason: str = "", linked_memory_id: str = "") -> dict[str, Any]:
+        self.ensure()
+        now = _now()
+        candidate_id = str(candidate.get("candidate_id") or f"brain_cand_{uuid4().hex[:12]}")
+        clean_source = redact_secret(str(candidate.get("source_text_redacted") or ""))
+        clean_content = redact_secret(str(candidate.get("suggested_content") or ""))
+        clean_summary = redact_secret(str(candidate.get("summary") or clean_content))
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO brain_memory_candidates(
+                    id, source_text_redacted, suggested_title, suggested_content, summary, layer, type,
+                    confidence, sensitivity, scope, reason, decision, source_turn_id, source_tool,
+                    project_scope, session_scope, global_scope, linked_memory_id, created_at
+                )
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                """,
+                (
+                    candidate_id,
+                    clean_source,
+                    redact_secret(str(candidate.get("suggested_title") or ""))[:120],
+                    clean_content,
+                    clean_summary,
+                    str(candidate.get("layer") or ""),
+                    str(candidate.get("type") or ""),
+                    float(candidate.get("confidence") or 0.0),
+                    str(candidate.get("sensitivity") or "low"),
+                    str(candidate.get("scope") or "global"),
+                    redact_secret(reason or str(candidate.get("reason") or "")),
+                    decision,
+                    str(candidate.get("source_turn_id") or ""),
+                    str(candidate.get("source_tool") or ""),
+                    str(candidate.get("project_scope") or ""),
+                    str(candidate.get("session_scope") or ""),
+                    bool(candidate.get("global_scope", True)),
+                    linked_memory_id,
+                    now,
+                ),
+            )
+            conn.commit()
+        return self.get_candidate(candidate_id) or {}
+
+    def get_candidate(self, candidate_id: str) -> dict[str, Any] | None:
+        self.ensure()
+        with self.connect() as conn:
+            row = conn.execute("SELECT * FROM brain_memory_candidates WHERE id=%s", (candidate_id,)).fetchone()
+        return dict(row) if row else None
+
+    def list_candidates(self, decision: str = "", query: str = "", limit: int = 200) -> list[dict[str, Any]]:
+        self.ensure()
+        clauses = []
+        params: list[Any] = []
+        if decision:
+            clauses.append("decision=%s")
+            params.append(decision)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        with self.connect() as conn:
+            rows = conn.execute(f"SELECT * FROM brain_memory_candidates {where} ORDER BY created_at DESC LIMIT %s", [*params, limit]).fetchall()
+        items = [dict(row) for row in rows]
+        if query:
+            terms = self._terms(query)
+            items = [item for item in items if terms <= self._terms(f"{item.get('suggested_title', '')} {item.get('summary', '')} {item.get('source_text_redacted', '')}")]
+        return items
 
     def update_memory(self, memory_id: str, patch: dict[str, Any]) -> dict[str, Any] | None:
         self.ensure()
@@ -269,6 +387,60 @@ class BrainMemoryStore:
         if memory:
             self.record_event(memory_id, "soft_deleted", f"Memory forgotten: {memory.get('summary') or memory.get('content')}", source)
         return memory
+
+    def find_duplicate_memory(self, summary: str, layer: str = "", memory_type: str = "", project_scope: str = "", session_scope: str = "") -> dict[str, Any] | None:
+        terms = self._terms(summary)
+        if not terms:
+            return None
+        for item in self.list_memories(include_deleted=False, layer=layer if layer != "active_work" else "", memory_type="" if memory_type in {"correction", "active_work_context"} else memory_type, project_scope=project_scope, session_scope=session_scope):
+            item_terms = self._terms(f"{item.get('title', '')} {item.get('summary', '')} {item.get('content', '')}")
+            if terms == item_terms or terms <= item_terms or item_terms <= terms:
+                return item
+        return None
+
+    def find_correction_target(self, summary: str, project_scope: str = "", session_scope: str = "") -> dict[str, Any] | None:
+        terms = self._terms(summary)
+        marker_terms = {term for term in terms if any(char.isdigit() for char in term)}
+        candidates = self.list_memories(include_deleted=False, layer="preferences", project_scope=project_scope, session_scope=session_scope)
+        for item in candidates:
+            item_terms = self._terms(f"{item.get('title', '')} {item.get('summary', '')} {item.get('content', '')}")
+            if marker_terms and marker_terms & item_terms:
+                return item
+        if "answer" in terms or "direct" in terms or "short" in terms:
+            for item in candidates:
+                haystack = f"{item.get('title', '')} {item.get('summary', '')} {item.get('content', '')}".lower()
+                if "answer" in haystack or "direct" in haystack or "senior-engineer" in haystack:
+                    return item
+        return None
+
+    def touch_memory(self, memory_id: str, event_type: str, summary: str) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            conn.execute("UPDATE brain_memory_records SET last_used_at=%s, updated_at=%s WHERE id=%s", (_now(), _now(), memory_id))
+            conn.commit()
+        memory = self.get_memory(memory_id)
+        if memory:
+            self.record_event(memory_id, event_type, summary, "brain")
+        return memory
+
+    def runtime_setting(self, key: str, default: str = "") -> str:
+        self.ensure()
+        with self.connect() as conn:
+            row = conn.execute("SELECT value FROM brain_runtime_settings WHERE key=%s", (key,)).fetchone()
+        return row["value"] if row else default
+
+    def set_runtime_setting(self, key: str, value: str) -> dict[str, Any]:
+        self.ensure()
+        now = _now()
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO brain_runtime_settings(key, value, updated_at) VALUES (%s,%s,%s)
+                ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value, updated_at=EXCLUDED.updated_at
+                """,
+                (key, value, now),
+            )
+            conn.commit()
+        return {"key": key, "value": value, "updated_at": now}
 
     def find_forget_target(self, query: str) -> dict[str, Any] | None:
         matches = self.search(query, limit=1)

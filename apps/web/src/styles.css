@@ -19,11 +19,9 @@
   background: var(--color-bg);
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
-
 * {
   box-sizing: border-box;
 }
-
 .srOnly {
   position: absolute;
   width: 1px;
@@ -35,7 +33,6 @@
   white-space: nowrap;
   border: 0;
 }
-
 body {
   margin: 0;
   min-width: 320px;
@@ -44,33 +41,28 @@ body {
     radial-gradient(circle at 82% 4%, rgba(56, 189, 248, 0.12), transparent 34%),
     var(--color-bg);
 }
-
 button,
 input,
 select,
 textarea {
   font: inherit;
 }
-
 button:disabled {
   cursor: not-allowed;
   opacity: 0.52;
 }
-
 .shell {
   width: min(1220px, calc(100% - 32px));
   min-height: 100vh;
   margin: 0 auto;
   padding: 22px 0 34px;
 }
-
 .assistantFrame {
   display: grid;
   grid-template-columns: minmax(320px, 360px) minmax(0, 1fr);
   gap: 28px;
   min-height: calc(100vh - 56px);
 }
-
 .avatarPresence {
   position: sticky;
   top: 22px;
@@ -85,7 +77,6 @@ button:disabled {
   padding: 20px;
   overflow: hidden;
 }
-
 .avatarStage {
   position: relative;
   display: grid;
@@ -96,7 +87,6 @@ button:disabled {
   background: radial-gradient(circle, rgba(0, 212, 255, 0.12), rgba(17, 24, 39, 0.76));
   box-shadow: inset 0 0 30px rgba(0, 212, 255, 0.1);
 }
-
 .avatar {
   width: 300px;
   height: 300px;
@@ -106,15 +96,12 @@ button:disabled {
   object-fit: contain;
   box-shadow: 0 0 24px var(--color-primary-glow);
 }
-
 .avatarVideo {
   display: block;
 }
-
 .avatar.fallback {
   padding: 10px;
 }
-
 .avatarStatusBadge {
   position: absolute;
   right: 10px;
@@ -129,18 +116,15 @@ button:disabled {
   padding: 4px 8px;
   text-transform: uppercase;
 }
-
 .avatarStatusBadge.error,
 .avatarStatusBadge.fallback {
   border-color: var(--color-danger);
   color: #ffd6df;
 }
-
 .avatarStatusBadge.speaking {
   border-color: var(--color-success);
   color: var(--color-success);
 }
-
 .audioControls {
   width: 100%;
   border: 1px solid var(--color-border);
@@ -148,13 +132,11 @@ button:disabled {
   background: rgba(5, 7, 13, 0.62);
   color: var(--color-muted);
 }
-
 .audioControls summary {
   cursor: pointer;
   color: var(--color-text);
   padding: 10px 12px;
 }
-
 .audioControlGrid {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -162,34 +144,28 @@ button:disabled {
   gap: 8px;
   padding: 0 12px 12px;
 }
-
 .speakerButton {
   border-color: var(--color-primary);
   color: var(--color-primary);
 }
-
 .volumeControl {
   display: grid;
   gap: 2px;
   min-width: 0;
 }
-
 .volumeControl span,
 .voiceMiniStatus {
   color: var(--color-primary);
   font-size: 0.72rem;
 }
-
 .volumeControl input,
 .row input[type="range"] {
   accent-color: var(--color-primary);
   width: 100%;
 }
-
 .voiceMiniStatus {
   grid-column: 1 / -1;
 }
-
 .voiceSelector,
 .voiceFallback {
   display: grid;
@@ -198,11 +174,9 @@ button:disabled {
   color: var(--color-muted);
   font-size: 0.82rem;
 }
-
 .voiceSelector {
   grid-column: 1 / -1;
 }
-
 .voiceSelector select {
   min-width: 0;
   width: 100%;
@@ -212,44 +186,36 @@ button:disabled {
   color: var(--color-text);
   padding: 8px 10px;
 }
-
 .assistantIdentityCard {
   display: grid;
   gap: 8px;
 }
-
 .assistantIdentityCard .eyebrow,
 .assistantIdentityCard h1 {
   color: var(--color-xv-accent);
 }
-
 .avatar.speaking,
 .avatarStage.speaking {
   border-color: var(--color-success);
   box-shadow: 0 0 28px rgba(0, 255, 178, 0.32);
 }
-
 .avatar.listening,
 .avatarStage.listening {
   border-color: var(--color-primary);
   box-shadow: 0 0 32px var(--color-primary-glow);
 }
-
 .avatar.thinking,
 .avatarStage.thinking {
   border-color: var(--color-warning);
 }
-
 .avatar.muted {
   filter: grayscale(1);
   opacity: 0.7;
 }
-
 .avatar.error,
 .avatarStage.error {
   border-color: var(--color-danger);
 }
-
 .eyebrow,
 .cardMeta,
 .messageRole,
@@ -260,52 +226,43 @@ button:disabled {
   font-weight: 700;
   text-transform: uppercase;
 }
-
 h1,
 h2,
 p {
   margin: 0;
 }
-
 h1 {
   font-size: clamp(1.55rem, 2.5vw, 2.5rem);
   line-height: 1.05;
 }
-
 h2 {
   font-size: 1rem;
 }
-
 .avatarState,
 .compactStatus,
 .statusText {
   color: var(--color-muted);
   font-size: 0.9rem;
 }
-
 .compactStatus {
   display: grid;
   gap: 8px;
 }
-
 .audioDiagnostics {
   width: 100%;
   color: var(--color-muted);
   font-size: 0.76rem;
 }
-
 .audioDiagnostics summary {
   cursor: pointer;
   color: var(--color-text);
   margin-bottom: 6px;
 }
-
 .diagnosticGrid,
 .diagnosticGrid section {
   display: grid;
   gap: 5px;
 }
-
 .conversationPane {
   display: grid;
   position: relative;
@@ -315,11 +272,9 @@ h2 {
   min-width: 0;
   overflow: hidden;
 }
-
 .conversationStatus {
   min-height: 0;
 }
-
 .conversationHeader,
 .topbarActions,
 .identity,
@@ -332,18 +287,15 @@ h2 {
   align-items: center;
   gap: 10px;
 }
-
 .conversationHeader {
   justify-content: space-between;
   min-height: 48px;
   margin-bottom: 8px;
 }
-
 .topbarActions {
   flex-wrap: wrap;
   justify-content: flex-end;
 }
-
 .primary,
 .ghost,
 .chipButton,
@@ -357,7 +309,6 @@ h2 {
   cursor: pointer;
   white-space: nowrap;
 }
-
 .primary {
   border: 1px solid var(--color-primary);
   background: linear-gradient(180deg, var(--color-primary), #009bc2);
@@ -366,7 +317,6 @@ h2 {
   padding: 0 14px;
   box-shadow: 0 0 18px rgba(0, 212, 255, 0.25);
 }
-
 .ghost,
 .chipButton,
 .tab {
@@ -375,27 +325,22 @@ h2 {
   color: var(--color-text);
   padding: 0 11px;
 }
-
 .ghost:hover,
 .chipButton:hover,
 .tab.active {
   border-color: var(--color-primary);
   box-shadow: 0 0 14px rgba(0, 212, 255, 0.18);
 }
-
 .iconButton {
   width: 38px;
   padding: 0;
 }
-
 .infoDropdown {
   position: relative;
 }
-
 .infoButton {
   min-width: 82px;
 }
-
 .infoMenu {
   position: absolute;
   right: 0;
@@ -410,7 +355,6 @@ h2 {
   box-shadow: 0 18px 44px rgba(0, 0, 0, 0.38), 0 0 24px rgba(0, 212, 255, 0.16);
   padding: 14px;
 }
-
 .messageScrollArea {
   min-height: 0;
   overflow-y: auto;
@@ -418,23 +362,18 @@ h2 {
   padding: 2px 4px 10px 0;
   scroll-behavior: auto;
 }
-
 .chatTimeline {
   align-content: end;
   display: grid;
   gap: 12px;
   padding: 10px 2px 14px;
 }
-
-
 .message {
   display: flex;
 }
-
 .message.user {
   justify-content: flex-end;
 }
-
 .messageBubble {
   position: relative;
   width: min(760px, 100%);
@@ -445,26 +384,21 @@ h2 {
   color: #dce7f5;
   line-height: 1.5;
 }
-
 .message.assistant .messageBubble {
   border-color: var(--color-xv-accent-border);
   background: linear-gradient(180deg, rgba(0, 212, 255, 0.1), rgba(11, 15, 26, 0.82));
 }
-
 .message.assistant .messageRole {
   color: var(--color-xv-accent);
 }
-
 .message.user .messageBubble {
   width: min(620px, 100%);
   border-color: rgba(0, 212, 255, 0.24);
   background: rgba(17, 24, 39, 0.9);
 }
-
 .message.user .messageRole {
   color: var(--color-primary);
 }
-
 .messageCopyButton {
   position: absolute;
   right: 10px;
@@ -481,12 +415,10 @@ h2 {
   font-size: 0.74rem;
   padding: 2px 8px;
 }
-
 .messageCopyButton:hover {
   border-color: var(--color-xv-accent-border);
   color: var(--color-text);
 }
-
 .messageAttachments,
 .attachmentTray {
   display: flex;
@@ -494,11 +426,9 @@ h2 {
   gap: 8px;
   margin-top: 10px;
 }
-
 .attachmentTray {
   margin: 0 0 8px;
 }
-
 .attachmentChip {
   display: inline-flex;
   align-items: center;
@@ -511,11 +441,9 @@ h2 {
   padding: 5px 8px;
   font-size: 0.82rem;
 }
-
 .attachmentChip small {
   color: var(--color-muted);
 }
-
 .attachmentChip button {
   display: inline-grid;
   width: 20px;
@@ -528,7 +456,6 @@ h2 {
   cursor: pointer;
   padding: 0;
 }
-
 .messageEntry {
   position: relative;
   z-index: 2;
@@ -538,7 +465,6 @@ h2 {
   box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.22), 0 0 22px rgba(0, 212, 255, 0.08);
   padding: 10px;
 }
-
 .jumpLatest {
   position: absolute;
   right: 14px;
@@ -553,11 +479,9 @@ h2 {
   padding: 0 12px;
   box-shadow: 0 0 18px rgba(0, 212, 255, 0.16);
 }
-
 .inputDock {
   align-items: stretch;
 }
-
 .inputDock textarea {
   flex: 1;
   min-height: 44px;
@@ -569,40 +493,34 @@ h2 {
   color: var(--color-text);
   padding: 11px 12px;
 }
-
 .inputDock textarea:focus,
 select:focus,
 input:focus {
   outline: 1px solid var(--color-primary);
   box-shadow: 0 0 0 3px rgba(0, 212, 255, 0.12);
 }
-
 .attachButton {
   position: relative;
   flex: 0 0 auto;
 }
-
 .attachButton input {
   position: absolute;
   inset: 0;
   opacity: 0;
   cursor: pointer;
 }
-
 .speechInputSlot {
   display: flex;
   flex: 0 0 auto;
   align-items: center;
   gap: 8px;
 }
-
 .compactSttError {
   max-width: 180px;
   color: var(--color-danger);
   font-size: 0.75rem;
   line-height: 1.2;
 }
-
 .inlineCard {
   margin-top: 12px;
   border: 1px solid var(--color-xv-accent-border);
@@ -610,26 +528,21 @@ input:focus {
   background: rgba(5, 7, 13, 0.74);
   padding: 12px;
 }
-
 .inlineCard.error {
   border-color: var(--color-danger);
 }
-
 .inlineCard.image {
   border-color: rgba(0, 212, 255, 0.42);
 }
-
 .inlineCard.research {
   border-color: rgba(0, 255, 178, 0.38);
 }
-
 .inlineCardHeader {
   display: grid;
   grid-template-columns: auto 1fr auto;
   align-items: center;
   gap: 10px;
 }
-
 .icon {
   display: grid;
   width: 34px;
@@ -639,33 +552,27 @@ input:focus {
   background: rgba(0, 212, 255, 0.1);
   color: var(--color-primary);
 }
-
 .icon.small {
   width: 30px;
   height: 30px;
 }
-
 .cardSummary {
   margin-top: 10px;
   color: #cbd5e1;
   line-height: 1.48;
 }
-
 .cardBody {
   margin-top: 12px;
 }
-
 .tabs,
 .chips {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
 }
-
 .tabs {
   margin-bottom: 10px;
 }
-
 .developerCockpit {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -674,7 +581,6 @@ input:focus {
   border-top: 1px solid var(--color-border);
   padding-top: 18px;
 }
-
 .panel {
   min-height: 220px;
   border: 1px solid var(--color-border);
@@ -683,30 +589,25 @@ input:focus {
   padding: 16px;
   overflow: hidden;
 }
-
 .panel header,
 .list,
 .stack {
   display: grid;
   gap: 10px;
 }
-
 .panel header {
   display: flex;
   align-items: center;
   margin-bottom: 16px;
 }
-
 .dense {
   gap: 8px;
 }
-
 .fileList {
   display: grid;
   max-height: 360px;
   overflow: auto;
 }
-
 .file {
   width: 100%;
   border: 0;
@@ -717,12 +618,10 @@ input:focus {
   text-align: left;
   cursor: pointer;
 }
-
 .file.active {
   color: #ffffff;
   background: rgba(0, 212, 255, 0.1);
 }
-
 .editorHead {
   display: flex;
   justify-content: space-between;
@@ -730,7 +629,6 @@ input:focus {
   margin-bottom: 10px;
   color: var(--color-muted);
 }
-
 .codeMirrorShell {
   width: 100%;
   min-height: 280px;
@@ -739,11 +637,9 @@ input:focus {
   background: var(--color-bg);
   overflow: hidden;
 }
-
 .codeMirrorShell .cm-editor {
   font-size: 0.86rem;
 }
-
 .codeBlock,
 .diff {
   max-height: 360px;
@@ -755,28 +651,23 @@ input:focus {
   padding: 12px;
   white-space: pre-wrap;
 }
-
 .smallBlock {
   max-height: 180px;
 }
-
 .brainPanel {
   display: grid;
   gap: 14px;
 }
-
 .brainStatusGrid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 10px;
 }
-
 .brainToolbar {
   display: grid;
   grid-template-columns: minmax(180px, 1fr) repeat(3, minmax(130px, 0.45fr)) auto auto;
   gap: 8px;
 }
-
 .brainToolbar input,
 .brainToolbar select,
 .memoryDetail input,
@@ -788,7 +679,6 @@ input:focus {
   color: var(--color-text);
   padding: 9px 10px;
 }
-
 .memoryRecords {
   display: grid;
   max-height: 340px;
@@ -796,7 +686,6 @@ input:focus {
   border: 1px solid var(--color-border);
   border-radius: 8px;
 }
-
 .memoryRow {
   display: grid;
   gap: 4px;
@@ -808,18 +697,15 @@ input:focus {
   padding: 10px;
   text-align: left;
 }
-
 .memoryRow.active,
 .memoryRow:hover {
   background: rgba(34, 211, 238, 0.08);
 }
-
 .memoryRow span,
 .memoryRow small,
 .memoryMeta span {
   color: var(--color-muted);
 }
-
 .memoryDetail {
   display: grid;
   gap: 10px;
@@ -827,7 +713,6 @@ input:focus {
   border-radius: 8px;
   padding: 12px;
 }
-
 .memoryDetail header,
 .checkRow {
   display: flex;
@@ -835,19 +720,16 @@ input:focus {
   justify-content: space-between;
   gap: 10px;
 }
-
 .memoryDetail textarea {
   min-height: 74px;
   resize: vertical;
 }
-
 .memoryMeta {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
   gap: 6px;
   font-size: 0.82rem;
 }
-
 iframe {
   width: 100%;
   min-height: 320px;
@@ -855,7 +737,6 @@ iframe {
   border-radius: 8px;
   background: #ffffff;
 }
-
 .generatedImage {
   width: min(100%, 520px);
   max-height: 420px;
@@ -864,42 +745,35 @@ iframe {
   object-fit: contain;
   background: var(--color-bg);
 }
-
 .source {
   display: grid;
   gap: 4px;
   border-bottom: 1px solid rgba(148, 163, 184, 0.14);
   padding-bottom: 10px;
 }
-
 .source span,
 .row span {
   color: var(--color-muted);
   font-size: 0.9rem;
 }
-
 .row {
   border-bottom: 1px solid rgba(148, 163, 184, 0.14);
   padding-bottom: 10px;
 }
-
 .row strong {
   display: block;
   margin-bottom: 4px;
 }
-
 .split {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
 }
-
 .chipButton {
   min-height: 30px;
   font-size: 0.82rem;
 }
-
 .pill {
   display: inline-flex;
   align-items: center;
@@ -910,20 +784,16 @@ iframe {
   color: #d5d9e2;
   font-size: 0.78rem;
 }
-
 .implemented {
   border-color: var(--color-success);
 }
-
 .disabled,
 .blocked {
   border-color: var(--color-danger);
 }
-
 .stubbed {
   border-color: var(--color-warning);
 }
-
 .error {
   margin-bottom: 12px;
   border: 1px solid var(--color-danger);
@@ -931,7 +801,6 @@ iframe {
   padding: 12px;
   color: #ffd6df;
 }
-
 .modalBackdrop {
   position: fixed;
   inset: 0;
@@ -941,7 +810,6 @@ iframe {
   background: rgb(0 0 0 / 0.72);
   padding: 20px;
 }
-
 .modal {
   width: min(520px, 100%);
   border: 1px solid var(--color-border);
@@ -949,56 +817,45 @@ iframe {
   background: var(--color-surface);
   padding: 22px;
 }
-
 .modal dl {
   display: grid;
   gap: 8px;
   margin: 18px 0;
 }
-
 .modal dt {
   color: var(--color-muted);
 }
-
 .modal dd {
   margin: 0;
 }
-
 .modalActions {
   justify-content: flex-end;
 }
-
 @media (max-width: 860px) {
   .assistantFrame {
     grid-template-columns: 1fr;
   }
-
   .avatarPresence {
     position: static;
     grid-template-columns: auto 1fr;
     min-height: 0;
   }
-
   .avatarStage {
     min-width: 300px;
     min-height: 340px;
   }
-
   .avatar {
     width: 256px;
     height: 256px;
   }
-
   .compactStatus {
     grid-column: 1 / -1;
   }
-
   .audioControls,
   .audioDiagnostics {
     grid-column: 1 / -1;
   }
 }
-
 @media (max-width: 700px) {
   .conversationHeader,
   .inputDock,
@@ -1006,28 +863,22 @@ iframe {
     align-items: stretch;
     flex-direction: column;
   }
-
   .developerCockpit {
     grid-template-columns: 1fr;
   }
-
   .brainToolbar {
     grid-template-columns: 1fr;
   }
-
   .messageEntry {
     position: relative;
   }
-
   .iconButton,
   .attachButton {
     width: 100%;
   }
-
   .avatarPresence {
     grid-template-columns: 1fr;
   }
-
   .avatarStage {
     min-width: 0;
   }

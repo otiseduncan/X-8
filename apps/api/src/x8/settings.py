@@ -24,6 +24,10 @@ class Settings(BaseSettings):
     brain_memory_session_enabled: bool = True
     brain_memory_auto_capture_enabled: bool = False
     brain_memory_sensitive_approval_required: bool = True
+    memory_auto_capture_enabled: bool = True
+    memory_auto_capture_min_confidence: float = 0.70
+    memory_auto_capture_max_per_turn: int = 3
+    memory_auto_capture_receipts_enabled: bool = True
     memory_activation_mode: str = "ready_when_chat_model_and_embedding_ready"
     embedding_required_for_memory: bool = True
     embedding_required_for_basic_chat: bool = False

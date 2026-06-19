@@ -234,6 +234,22 @@ export function loadBrainMemories(params: Record<string, string> = {}) {
   return getJson<ResultEnvelope<Array<Record<string, unknown>>>>(`/api/brain/memories${query.toString() ? `?${query}` : ''}`);
 }
 
+export function loadBrainCandidates(params: Record<string, string> = {}) {
+  const query = new URLSearchParams(params);
+  return getJson<ResultEnvelope<Array<Record<string, unknown>>>>(`/api/brain/candidates${query.toString() ? `?${query}` : ''}`);
+}
+
+export function loadBrainEvents(params: Record<string, string> = {}) {
+  const query = new URLSearchParams(params);
+  return getJson<ResultEnvelope<Array<Record<string, unknown>>>>(`/api/brain/events${query.toString() ? `?${query}` : ''}`);
+}
+
+export async function toggleBrainAutoCapture(enabled: boolean) {
+  const response = await fetch('/api/brain/auto-capture/toggle', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled }) });
+  if (!response.ok) throw new Error('Brain auto-capture toggle failed');
+  return response.json() as Promise<ResultEnvelope<Record<string, unknown>>>;
+}
+
 export async function updateBrainMemory(id: string, patch: Record<string, unknown>) {
   const response = await fetch(`/api/brain/memories/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch) });
   if (!response.ok) throw new Error('Brain memory update failed');

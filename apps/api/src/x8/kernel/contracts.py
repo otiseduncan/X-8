@@ -3,6 +3,7 @@ from typing import Any
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
+from x8.contracts.receipts import Receipt
 
 KERNEL_CONTRACT_VERSION = "kernel.v1"
 CARD_CONTRACT_VERSION = "card.v1"
@@ -123,6 +124,7 @@ class KernelResponse(BaseModel):
     model_used: str = ""
     decision: KernelDecision
     receipt: KernelReceipt
+    extra_receipts: list[Receipt] = Field(default_factory=list)
     trace_summary: KernelTrace
     limitations: list[str] = Field(default_factory=list)
 

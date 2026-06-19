@@ -4,11 +4,9 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { App } from '../app/App';
 import { AvatarStage, selectAvatarAsset } from '../app/AssistantComponents';
-
 vi.mock('../components/cockpit/CodeEditor', () => ({
   CodeEditor: ({ value }: { value: string }) => <pre aria-label="Code editor">{value}</pre>
 }));
-
 let recognitionInstance: {
   onstart: (() => void) | null;
   onresult: ((event: { results: Array<Array<{ transcript: string }>> }) => void) | null;
@@ -16,10 +14,8 @@ let recognitionInstance: {
   onend: (() => void) | null;
 };
 let spokenUtterance: Record<string, unknown> | null = null;
-
 const femaleVoice = { name: 'Microsoft Zira Desktop', voiceURI: 'zira-uri', lang: 'en-US' };
 const maleVoice = { name: 'Google US English Male', voiceURI: 'male-uri', lang: 'en-US' };
-
 function mockRuntime() {
   vi.stubGlobal('fetch', vi.fn((path: string, options?: { body?: BodyInit }) => {
     const text = typeof options?.body === 'string' ? JSON.parse(options.body) : {};
@@ -126,7 +122,20 @@ function mockRuntime() {
                                           : String(path).includes('models/status')
                                             ? { model_ready: false, selected_model: '', ollama_reachable: false }
                                             : String(path).includes('brain/status')
-                                              ? { brain_ready: true, storage_backend: 'postgres', active_memory_count: 2, pending_approval_count: 0, active_focus: 'Brain V1 Batch 1', last_memory_event: { event_type: 'created' }, auto_capture_enabled: false }
+                                              ? { brain_ready: true, storage_backend: 'postgres', active_memory_count: 2, pending_approval_count: 1, active_focus: 'Brain V1 Batch 1', last_memory_event: { event_type: 'auto_saved' }, latest_auto_capture_event: { decision: 'auto_save', reason: 'Clear low-risk preference.' }, last_ignored_or_blocked_reason: 'Low-value chatter.', auto_capture_enabled: true, auto_capture_min_confidence: 0.7, auto_capture_max_per_turn: 3 }
+                                              : String(path).includes('brain/auto-capture/toggle')
+                                                ? { brain_ready: true, storage_backend: 'postgres', auto_capture_enabled: text.enabled, auto_capture_min_confidence: 0.7, auto_capture_max_per_turn: 3 }
+                                              : String(path).includes('brain/candidates')
+                                                ? [
+                                                    { id: 'brain_cand_auto', suggested_title: 'Answer preference', summary: 'you prefer direct senior-engineer answers', source_text_redacted: 'I prefer direct senior-engineer answers.', decision: 'auto_save', reason: 'Clear low-risk preference.', confidence: 0.88, linked_memory_id: 'brain_mem_active', created_at: new Date().toISOString() },
+                                                    { id: 'brain_cand_pending', suggested_title: 'Sensitive candidate', summary: 'family history note', source_text_redacted: 'family history note', decision: 'pending_approval', reason: 'Sensitive or private memory requires approval.', confidence: 0.78, linked_memory_id: 'brain_mem_pending', created_at: new Date().toISOString() },
+                                                    { id: 'brain_cand_blocked', suggested_title: 'Blocked candidate', summary: 'token [redacted]', source_text_redacted: 'token [redacted]', decision: 'blocked', reason: 'Secret-like content is blocked from Brain memory.', confidence: 0.99, linked_memory_id: '', created_at: new Date().toISOString() }
+                                                  ].filter((candidate) => !String(path).includes('decision=') || String(path).includes(`decision=${candidate.decision}`))
+                                              : String(path).includes('brain/events')
+                                                ? [
+                                                    { id: 'brain_evt_auto', memory_id: 'brain_mem_active', event_type: 'auto_saved', event_summary: 'Auto-saved memory: you prefer direct senior-engineer answers', source: 'brain', created_at: new Date().toISOString() },
+                                                    { id: 'brain_evt_dup', memory_id: 'brain_mem_active', event_type: 'duplicate_detected', event_summary: 'Already remembered: you prefer direct senior-engineer answers', source: 'brain', created_at: new Date().toISOString() }
+                                                  ]
                                               : String(path).includes('brain/memories') && String(path).includes('/approve')
                                                 ? { id: 'brain_mem_pending', title: 'Pending memory', summary: 'approved sensitive memory', content: 'approved sensitive memory', layer: 'pending', type: 'approval_required', sensitivity: 'personal_sensitive', active: true, soft_deleted: false, requires_approval: false, approved_by_user: true, global_scope: true, tags: ['pending'], updated_at: new Date().toISOString() }
                                               : String(path).includes('brain/memories') && String(path).includes('/reject')
@@ -152,11 +161,17 @@ function mockRuntime() {
                                       : String(path).includes('chat')
                                         ? {
                                             session_id: 'sess_test',
-                                            message_id: 'msg_reply',
+                                            message_id: `msg_reply_${Math.random().toString(16).slice(2)}`,
                                             assistant_message: {
                                               role: 'assistant',
-                                              content: `Echo: ${text.message}`,
-                                              cards: [{ type: 'info', title: 'Kernel limitations', status: 'unavailable', summary: 'Kernel fallback was used.', payload: {} }]
+                                              content: text.message?.includes('blocked token') ? 'Memory blocked: secret-like content was not saved.' : `Echo: ${text.message}`,
+                                              cards: text.message?.includes('blocked token')
+                                                ? [{ type: 'receipt', title: 'Memory blocked', status: 'blocked', summary: 'Memory blocked: secret-like content was not saved.', payload: {} }]
+                                                : text.message?.includes('duplicate preference')
+                                                  ? [{ type: 'receipt', title: 'Already remembered', status: 'duplicate', summary: 'Already remembered: you prefer duplicate preference.', payload: {} }]
+                                                  : text.message?.includes('I prefer')
+                                                    ? [{ type: 'receipt', title: 'Memory saved', status: 'auto_saved', summary: 'Remembered: you prefer direct senior-engineer answers.', payload: {} }]
+                                                    : [{ type: 'info', title: 'Kernel limitations', status: 'unavailable', summary: 'Kernel fallback was used.', payload: {} }]
                                             },
                                             receipt: { receipt_id: 'rcpt_chat', action_type: 'prompt_round_trip', status: 'unavailable', model: '', limitations: [] },
                                             attachments: text.attachments?.map((attachment: Record<string, unknown>) => ({ ...attachment, status: 'uploaded' })) || []
@@ -165,7 +180,6 @@ function mockRuntime() {
     return Promise.resolve({ ok: true, json: () => Promise.resolve({ status: 'ok', message: 'ok', receipts: [], data }) });
   }));
 }
-
 beforeEach(() => {
   window.localStorage.clear();
   spokenUtterance = null;
@@ -207,30 +221,25 @@ beforeEach(() => {
     cancel: vi.fn()
   });
 });
-
 afterEach(() => {
   cleanup();
   vi.useRealTimers();
   vi.unstubAllGlobals();
 });
-
 async function send(text: string) {
   fireEvent.change(screen.getByLabelText('Message XV8'), { target: { value: text } });
   fireEvent.click(screen.getByRole('button', { name: /send/i }));
 }
-
 function openAudioControls() {
   const section = screen.getByLabelText('Audio controls') as HTMLDetailsElement;
   if (!section.open) fireEvent.click(within(section).getByText('Audio controls'));
   return screen.getByLabelText('Avatar audio controls');
 }
-
 function setScrollMetrics(element: HTMLElement, metrics: { scrollHeight: number; clientHeight: number; scrollTop: number }) {
   Object.defineProperty(element, 'scrollHeight', { configurable: true, value: metrics.scrollHeight });
   Object.defineProperty(element, 'clientHeight', { configurable: true, value: metrics.clientHeight });
   Object.defineProperty(element, 'scrollTop', { configurable: true, writable: true, value: metrics.scrollTop });
 }
-
 test('renders assistant mode without permanent dashboard panels', async () => {
   render(<App />);
   expect(document.querySelector('[data-theme="neon-blue"]')).toBeInTheDocument();
@@ -277,16 +286,19 @@ test('renders assistant mode without permanent dashboard panels', async () => {
   expect(screen.getByText('Backend')).toBeInTheDocument();
   expect(screen.getByText('postgres')).toBeInTheDocument();
   expect(screen.getByText('Brain V1 Batch 1')).toBeInTheDocument();
-  expect(screen.getByText('created')).toBeInTheDocument();
+  expect(screen.getAllByText('auto_saved').length).toBeGreaterThan(0);
 });
-
 test('Brain memory panel searches filters opens detail and runs actions', async () => {
   render(<App />);
   fireEvent.click(screen.getByRole('button', { name: /settings/i }));
   expect(await screen.findByText('Brain / Memory')).toBeInTheDocument();
   expect(screen.getByText('postgres')).toBeInTheDocument();
   expect(screen.getByText('Brain V1 Batch 1')).toBeInTheDocument();
-  expect(await screen.findByText('Answer preference')).toBeInTheDocument();
+  expect(screen.getByText('Latest auto-capture event')).toBeInTheDocument();
+  expect(screen.getByText('auto_save')).toBeInTheDocument();
+  expect(screen.getByText('Candidate history')).toBeInTheDocument();
+  expect(screen.getByText('Latest events')).toBeInTheDocument();
+  expect((await screen.findAllByText('Answer preference')).length).toBeGreaterThan(0);
   fireEvent.change(screen.getByLabelText('Search memory records'), { target: { value: 'senior-engineer' } });
   expect(screen.getAllByText('you prefer direct senior-engineer answers').length).toBeGreaterThan(0);
   fireEvent.change(screen.getByLabelText('Search memory records'), { target: { value: '' } });
@@ -303,10 +315,27 @@ test('Brain memory panel searches filters opens detail and runs actions', async 
   await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/brain/memories/brain_mem_pending/reject', expect.objectContaining({ method: 'POST' })));
   fireEvent.click(screen.getByRole('button', { name: /^Delete$/ }));
   await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/brain/memories/brain_mem_pending', expect.objectContaining({ method: 'DELETE' })));
+  fireEvent.change(screen.getByLabelText('Filter memory candidates'), { target: { value: 'blocked' } });
+  await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/brain/candidates?decision=blocked'));
+  expect(screen.getByText('Blocked candidate')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: /disable auto-capture/i }));
+  await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/brain/auto-capture/toggle', expect.objectContaining({ method: 'POST' })));
+  fireEvent.click(screen.getByRole('button', { name: /enable auto-capture/i }));
+  await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/brain/auto-capture/toggle', expect.objectContaining({ method: 'POST' })));
   expect(screen.getByRole('button', { name: /supersede unavailable/i })).toBeDisabled();
   expect(document.body).not.toHaveTextContent(/ghp_/i);
 });
-
+test('Brain auto-capture receipts render compactly and redact blocked secrets', async () => {
+  render(<App />);
+  await send('I prefer direct senior-engineer answers.');
+  expect(await screen.findByText('Memory saved')).toBeInTheDocument();
+  expect(screen.getByText('Remembered: you prefer direct senior-engineer answers.')).toBeInTheDocument();
+  await send('duplicate preference');
+  expect(await screen.findByText('Already remembered')).toBeInTheDocument();
+  await send('blocked token ghp_secret_should_not_render');
+  expect(await screen.findByText('Memory blocked')).toBeInTheDocument();
+  expect(document.body).not.toHaveTextContent(/ghp_secret_should_not_render/i);
+});
 test('conversation composer stays in the fixed bottom dock after messages and cards update', async () => {
   render(<App />);
   const composer = screen.getByLabelText('Message XV8').closest('form');
@@ -317,14 +346,13 @@ test('conversation composer stays in the fixed bottom dock after messages and ca
   expect(screen.getByLabelText('Message XV8').closest('form')).toBe(composer);
   expect(screen.getByRole('button', { name: /send/i })).toBeInTheDocument();
 });
-
 test('message list auto-scrolls and offers jump-to-latest when user scrolls away', async () => {
   render(<App />);
   await screen.findByTestId('avatar-video');
   const scrollCallsBefore = vi.mocked(Element.prototype.scrollIntoView).mock.calls.length;
   await send('hello scroll');
   await screen.findByText(/Echo: hello scroll/i);
-  expect(vi.mocked(Element.prototype.scrollIntoView).mock.calls.length).toBeGreaterThan(scrollCallsBefore);
+  await waitFor(() => expect(vi.mocked(Element.prototype.scrollIntoView).mock.calls.length).toBeGreaterThan(scrollCallsBefore));
   const list = screen.getByLabelText('Message list');
   setScrollMetrics(list, { scrollHeight: 500, clientHeight: 200, scrollTop: 0 });
   fireEvent.scroll(list);
@@ -332,7 +360,6 @@ test('message list auto-scrolls and offers jump-to-latest when user scrolls away
   fireEvent.click(screen.getByRole('button', { name: /jump to latest/i }));
   expect(screen.queryByRole('button', { name: /jump to latest/i })).not.toBeInTheDocument();
 });
-
 test('thinking indicator appears while a request is pending and resolves after success', async () => {
   let resolveChat: ((value: Response) => void) | undefined;
   const original = vi.mocked(fetch).getMockImplementation();
@@ -347,7 +374,6 @@ test('thinking indicator appears while a request is pending and resolves after s
   expect(await screen.findByText('Done slowly.')).toBeInTheDocument();
   await waitFor(() => expect(screen.queryByLabelText('XV8 thinking')).not.toBeInTheDocument(), { timeout: 2200 });
 });
-
 test('hello text-only response keeps thinking visible and routes through speech lifecycle', async () => {
   const original = vi.mocked(fetch).getMockImplementation();
   vi.mocked(fetch).mockImplementation((path: string, options?: { body?: BodyInit }) => {
@@ -370,7 +396,6 @@ test('hello text-only response keeps thinking visible and routes through speech 
   expect(screen.getByTestId('avatar-stage')).toHaveAttribute('data-avatar-state', 'speaking');
   await waitFor(() => expect(screen.getByTestId('avatar-stage')).toHaveAttribute('data-avatar-state', 'idle'), { timeout: 1400 });
 });
-
 test('muted text-only response shows responded stage and speech skip reason', async () => {
   const original = vi.mocked(fetch).getMockImplementation();
   vi.mocked(fetch).mockImplementation((path: string, options?: { body?: BodyInit }) => {
@@ -386,7 +411,6 @@ test('muted text-only response shows responded stage and speech skip reason', as
   expect(within(screen.getByLabelText('Audio diagnostics')).getAllByText('Muted state prevented speech playback.').length).toBeGreaterThan(0);
   await waitFor(() => expect(screen.getByTestId('avatar-stage')).toHaveAttribute('data-avatar-state', 'idle'), { timeout: 1200 });
 });
-
 test('raw Web Audio test updates audible proof diagnostics', async () => {
   class MockAudioContext {
     state = 'running';
@@ -417,7 +441,6 @@ test('raw Web Audio test updates audible proof diagnostics', async () => {
   expect(await within(diagnostics).findByText('web-audio')).toBeInTheDocument();
   expect(within(diagnostics).getAllByText('true').length).toBeGreaterThanOrEqual(3);
 });
-
 test('thinking indicator resolves after chat error', async () => {
   const original = vi.mocked(fetch).getMockImplementation();
   vi.mocked(fetch).mockImplementation((path: string, options?: { body?: BodyInit }) => String(path).includes('/api/chat') ? Promise.resolve({ ok: false, json: () => Promise.resolve({}) } as Response) : original?.(path, options) as ReturnType<typeof fetch>);
@@ -426,7 +449,6 @@ test('thinking indicator resolves after chat error', async () => {
   expect(await screen.findByText('The chat request could not complete.')).toBeInTheDocument();
   await waitFor(() => expect(screen.queryByLabelText('XV8 thinking')).not.toBeInTheDocument(), { timeout: 2200 });
 });
-
 test('copy transcript copies readable conversation markdown', async () => {
   render(<App />);
   await send('hello transcript');
@@ -439,7 +461,6 @@ test('copy transcript copies readable conversation markdown', async () => {
   expect(copied).toContain('Echo: hello transcript');
   expect(copied).toContain('Kernel limitations');
 });
-
 test('clear chat confirms and resets visible conversation', async () => {
   render(<App />);
   await send('clear me');
@@ -449,7 +470,6 @@ test('clear chat confirms and resets visible conversation', async () => {
   expect(screen.queryByText(/Echo: clear me/i)).not.toBeInTheDocument();
   expect(screen.getByText('New chat is ready.')).toBeInTheDocument();
 });
-
 test('local history opens, starts new chats, restores previous sessions, and deletes sessions', async () => {
   render(<App />);
   await send('first history chat');
@@ -466,7 +486,6 @@ test('local history opens, starts new chats, restores previous sessions, and del
   fireEvent.click(screen.getByRole('button', { name: /delete first history chat/i }));
   expect(within(screen.getByLabelText('Chat history')).queryByText('first history chat')).not.toBeInTheDocument();
 });
-
 test('renders GitHub Ops panel without exposing token values', async () => {
   render(<App />);
   fireEvent.click(screen.getByRole('button', { name: /settings/i }));
@@ -479,7 +498,6 @@ test('renders GitHub Ops panel without exposing token values', async () => {
   fireEvent.click(screen.getByRole('button', { name: /push preview/i }));
   await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/github/ops/push-preview', expect.objectContaining({ method: 'POST' })));
 });
-
 test('audio controls stay outside the avatar media frame and collapse', async () => {
   render(<App />);
   const stage = await screen.findByTestId('avatar-stage');
@@ -491,7 +509,6 @@ test('audio controls stay outside the avatar media frame and collapse', async ()
   expect(controlsSection.open).toBe(true);
   expect(within(screen.getByLabelText('Avatar audio controls')).getByRole('button', { name: /reset stage/i })).toBeInTheDocument();
 });
-
 test('voice dropdown uses real voices, persists voiceURI, and assigns the selected voice object', async () => {
   render(<App />);
   const controls = openAudioControls();
@@ -508,13 +525,11 @@ test('voice dropdown uses real voices, persists voiceURI, and assigns the select
   expect(await within(diagnostics).findByText('Microsoft Zira Desktop')).toBeInTheDocument();
   expect(within(diagnostics).getByText('zira-uri')).toBeInTheDocument();
 });
-
 test('persisted voiceURI restores and unavailable persisted URI reports fallback', async () => {
   window.localStorage.setItem('x8.voiceURI', 'zira-uri');
   render(<App />);
   let selector = within(openAudioControls()).getByLabelText('Voice selector') as HTMLSelectElement;
   await waitFor(() => expect(selector.value).toBe('zira-uri'));
-
   cleanup();
   mockRuntime();
   window.localStorage.setItem('x8.voiceURI', 'missing-uri');
@@ -523,14 +538,12 @@ test('persisted voiceURI restores and unavailable persisted URI reports fallback
   expect(selector.value).toBe('male-uri');
   expect(await within(screen.getByLabelText('Audio diagnostics')).findByText(/Persisted voice unavailable/i)).toBeInTheDocument();
 });
-
 test('known male voice is not selected while a known female voice is available', async () => {
   render(<App />);
   await waitFor(() => expect(within(screen.getByLabelText('Audio diagnostics')).getByText('Microsoft Zira Desktop')).toBeInTheDocument());
   expect(within(screen.getByLabelText('Audio diagnostics')).queryByText('Google US English Male')).not.toBeInTheDocument();
   expect(within(screen.getByLabelText('Audio diagnostics')).getAllByText('true').length).toBeGreaterThan(0);
 });
-
 test('diagnostics report fallback honestly when only a male voice is available', async () => {
   vi.stubGlobal('speechSynthesis', {
     getVoices: () => [maleVoice],
@@ -547,7 +560,6 @@ test('diagnostics report fallback honestly when only a male voice is available',
   expect(within(diagnostics).queryByText('US Google female', { selector: 'span' })).toBeInTheDocument();
   expect(within(diagnostics).getAllByText('false').length).toBeGreaterThan(0);
 });
-
 test('renders GitHub operation approval cards before writes', async () => {
   render(<App />);
   fireEvent.click(screen.getByRole('button', { name: /settings/i }));
@@ -558,30 +570,25 @@ test('renders GitHub operation approval cards before writes', async () => {
   expect(within(approvalCard).getByText('create-repo')).toBeInTheDocument();
   expect(within(approvalCard).getByRole('button', { name: /^Apply$/ })).toBeInTheDocument();
 });
-
 test('routes GitHub chat prompts to status, previews, and approval cards', async () => {
   render(<App />);
   await send('Check GitHub status');
   expect(await screen.findByText('GitHub status loaded without mutation.')).toBeInTheDocument();
   expect(screen.getByText('GitHub Ops status')).toBeInTheDocument();
-
   await send('Prepare to push this repo');
   expect(await screen.findByText('Push preview loaded. No push occurred.')).toBeInTheDocument();
   await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/github/ops/push-preview', expect.objectContaining({ method: 'POST' })));
   expect(screen.getByText('Push this repo')).toBeInTheDocument();
-
   await send('Pull latest');
   expect(await screen.findByText('Pull preview loaded. No pull occurred.')).toBeInTheDocument();
   await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/github/ops/pull-preview', expect.objectContaining({ method: 'POST' })));
   let approvalCards = screen.getAllByTestId('inline-approval-card');
   expect(within(approvalCards[approvalCards.length - 1]).getByText('Pull latest')).toBeInTheDocument();
-
   await send('Create a GitHub repo');
   expect(await screen.findByText('GitHub repo creation requires approval before any write.')).toBeInTheDocument();
   approvalCards = screen.getAllByTestId('inline-approval-card');
   expect(within(approvalCards[approvalCards.length - 1]).getByText('create-repo')).toBeInTheDocument();
 });
-
 test('routes self-build prompts mentioning GitHub before GitHub Ops', async () => {
   render(<App />);
   await send('Create a self-build proposal to fix GitHub create-repo chat routing');
@@ -592,14 +599,11 @@ test('routes self-build prompts mentioning GitHub before GitHub Ops', async () =
   expect((fetch as ReturnType<typeof vi.fn>).mock.calls.some(([path]) => String(path).includes('/api/github/ops/status'))).toBe(true);
   expect((fetch as ReturnType<typeof vi.fn>).mock.calls.filter(([path]) => String(path).includes('/api/github/ops/status')).length).toBe(1);
 });
-
 test('routes GitHub create-repo chat prompt to approval card without push or status-only response', async () => {
   render(<App />);
   await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/github/ops/status'));
   const pushPreviewCallsBefore = (fetch as ReturnType<typeof vi.fn>).mock.calls.filter(([path]) => String(path).includes('/api/github/ops/push-preview')).length;
-
   await send('Prepare a GitHub create-repo proposal for a private disposable repo named `x8-github-ops-smoke`');
-
   expect(await screen.findByText('GitHub repo creation requires approval before any write.')).toBeInTheDocument();
   expect(screen.queryByText('GitHub status loaded without mutation.')).not.toBeInTheDocument();
   expect(screen.queryByText('Push preview loaded. No push occurred.')).not.toBeInTheDocument();
@@ -617,15 +621,12 @@ test('routes GitHub create-repo chat prompt to approval card without push or sta
   expect(within(approvalCard).getAllByText('true').length).toBeGreaterThan(0);
   expect(within(approvalCard).getAllByText('false').length).toBeGreaterThanOrEqual(3);
 });
-
 test('literal GitHub chat text is not stolen by GitHub Ops routing', async () => {
   render(<App />);
   await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/github/ops/status'));
   const statusCallsBefore = (fetch as ReturnType<typeof vi.fn>).mock.calls.filter(([path]) => String(path).includes('/api/github/ops/status')).length;
   const pushPreviewCallsBefore = (fetch as ReturnType<typeof vi.fn>).mock.calls.filter(([path]) => String(path).includes('/api/github/ops/push-preview')).length;
-
   await send('can you say GitHub');
-
   expect(await screen.findByText('Echo: can you say GitHub')).toBeInTheDocument();
   expect(screen.queryByText('GitHub status loaded without mutation.')).not.toBeInTheDocument();
   expect(screen.queryByText('Push preview loaded. No push occurred.')).not.toBeInTheDocument();
@@ -633,19 +634,16 @@ test('literal GitHub chat text is not stolen by GitHub Ops routing', async () =>
   expect((fetch as ReturnType<typeof vi.fn>).mock.calls.filter(([path]) => String(path).includes('/api/github/ops/status')).length).toBe(statusCallsBefore);
   expect((fetch as ReturnType<typeof vi.fn>).mock.calls.filter(([path]) => String(path).includes('/api/github/ops/push-preview')).length).toBe(pushPreviewCallsBefore);
 });
-
 test('existing GitHub push and status routing stay intact without token exposure', async () => {
   render(<App />);
   await send('push this repo');
   expect(await screen.findByText('Push preview loaded. No push occurred.')).toBeInTheDocument();
   expect(screen.getByText('Push this repo')).toBeInTheDocument();
-
   await send('check GitHub status');
   expect(await screen.findByText('GitHub status loaded without mutation.')).toBeInTheDocument();
   expect(screen.getByText('GitHub Ops status')).toBeInTheDocument();
   expect(document.body.textContent).not.toMatch(/ghp_/i);
 });
-
 test('renders generated artifacts and file viewers inline', async () => {
   render(<App />);
   await send('make a simple HTML website preview');
@@ -653,12 +651,10 @@ test('renders generated artifacts and file viewers inline', async () => {
   expect(screen.getByRole('button', { name: 'Preview' })).toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Code' })).toBeInTheDocument();
   expect(screen.queryByText('Artifact + Website Preview')).not.toBeInTheDocument();
-
   await send('open README.md');
   expect(await screen.findByTestId('inline-file-card')).toBeInTheDocument();
   expect(screen.queryByText('Project File Tree')).not.toBeInTheDocument();
 });
-
 test('renders inline diff approval without mutating before approval', async () => {
   render(<App />);
   await send('propose a README edit');
@@ -666,7 +662,6 @@ test('renders inline diff approval without mutating before approval', async () =
   expect(screen.getByTestId('inline-approval-card')).toBeInTheDocument();
   expect(screen.getByText(/No mutation has happened/i)).toBeInTheDocument();
 });
-
 test('renders self-build plan proposal and approval cards', async () => {
   render(<App />);
   await send('Self-build test. Inspect README.md and propose a patch. Do not commit.');
@@ -690,7 +685,6 @@ test('renders self-build plan proposal and approval cards', async () => {
   expect(within(approvalCard).getByText('README.md')).toBeInTheDocument();
   expect(within(approvalCard).getByText(/runtime\/self-build-backups\/README.md.bak/i)).toBeInTheDocument();
 });
-
 test('renders blocked self-build apply result honestly', async () => {
   render(<App />);
   await send('Self-build test blocked apply. Inspect README.md and propose a patch. Do not commit.');
@@ -699,13 +693,11 @@ test('renders blocked self-build apply result honestly', async () => {
   expect(await within(approvalCard).findByText(/File changed since proposal: README.md/i)).toBeInTheDocument();
   expect(within(approvalCard).getByText(/false/i)).toBeInTheDocument();
 });
-
 test('does not render self-build Apply button without safe approval metadata', async () => {
   render(<App />);
   await send('Self-build unsafe proposal. Inspect README.md and propose a patch. Do not commit.');
   expect(await screen.findByText('Self-build patch plan')).toBeInTheDocument();
   expect(screen.queryByTestId('inline-approval-card')).not.toBeInTheDocument();
-
   cleanup();
   mockRuntime();
   render(<App />);
@@ -713,18 +705,15 @@ test('does not render self-build Apply button without safe approval metadata', a
   expect(await screen.findByText('Self-build status')).toBeInTheDocument();
   expect(screen.queryByTestId('inline-approval-card')).not.toBeInTheDocument();
 });
-
 test('renders inline research and image cards honestly', async () => {
   render(<App />);
   await send('search with SearXNG for XV8');
   expect(await screen.findByTestId('inline-research-card')).toBeInTheDocument();
   expect(screen.queryByText('SearXNG Panel')).not.toBeInTheDocument();
-
   await send('generate an image of a console');
   expect(await screen.findByTestId('inline-image-card')).toBeInTheDocument();
   expect(screen.queryByText('Image Studio')).not.toBeInTheDocument();
 });
-
 test('frontend source keeps cyan accent vocabulary and blocks old cool-purple tokens', () => {
   const blocked = ['purple-', 'violet-', 'fuchsia-', 'indigo-', 'purple', 'violet', 'fuchsia', 'indigo', '#a855', '#7c3', '#c084', '#9333', '#d946', '#8b5'];
   const root = join(process.cwd(), 'src');
@@ -744,7 +733,6 @@ test('frontend source keeps cyan accent vocabulary and blocks old cool-purple to
   });
   expect(hits).toEqual([]);
 });
-
 test('push-to-talk final transcript inserts text into composer without preview send flow', async () => {
   render(<App />);
   fireEvent.mouseDown(screen.getByRole('button', { name: /push to talk/i }));
@@ -759,7 +747,6 @@ test('push-to-talk final transcript inserts text into composer without preview s
   fireEvent.click(screen.getByRole('button', { name: /^Send$/i }));
   expect(await screen.findByTestId('inline-file-card')).toBeInTheDocument();
 });
-
 test('dictated text appends to existing composer text and can be edited before normal send', async () => {
   render(<App />);
   const composer = screen.getByLabelText('Message XV8') as HTMLTextAreaElement;
@@ -772,7 +759,6 @@ test('dictated text appends to existing composer text and can be edited before n
   expect(await screen.findByText('please check status now')).toBeInTheDocument();
   expect(await screen.findByText(/Echo: please check status now/i)).toBeInTheDocument();
 });
-
 test('shows permission denied and unavailable speech states honestly', async () => {
   render(<App />);
   const composer = screen.getByLabelText('Message XV8') as HTMLTextAreaElement;
@@ -782,7 +768,6 @@ test('shows permission denied and unavailable speech states honestly', async () 
   expect(await screen.findByText('Microphone permission was denied.')).toBeInTheDocument();
   expect(composer.value).toBe('keep this draft');
   expect(screen.queryByLabelText('Transcript preview')).not.toBeInTheDocument();
-
   cleanup();
   mockRuntime();
   vi.stubGlobal('SpeechRecognition', undefined);
@@ -793,7 +778,6 @@ test('shows permission denied and unavailable speech states honestly', async () 
   expect(await screen.findByText('Speech input is unavailable in this browser.')).toBeInTheDocument();
   expect(screen.queryByText(/Browser Web Speech API is unavailable/i)).not.toBeInTheDocument();
 });
-
 test('TTS can speak, creates receipts, and mute stops output', async () => {
   render(<App />);
   fireEvent.click(screen.getByRole('button', { name: /settings/i }));
@@ -805,7 +789,6 @@ test('TTS can speak, creates receipts, and mute stops output', async () => {
   await waitFor(() => expect(screen.getByTestId('avatar-stage')).toHaveAttribute('data-avatar-state', 'muted'));
   expect(screen.getByTestId('avatar-stage')).toHaveAttribute('data-avatar-state', 'muted');
 });
-
 test('chat send exits pending on success and API error', async () => {
   render(<App />);
   await send('hello XV8');
@@ -814,7 +797,6 @@ test('chat send exits pending on success and API error', async () => {
   expect(within(diagnostics).getByText('chat pending')).toBeInTheDocument();
   expect(within(diagnostics).getAllByText('false').length).toBeGreaterThan(0);
   await waitFor(() => expect(screen.getByTestId('avatar-stage')).toHaveAttribute('data-avatar-state', 'idle'), { timeout: 2200 });
-
   const original = vi.mocked(fetch).getMockImplementation();
   vi.mocked(fetch).mockImplementation((path: string, options?: { body?: BodyInit }) => {
     if (String(path).includes('/api/chat')) return Promise.resolve({ ok: false, json: () => Promise.resolve({}) } as Response);
@@ -825,7 +807,6 @@ test('chat send exits pending on success and API error', async () => {
   expect(screen.getByTestId('avatar-stage')).toHaveAttribute('data-avatar-state', 'error');
   expect(within(screen.getByLabelText('Audio diagnostics')).getByText('Chat request failed')).toBeInTheDocument();
 });
-
 test('chat send exits pending on timeout', async () => {
   try {
     render(<App />);
@@ -849,7 +830,6 @@ test('chat send exits pending on timeout', async () => {
     vi.useRealTimers();
   }
 });
-
 test('reset stage clears active listening state', async () => {
   render(<App />);
   fireEvent.mouseDown(screen.getByRole('button', { name: /push to talk/i }));
@@ -857,7 +837,6 @@ test('reset stage clears active listening state', async () => {
   fireEvent.click(within(openAudioControls()).getByRole('button', { name: /reset stage/i }));
   expect(screen.getByTestId('avatar-stage')).toHaveAttribute('data-avatar-state', 'idle');
 });
-
 test('muted, unavailable, error, and timeout speech paths report honestly', async () => {
   render(<App />);
   const controls = openAudioControls();
@@ -867,7 +846,6 @@ test('muted, unavailable, error, and timeout speech paths report honestly', asyn
   expect((await within(screen.getByLabelText('Audio diagnostics')).findAllByText('Muted state prevented speech playback.')).length).toBeGreaterThan(0);
   expect(speechSynthesis.speak).not.toHaveBeenCalled();
   expect(within(screen.getByLabelText('Audio diagnostics')).getAllByText('false').length).toBeGreaterThan(0);
-
   cleanup();
   mockRuntime();
   vi.stubGlobal('speechSynthesis', undefined);
@@ -875,7 +853,6 @@ test('muted, unavailable, error, and timeout speech paths report honestly', asyn
   fireEvent.click(screen.getByRole('button', { name: /unlock\/test voice/i }));
   expect(await screen.findByText(/Text-to-speech is unavailable/i)).toBeInTheDocument();
   expect(within(screen.getByLabelText('Audio diagnostics')).getAllByText('Speech synthesis is unavailable.').length).toBeGreaterThan(0);
-
   cleanup();
   mockRuntime();
   vi.stubGlobal('speechSynthesis', { getVoices: () => [], speak: vi.fn((utterance: { onerror?: () => void }) => utterance.onerror?.()), pause: vi.fn(), resume: vi.fn(), cancel: vi.fn() });
@@ -884,7 +861,6 @@ test('muted, unavailable, error, and timeout speech paths report honestly', asyn
   expect((await within(screen.getByLabelText('Audio diagnostics')).findAllByText('Speech playback failed.')).length).toBeGreaterThan(0);
   expect(screen.getByTestId('avatar-stage')).toHaveAttribute('data-avatar-state', 'idle');
 });
-
 test('speech never firing onend times out and returns avatar idle', async () => {
   try {
     vi.stubGlobal('speechSynthesis', {
@@ -911,7 +887,6 @@ test('speech never firing onend times out and returns avatar idle', async () => 
     vi.useRealTimers();
   }
 });
-
 test('copy controls write individual messages and transcripts', async () => {
   render(<App />);
   await send('hello XV8');
@@ -927,7 +902,6 @@ test('copy controls write individual messages and transcripts', async () => {
   expect(navigator.clipboard.writeText).toHaveBeenCalledWith(expect.stringContaining('# XV8 Conversation Transcript'));
   expect(navigator.clipboard.writeText).toHaveBeenCalledWith(expect.stringContaining('hello XV8'));
 });
-
 test('avatar speaker and volume controls update muted volume preference', async () => {
   render(<App />);
   const controls = openAudioControls();
@@ -937,7 +911,6 @@ test('avatar speaker and volume controls update muted volume preference', async 
   expect(screen.getByTestId('avatar-stage')).toHaveAttribute('data-avatar-state', 'muted');
   expect(window.localStorage.getItem('x8.voiceVolume')).toBe('0');
 });
-
 test('avatar manifest maps states to the expected video assets', () => {
   const manifest = {
     version: '1.0',
@@ -955,14 +928,12 @@ test('avatar manifest maps states to the expected video assets', () => {
   expect(selectAvatarAsset(manifest, 'speaking')?.src).toBe('/avatar/xoduz-speaking.mp4');
   expect(selectAvatarAsset(manifest, 'error')?.src).toBe('/avatar/xoduz-idle.mp4');
 });
-
 test('avatar falls back if the active video fails to load', async () => {
   render(<AvatarStage state="idle" />);
   const video = await screen.findByTestId('avatar-video');
   fireEvent.error(video);
   expect(await screen.findByTestId('avatar-fallback')).toBeInTheDocument();
 });
-
 test('uploads file content as a compact chip before sending', async () => {
   render(<App />);
   const input = screen.getByLabelText('Attach file input') as HTMLInputElement;

@@ -2,7 +2,7 @@ import { Activity, Boxes, Code2, FileText, GitBranch, Image, Search, Server, Shi
 import { useEffect, useMemo, useState } from 'react';
 import { CodeEditor } from '../components/cockpit/CodeEditor';
 import { StatusPill } from '../components/ui/StatusPill';
-import { approveBrainMemory, deleteBrainMemory, loadBrainMemories, reactivateBrainMemory, rejectBrainMemory, retrieveBrainMemory, updateBrainFocus, updateBrainMemory } from '../services/apiClient';
+import { approveBrainMemory, deleteBrainMemory, loadBrainCandidates, loadBrainEvents, loadBrainMemories, reactivateBrainMemory, rejectBrainMemory, retrieveBrainMemory, toggleBrainAutoCapture, updateBrainFocus, updateBrainMemory } from '../services/apiClient';
 import type { ChatCard, ChatMessage } from './AssistantComponents';
 import { Panel } from './AssistantComponents';
 
@@ -170,19 +170,38 @@ type BrainRecord = Record<string, unknown> & {
   last_used_at?: string;
 };
 
+type BrainCandidate = Record<string, unknown> & {
+  id: string;
+  suggested_title?: string;
+  summary?: string;
+  source_text_redacted?: string;
+  decision?: string;
+  reason?: string;
+  confidence?: number;
+  linked_memory_id?: string;
+};
+
 function BrainMemoryPanel({ memoryStatus, memoryDetails, brainDetails }: { memoryStatus: string; memoryDetails: Record<string, unknown>; brainDetails: Record<string, unknown> }) {
   const [records, setRecords] = useState<BrainRecord[]>([]);
+  const [candidates, setCandidates] = useState<BrainCandidate[]>([]);
+  const [events, setEvents] = useState<Array<Record<string, unknown>>>([]);
   const [selectedId, setSelectedId] = useState('');
+  const [selectedCandidateId, setSelectedCandidateId] = useState('');
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [candidateFilter, setCandidateFilter] = useState('');
   const [layerFilter, setLayerFilter] = useState('');
   const [scopeFilter, setScopeFilter] = useState('');
   const [actionStatus, setActionStatus] = useState('No memory action run yet.');
   const [retrievalProof, setRetrievalProof] = useState<Record<string, unknown> | null>(null);
+  const [autoCapture, setAutoCapture] = useState(Boolean(brainDetails.auto_capture_enabled));
   const selected = records.find((record) => record.id === selectedId) || records[0];
+  const selectedCandidate = candidates.find((candidate) => candidate.id === selectedCandidateId) || candidates[0];
   const [draft, setDraft] = useState({ title: '', content: '', summary: '', tags: '', active: true });
 
   useEffect(() => { void refresh(); }, []);
+  useEffect(() => { void refresh(); }, [candidateFilter]);
+  useEffect(() => { setAutoCapture(Boolean(brainDetails.auto_capture_enabled)); }, [brainDetails.auto_capture_enabled]);
 
   useEffect(() => {
     if (!selected) return;
@@ -213,10 +232,18 @@ function BrainMemoryPanel({ memoryStatus, memoryDetails, brainDetails }: { memor
   const scopes = Array.from(new Set(records.flatMap((record) => [record.project_scope, record.session_scope]).filter(Boolean).map(String))).sort();
 
   async function refresh() {
-    const response = await loadBrainMemories({ include_deleted: 'true' });
+    const [response, candidateResponse, eventResponse] = await Promise.all([
+      loadBrainMemories({ include_deleted: 'true' }),
+      loadBrainCandidates(candidateFilter ? { decision: candidateFilter } : {}),
+      loadBrainEvents({})
+    ]);
     const next = (response.data || []) as BrainRecord[];
     setRecords(next);
     if (!selectedId && next[0]) setSelectedId(next[0].id);
+    const nextCandidates = (candidateResponse.data || []) as BrainCandidate[];
+    setCandidates(nextCandidates);
+    if (!selectedCandidateId && nextCandidates[0]) setSelectedCandidateId(nextCandidates[0].id);
+    setEvents(eventResponse.data || []);
   }
 
   async function runAction(label: string, action: () => Promise<unknown>) {
@@ -251,8 +278,16 @@ function BrainMemoryPanel({ memoryStatus, memoryDetails, brainDetails }: { memor
     await runAction('Active focus updated.', () => updateBrainFocus(value));
   }
 
+  async function toggleCapture(enabled: boolean) {
+    const response = await toggleBrainAutoCapture(enabled);
+    setAutoCapture(Boolean((response.data || {}).auto_capture_enabled));
+    setActionStatus(`Auto-capture ${enabled ? 'enabled' : 'disabled'}.`);
+    await refresh();
+  }
+
   const latestRetrieval = retrievalProof || (brainDetails.latest_retrieval as Record<string, unknown> | null);
   const lastEvent = brainDetails.last_memory_event as Record<string, unknown> | undefined;
+  const latestAuto = brainDetails.latest_auto_capture_event as Record<string, unknown> | undefined;
 
   return (
     <Panel icon={<ShieldCheck />} title="Brain / Memory">
@@ -265,9 +300,13 @@ function BrainMemoryPanel({ memoryStatus, memoryDetails, brainDetails }: { memor
           <div className="row split"><strong>Session</strong><span>{String(brainDetails.session_memory_mode || 'enabled')}</span></div>
           <div className="row split"><strong>Active</strong><span>{String(brainDetails.active_memory_count ?? 0)}</span></div>
           <div className="row split"><strong>Pending</strong><span>{String(brainDetails.pending_approval_count ?? 0)}</span></div>
-          <div className="row split"><strong>Auto-capture</strong><span>{String(brainDetails.auto_capture_enabled ?? false)}</span></div>
+          <div className="row split"><strong>Auto-capture</strong><span>{String(autoCapture)}</span></div>
+          <div className="row split"><strong>Min confidence</strong><span>{String(brainDetails.auto_capture_min_confidence ?? '0.7')}</span></div>
+          <div className="row split"><strong>Max per turn</strong><span>{String(brainDetails.auto_capture_max_per_turn ?? '3')}</span></div>
           <div className="row"><strong>Active focus</strong><span>{String(brainDetails.active_focus || 'none')}</span></div>
           <div className="row"><strong>Last memory event</strong><span>{String(lastEvent?.event_type || 'none')}</span></div>
+          <div className="row"><strong>Latest auto-capture event</strong><span>{String(latestAuto?.decision || 'none')}</span></div>
+          <div className="row"><strong>Last ignored/blocked reason</strong><span>{String(brainDetails.last_ignored_or_blocked_reason || 'none')}</span></div>
           <div className="row"><strong>Latest retrieval proof</strong><span>{latestRetrieval ? `${String(latestRetrieval.status || 'recorded')} / ${String(latestRetrieval.count ?? latestRetrieval.injected_count ?? 0)} records` : 'none'}</span></div>
           <div className="row"><strong>Legacy memory readiness</strong><span>{String(memoryDetails.failure_reason || 'ready')}</span></div>
         </section>
@@ -290,6 +329,8 @@ function BrainMemoryPanel({ memoryStatus, memoryDetails, brainDetails }: { memor
           </select>
           <button className="chipButton" onClick={() => void refresh()}>Refresh</button>
           <button className="chipButton" onClick={() => void retrieve()}>Retrieve</button>
+          <button className="chipButton" onClick={() => void toggleCapture(false)}>Disable auto-capture</button>
+          <button className="chipButton" onClick={() => void toggleCapture(true)}>Enable auto-capture</button>
         </section>
 
         <section className="memoryRecords" aria-label="Memory records">
@@ -336,6 +377,53 @@ function BrainMemoryPanel({ memoryStatus, memoryDetails, brainDetails }: { memor
             <p className="cardSummary" role="status">{actionStatus}</p>
           </section>
         )}
+
+        <section className="memoryDetail" aria-label="Memory candidate history">
+          <header>
+            <strong>Candidate history</strong>
+            <select aria-label="Filter memory candidates" value={candidateFilter} onChange={(event) => setCandidateFilter(event.target.value)}>
+              <option value="">All candidates</option>
+              <option value="auto_save">Auto-saved</option>
+              <option value="pending_approval">Pending approval</option>
+              <option value="ignored">Ignored</option>
+              <option value="blocked">Blocked</option>
+              <option value="duplicate">Duplicate</option>
+              <option value="correction">Correction</option>
+            </select>
+          </header>
+          <div className="memoryRecords compact" aria-label="Memory candidates">
+            {candidates.length === 0 && <p className="cardSummary">No memory candidates recorded.</p>}
+            {candidates.slice(0, 20).map((candidate) => (
+              <button key={candidate.id} className={candidate.id === selectedCandidate?.id ? 'memoryRow active' : 'memoryRow'} onClick={() => setSelectedCandidateId(candidate.id)}>
+                <strong>{String(candidate.suggested_title || candidate.summary || candidate.id)}</strong>
+                <span>{String(candidate.summary || candidate.source_text_redacted || '').slice(0, 120)}</span>
+                <small>{String(candidate.decision)} / {String(candidate.reason || 'no reason')}</small>
+              </button>
+            ))}
+          </div>
+          {selectedCandidate && (
+            <div className="memoryMeta">
+              <span>Decision: {String(selectedCandidate.decision || 'unknown')}</span>
+              <span>Reason: {String(selectedCandidate.reason || 'none')}</span>
+              <span>Confidence: {String(selectedCandidate.confidence ?? 'unknown')}</span>
+              <span>Linked memory: {String(selectedCandidate.linked_memory_id || 'none')}</span>
+              <span>Redacted source: {String(selectedCandidate.source_text_redacted || 'none')}</span>
+            </div>
+          )}
+        </section>
+
+        <section className="memoryDetail" aria-label="Brain memory events">
+          <header><strong>Latest events</strong><span>{events.length}</span></header>
+          <div className="memoryRecords compact" aria-label="Memory events">
+            {events.slice(0, 12).map((event) => (
+              <div key={String(event.id)} className="memoryRow">
+                <strong>{String(event.event_type || 'event')}</strong>
+                <span>{String(event.event_summary || '').slice(0, 140)}</span>
+                <small>{String(event.memory_id || 'candidate')} / {dateLabel(event.created_at)}</small>
+              </div>
+            ))}
+          </div>
+        </section>
       </div>
     </Panel>
   );

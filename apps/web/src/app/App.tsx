@@ -87,14 +87,7 @@ export function App() {
     speechState,
     setSpeechState,
     voiceStatus,
-    voiceDetails: {
-      requestedVoiceLabel: voiceSelection.requestedVoiceLabel,
-      actualVoiceName: voiceSelection.actualVoiceName,
-      actualVoiceURI: voiceSelection.actualVoiceURI,
-      actualVoiceLang: voiceSelection.actualVoiceLang,
-      actualVoiceMatched: voiceSelection.actualVoiceMatched,
-      voiceFallbackReason: voiceSelection.voiceFallbackReason
-    },
+    voiceDetails: { requestedVoiceLabel: voiceSelection.requestedVoiceLabel, actualVoiceName: voiceSelection.actualVoiceName, actualVoiceURI: voiceSelection.actualVoiceURI, actualVoiceLang: voiceSelection.actualVoiceLang, actualVoiceMatched: voiceSelection.actualVoiceMatched, voiceFallbackReason: voiceSelection.voiceFallbackReason },
     muted,
     volume,
     speechSynthesisAvailable: speechOutput.tts.supported()
@@ -127,20 +120,11 @@ export function App() {
       })
       .catch(() => setError('Runtime status could not load. Check docker compose logs x8-api.'));
   }, []);
-
   useEffect(() => {
     Promise.allSettled([loadSessions(), loadModelStatus(), loadMemoryStatus(), loadBrainStatus(), loadReceipts()]).then(([sessionsResult, modelResult, memoryResult, brainResult, receiptResult]) => {
-      if (modelResult.status === 'fulfilled') {
-        setModelDetails(modelResult.value.data || {});
-        setModelStatus(`${String(modelResult.value.data?.selected_model || modelResult.value.status)} / ${String(modelResult.value.status)}`);
-      }
-      if (memoryResult.status === 'fulfilled') {
-        setMemoryDetails(memoryResult.value.data || {});
-        setMemoryStatus(String(memoryResult.value.status));
-      }
-      if (brainResult.status === 'fulfilled') {
-        setBrainDetails(brainResult.value.data || {});
-      }
+      if (modelResult.status === 'fulfilled') { setModelDetails(modelResult.value.data || {}); setModelStatus(`${String(modelResult.value.data?.selected_model || modelResult.value.status)} / ${String(modelResult.value.status)}`); }
+      if (memoryResult.status === 'fulfilled') { setMemoryDetails(memoryResult.value.data || {}); setMemoryStatus(String(memoryResult.value.status)); }
+      if (brainResult.status === 'fulfilled') setBrainDetails(brainResult.value.data || {});
       if (receiptResult.status === 'fulfilled' && receiptResult.value.data.length > 0) {
         const receipt = receiptResult.value.data[0];
         setLatestResult(String(receipt.status || 'receipt loaded'));
@@ -149,12 +133,9 @@ export function App() {
       const saved = window.localStorage.getItem('x8.activeSessionId');
       const candidate = saved || sessionsResult.value.data[0]?.session_id;
       if (!candidate) return;
-      loadSession(candidate)
-        .then((response) => restoreSession(response.data))
-        .catch(() => undefined);
+      loadSession(candidate).then((response) => restoreSession(response.data)).catch(() => undefined);
     });
   }, []);
-
   function restoreSession(session: SessionDetail) {
     if (userInteracted.current) return;
     setSessionId(session.session_id);
@@ -168,13 +149,9 @@ export function App() {
   }
   useEffect(() => {
     loadSelfBuildTrustStatus()
-      .then((response) => {
-        setSelfBuildTrustStatus(response.data || {});
-        setSelfBuildTrustSummary(String(response.status || 'ready'));
-      })
+      .then((response) => { setSelfBuildTrustStatus(response.data || {}); setSelfBuildTrustSummary(String(response.status || 'ready')); })
       .catch(() => setSelfBuildTrustSummary('unavailable'));
   }, []);
-
   useEffect(() => {
     readFile(selectedPath)
       .then((response) => setCode(response.data.content))
@@ -197,7 +174,6 @@ export function App() {
       }))
     );
   }
-
   async function submitMessage(event?: React.FormEvent) {
     event?.preventDefault();
     userInteracted.current = true;
@@ -215,12 +191,18 @@ export function App() {
     setStage('thinking');
     stickToLatestRef.current = true;
     setUserAwayFromLatest(false);
-    appendMessage({ id: nowId(), role: 'user', text: text || 'Attached files for reference.', attachments: outgoingAttachments });
+    appendMessage({ id: nowId(), role: 'user', text: redactSecretDisplay(text || 'Attached files for reference.'), attachments: outgoingAttachments });
     try {
       await handleUserText(text || 'Attached files for reference.', outgoingAttachments);
     } finally {
       setChatPending(false);
     }
+  }
+  function redactSecretDisplay(value: string) {
+    return value
+      .replace(/\bgh[pousr]_[A-Za-z0-9_]+/gi, '[redacted-token]')
+      .replace(/\bsk-[A-Za-z0-9_-]+/gi, '[redacted-api-key]')
+      .replace(/(password|passcode|token|api[_ -]?key|secret|one[- ]?time code|otp)\s*(is|=|:)?\s*\S+/gi, '$1 [redacted]');
   }
   async function handleUserText(text: string, outgoingAttachments: AttachmentReference[] = []) {
     const intent = classifyRequest(text);
@@ -272,7 +254,6 @@ export function App() {
       onReceipt: appendAudioReceipt
     });
   }
-
   function mergeComposerText(base: string, dictated: string) {
     const cleanBase = base.trimEnd();
     const cleanDictated = dictated.trim();
@@ -280,7 +261,6 @@ export function App() {
     if (!cleanDictated) return cleanBase;
     return `${cleanBase} ${cleanDictated}`;
   }
-
   function stopSpeechInput() {
     speechInput.recognition.stop();
     speechInput.transcript.clear();
@@ -764,7 +744,6 @@ export function App() {
     await speakText(latest, 'manual voice test');
     try { await createSpeechReceipt(); } catch { appendAudioReceipt(speechOutput.tts.outputReceipt('speech_output_failed', 'receipt_error', new Date().toISOString(), voiceName, 'Backend speech receipt endpoint failed.')); }
   }
-
   async function finishAssistantResponseLifecycle(text: string, cardCount: number) {
     const elapsed = requestStartedAt.current ? Date.now() - requestStartedAt.current : MIN_THINKING_VISIBLE_MS;
     if (elapsed < MIN_THINKING_VISIBLE_MS) await wait(MIN_THINKING_VISIBLE_MS - elapsed);
@@ -777,7 +756,6 @@ export function App() {
     }
     await speakText(text, cardCount ? 'assistant response text with cards' : 'assistant deterministic/text-only response');
   }
-
   async function showRespondedThenIdle(reason: string, status: TtsStatus = 'ready') {
     markSpeechSkipped(reason);
     setVoiceStatus(status);
@@ -785,7 +763,6 @@ export function App() {
     await wait(RESPONDED_VISIBLE_MS);
     setStage('idle');
   }
-
   async function speakText(text: string, reason: string) {
     const runId = speechRun.current + 1;
     speechRun.current = runId;
@@ -853,19 +830,13 @@ export function App() {
     const next = !muted;
     setMuted(next);
     if (next) {
-      if (volume > 0) {
-        setPreviousVolume(volume);
-        window.localStorage.setItem('x8.voicePreviousVolume', String(volume));
-      }
+      if (volume > 0) { setPreviousVolume(volume); window.localStorage.setItem('x8.voicePreviousVolume', String(volume)); }
       speechOutput.playback.stop();
       setVoiceStatus('muted');
       setStage('muted');
       appendAudioReceipt(speechOutput.tts.outputReceipt('speech_output_stopped', 'muted', new Date().toISOString(), voiceName));
     } else {
-      if (volume === 0) {
-        setVolume(previousVolume || 80);
-        window.localStorage.setItem('x8.voiceVolume', String(previousVolume || 80));
-      }
+      if (volume === 0) { setVolume(previousVolume || 80); window.localStorage.setItem('x8.voiceVolume', String(previousVolume || 80)); }
       setVoiceStatus(speechOutput.tts.supported() ? 'ready' : 'unavailable');
       setStage('idle');
     }
@@ -877,11 +848,7 @@ export function App() {
     if (next > 0) {
       setPreviousVolume(next);
       window.localStorage.setItem('x8.voicePreviousVolume', String(next));
-      if (muted) {
-        setMuted(false);
-        setVoiceStatus(speechOutput.tts.supported() ? 'ready' : 'unavailable');
-        setStage('idle');
-      }
+      if (muted) { setMuted(false); setVoiceStatus(speechOutput.tts.supported() ? 'ready' : 'unavailable'); setStage('idle'); }
     } else {
       setMuted(true);
       speechOutput.playback.stop();
@@ -889,7 +856,6 @@ export function App() {
       setStage('muted');
     }
   }
-
   async function writeClipboard(text: string) {
     if (navigator.clipboard?.writeText) { await navigator.clipboard.writeText(text); return; }
     const textarea = document.createElement('textarea');
@@ -902,85 +868,58 @@ export function App() {
     document.execCommand('copy');
     textarea.remove();
   }
-
   async function copyMessage(message: ChatMessage) { await writeClipboard(messageCopyText(message)); setLatestResult('Copied message.'); }
-
   async function copyTranscript(includeReceipts = false) {
     try {
       await writeClipboard(transcriptMarkdown(messages, includeReceipts));
       setLatestResult(includeReceipts ? 'Copied transcript with receipts.' : 'Copied transcript.');
-    } catch {
-      setLatestResult('Copy transcript failed.');
-    }
+    } catch { setLatestResult('Copy transcript failed.'); }
   }
-
   function downloadTranscript() {
     const blob = new Blob([transcriptMarkdown(messages, false)], { type: 'text/markdown' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
-    link.href = url;
-    link.download = 'xv8-transcript.md';
-    link.click();
-    URL.revokeObjectURL(url);
+    link.href = url; link.download = 'xv8-transcript.md'; link.click(); URL.revokeObjectURL(url);
     setLatestResult('Downloaded transcript.');
   }
-
   function pauseSpeech() { speechOutput.playback.pause(); setVoiceStatus('paused'); setStage('idle'); appendAudioReceipt(speechOutput.tts.outputReceipt('speech_output_paused', 'paused', new Date().toISOString(), voiceName)); }
   function resumeSpeech() { speechOutput.playback.resume(); setVoiceStatus('speaking'); setStage('speaking'); appendAudioReceipt(speechOutput.tts.outputReceipt('speech_output_resumed', 'speaking', new Date().toISOString(), voiceName)); }
   function stopSpeech() { speechRun.current += 1; speechOutput.playback.stop(); setVoiceStatus(muted ? 'muted' : 'ready'); setStage(muted ? 'muted' : 'idle'); appendAudioReceipt(speechOutput.tts.outputReceipt('speech_output_stopped', 'stopped', new Date().toISOString(), voiceName)); }
-
   useEffect(() => { window.localStorage.setItem('x8.localActiveChatId', localChatId); }, [localChatId]);
-
   useEffect(() => { if (!stickToLatestRef.current) return undefined; scrollToLatest(); const timer = window.setInterval(scrollToLatest, 100); window.setTimeout(() => window.clearInterval(timer), 1600); return () => window.clearInterval(timer); }, [messages, chatPending, speechState, lastApiStatus]);
-
   function scrollToLatest() { window.requestAnimationFrame(() => { timelineEndRef.current?.scrollIntoView({ block: 'end' }); const node = timelineScrollRef.current; if (node) node.scrollTop = node.scrollHeight; }); }
-
   function trackTimelineScroll() {
     const node = timelineScrollRef.current;
     if (!node) return;
     const nearBottom = node.scrollHeight - node.scrollTop - node.clientHeight < 48;
-    stickToLatestRef.current = nearBottom;
-    setUserAwayFromLatest(!nearBottom);
+    stickToLatestRef.current = nearBottom; setUserAwayFromLatest(!nearBottom);
   }
-
   function jumpToLatest() {
     stickToLatestRef.current = true;
-    setUserAwayFromLatest(false);
-    scrollToLatest();
+    setUserAwayFromLatest(false); scrollToLatest();
   }
-
   function resetChat(nextId: string, result: string) {
-    setMessages([]);
-    setEntry('');
-    setAttachments([]);
-    setSttError('');
-    setSessionId(undefined);
-    setLocalChatId(nextId);
+    setMessages([]); setEntry(''); setAttachments([]); setSttError(''); setSessionId(undefined); setLocalChatId(nextId);
     setLatestResult(result);
   }
-
   function clearChat() {
     if (!window.confirm('Clear the current visible chat? Saved history will not be deleted.')) return;
     resetChat(nowId(), 'Started a clear chat.');
   }
-
   function startNewChat() {
     resetChat(nowId(), 'Started a new chat.');
     setHistoryOpen(false);
   }
-
   function restoreLocalSession(session: { id: string; messages: ChatMessage[] }) {
     setLocalChatId(session.id);
     setMessages(session.messages);
     setHistoryOpen(false);
     setLatestResult('Restored local chat history.');
   }
-
   return (
     <main className="shell" data-theme="neon-blue">
       <section className="assistantFrame" aria-label="Assistant Mode">
         <AvatarPresencePanel state={speechState} fallbackSrc={avatarAsset} muted={muted} volume={volume} voices={voiceSelection.voices} selectedVoiceURI={voiceSelection.selectedVoiceURI} voiceStatus={voiceStatus} requestedVoiceLabel={voiceSelection.requestedVoiceLabel} actualVoiceName={voiceSelection.actualVoiceName} voiceFallbackReason={voiceSelection.voiceFallbackReason} micStatus={micStatus} chatDiagnostics={audioLifecycle.chatDiagnostics} audioDiagnostics={audioLifecycle.audioDiagnostics} avatarDiagnostics={audioLifecycle.avatarDiagnostics} onToggleMute={toggleMute} onVolumeChange={changeVolume} onVoiceSelect={voiceSelection.selectVoice} onRefreshVoices={() => void voiceSelection.refreshVoices()} onPreviewSelectedVoice={() => void readAloud('XV8 selected voice preview.')} onResetStage={resetStage} onStopAudio={stopSpeech} onPlayRawAudioTest={() => void runRawAudioTest()} onUnlockTestVoice={() => void unlockTestVoice()} />
-
         <section className="conversationPane">
           <header className="conversationHeader">
             <div><div className="modeLabel">Assistant Mode</div><span className="statusText">{latestResult}</span></div>
@@ -994,16 +933,13 @@ export function App() {
               </button>
             </div>
           </header>
-
           <div className="conversationStatus">{error && <div className="error">{error}</div>}{historyOpen && <ChatHistoryPanel sessions={localHistory.sessions} activeId={localChatId} onNew={startNewChat} onRestore={restoreLocalSession} onDelete={localHistory.deleteSession} />}</div>
-
           <div className="messageScrollArea" ref={timelineScrollRef} onScroll={trackTimelineScroll} aria-label="Message list">
             <ChatTimeline messages={messages} onToggle={updateCard} onRequestApply={requestApply} onCopyMessage={copyMessage} />
             <ThinkingIndicator active={chatPending} stage={speechState} status={lastApiStatus} />
             <div ref={timelineEndRef} />
           </div>
           {userAwayFromLatest && <button className="jumpLatest" type="button" data-testid="jump-to-latest-button" onClick={jumpToLatest}>Jump to latest</button>}
-
           <form className="messageEntry" onSubmit={submitMessage}>
             {attachments.length > 0 && (
               <div className="attachmentTray" aria-label="Attached files">
@@ -1032,7 +968,6 @@ export function App() {
           </form>
         </section>
       </section>
-
       {developerOpen && <DeveloperCockpit files={files} selectedPath={selectedPath} setSelectedPath={setSelectedPath} proposal={proposal} code={code} setCode={setCode} proposeDiffCard={proposeDiffCard} requestApply={requestApply} searchStatus={searchStatus} imageStatus={imageStatus} selfBuildTrustSummary={selfBuildTrustSummary} selfBuildTrustStatus={selfBuildTrustStatus} modelDetails={modelDetails} memoryStatus={memoryStatus} memoryDetails={memoryDetails} brainDetails={brainDetails} team={team} capabilities={capabilities} integrations={integrations} githubStatus={githubStatus} dockerPresets={dockerPresets} githubAuth={githubAuth} githubOps={githubOps} githubOpsResult={githubOpsResult} refreshGitHubOps={refreshGitHubOps} previewGitHubOp={previewGitHubOp} appendMessage={appendMessage} githubApprovalCard={githubApprovalCard} nowId={nowId} bridgeStatus={bridgeStatus} x7ImportStatus={x7ImportStatus} x6ImportStatus={x6ImportStatus} legacySignals={legacySignals} importStatus={importStatus} submitConfigScan={submitConfigScan} muted={muted} micStatus={micStatus} voiceStatus={voiceStatus} voiceName={voiceName} volume={volume} changeVolume={changeVolume} toggleMute={toggleMute} readAloud={readAloud} startMicrophone={startMicrophone} audioReceipts={audioReceipts} />}
       {approvalOpen && proposal?.approval && (
         <div className="modalBackdrop" role="dialog" aria-modal="true" aria-label="Approval request">

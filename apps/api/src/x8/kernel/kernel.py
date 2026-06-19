@@ -46,7 +46,8 @@ class XV8Kernel:
         self.events.emit("context_assembled", sources=context.sources_used)
         model_status, selection = self.model_router.select(lane)
         self.events.emit("model_selected", model=selection.selected_model, ready=selection.model_ready)
-        deterministic = self._deterministic_response(request, lane, context.context_bundle)
+        brain_result = self._brain_command_result(request, lane)
+        deterministic = (brain_result.message, brain_result.status if brain_result.status != "approval_required" else "passed", brain_result.limitations) if brain_result and brain_result.handled else self._deterministic_response(request, lane, context.context_bundle)
         deterministic_used = deterministic is not None
         content, status, limitations = deterministic or self._respond(selection, context.prompt)
         model_status.selected_model = selection.selected_model
@@ -62,6 +63,15 @@ class XV8Kernel:
         if model_status.failure_reason and model_status.failure_reason not in limitations:
             limitations.append(model_status.failure_reason)
         cards = self._cards(lane, status, limitations, request)
+        extra_receipts = []
+        if brain_result and brain_result.handled:
+            cards.extend(brain_result.cards)
+            extra_receipts.extend(brain_result.receipts)
+        if self.brain_manager and not lane.startswith("brain_"):
+            auto_capture = self.brain_manager.auto_capture(request.user_message, lane=lane, session_id=request.session_id or "")
+            if auto_capture.handled:
+                cards.extend(auto_capture.cards)
+                extra_receipts.extend(auto_capture.receipts)
         tools = [tool_intent.name] if tool_intent else []
         receipt = self.receipt_builder.build(
             lane=lane,
@@ -86,6 +96,7 @@ class XV8Kernel:
             model_used=selection.selected_model,
             decision=decision,
             receipt=receipt,
+            extra_receipts=extra_receipts,
             trace_summary=trace,
             limitations=limitations,
         )
@@ -102,13 +113,8 @@ class XV8Kernel:
     def _deterministic_response(self, request: KernelRequest, lane: str, bundle) -> tuple[str, str, list[str]] | None:
         lower = request.user_message.lower().strip()
         if lane.startswith("brain_"):
-            if not self.brain_manager:
-                if lane != "brain_focus_query":
-                    return "Brain memory is unavailable right now.", "unavailable", ["Brain manager unavailable."]
-            else:
-                result = self.brain_manager.handle_chat_command(request.user_message, session_id=request.session_id or "")
-                if result.handled:
-                    return result.message, result.status if result.status != "approval_required" else "passed", result.limitations
+            if not self.brain_manager and lane != "brain_focus_query":
+                return "Brain memory is unavailable right now.", "unavailable", ["Brain manager unavailable."]
         if lower in {"hi", "hi xv8", "hello", "hello xv8", "hey", "hey xv8", "good morning", "good afternoon", "good evening"}:
             return "Hello. I'm XV8.", "passed", []
         if "what is your name" in lower or lower in {"who are you", "who are you?"}:
@@ -140,6 +146,11 @@ class XV8Kernel:
                 return "I can access the uploaded attachment text included in this turn:\n" + "\n".join(f"- {item}" for item in bundle.attachments), "passed", []
             return "An attachment was referenced, but no extracted attachment text is available in this turn.", "passed", bundle.limitations
         return None
+
+    def _brain_command_result(self, request: KernelRequest, lane: str):
+        if not lane.startswith("brain_") or not self.brain_manager:
+            return None
+        return self.brain_manager.handle_chat_command(request.user_message, session_id=request.session_id or "")
 
     def _cards(self, lane: str, status: str, limitations: list[str], request: KernelRequest) -> list[ResponseCard]:
         cards: list[ResponseCard] = []

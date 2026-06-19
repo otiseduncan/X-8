@@ -64,6 +64,38 @@ class MemoryPolicyManager:
             )
         return MemoryPolicyDecision(decision="allow", sensitivity="low", requires_approval=False, approved_by_user=True, reason="Explicit low-risk manual memory is allowed.", redacted_content=content)
 
+    def decide_candidate(self, candidate, *, min_confidence: float = 0.7) -> MemoryPolicyDecision:
+        content = str(getattr(candidate, "suggested_content", "") or getattr(candidate, "summary", ""))
+        if self._looks_secret(content) or self._looks_secret(str(getattr(candidate, "source_text_redacted", ""))):
+            return MemoryPolicyDecision(
+                decision="blocked",
+                sensitivity="secret",
+                requires_approval=False,
+                approved_by_user=False,
+                reason="Secret-like content is blocked from Brain memory.",
+                redacted_content=redact_secret(content),
+                reasons=["Secret-like content is blocked from Brain memory."],
+            )
+        if self._looks_sensitive(content):
+            return MemoryPolicyDecision(
+                decision="pending_approval",
+                sensitivity="personal_sensitive",
+                requires_approval=True,
+                approved_by_user=False,
+                reason="Sensitive or private memory requires approval.",
+                redacted_content=redact_secret(content),
+                reasons=["Sensitive or private memory requires approval."],
+            )
+        if str(getattr(candidate, "decision", "")) == "ignored":
+            return MemoryPolicyDecision(decision="ignored", sensitivity="low", reason=str(getattr(candidate, "reason", "Candidate ignored.")), redacted_content=redact_secret(content))
+        confidence = float(getattr(candidate, "confidence", 0.0) or 0.0)
+        candidate_type = str(getattr(candidate, "type", ""))
+        if confidence < min_confidence:
+            return MemoryPolicyDecision(decision="ignored", sensitivity="low", reason="Candidate confidence below auto-capture threshold.", redacted_content=redact_secret(content))
+        if candidate_type in {"communication_preference", "workflow_preference", "correction", "active_work_context", "validation_checkpoint", "auto_memory"}:
+            return MemoryPolicyDecision(decision="auto_save", sensitivity="low", reason="Low-risk useful memory candidate.", redacted_content=content)
+        return MemoryPolicyDecision(decision="pending_approval", sensitivity="medium", requires_approval=True, approved_by_user=False, reason="Useful but uncertain memory candidate requires approval.", redacted_content=redact_secret(content))
+
     def _looks_secret(self, content: str) -> bool:
         return any(pattern.search(content) for pattern in SECRET_PATTERNS)
 

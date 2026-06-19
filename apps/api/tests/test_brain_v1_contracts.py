@@ -331,3 +331,136 @@ def test_normal_model_backed_chat_still_uses_model_when_available(tmp_path) -> N
     response = kernel.handle(KernelRequest(session_id="sess_model", user_message="give me six sentences about memory"))
     assert response.assistant_message == "mock model response"
     assert response.receipt.status == "passed"
+
+
+def test_low_risk_preference_auto_saves_from_chat() -> None:
+    api = client()
+    api.post("/api/brain/auto-capture/toggle", json={"enabled": True})
+    phrase = f"phase3 direct senior-engineer answers {uuid4().hex[:8]}"
+    payload = api.post("/api/chat", json={"message": f"I prefer {phrase}."}).json()
+    assert any(receipt["action"] == "brain.memory_auto_saved" for receipt in payload["receipts"])
+    assert any(card["title"] == "Memory saved" for card in payload["data"]["assistant_message"]["cards"])
+    memories = api.get(f"/api/brain/memories?q={phrase}").json()
+    assert sum(1 for item in memories["data"] if phrase in item["summary"] and item["active"]) == 1
+
+
+def test_repeated_low_risk_preference_does_not_duplicate() -> None:
+    api = client()
+    api.post("/api/brain/auto-capture/toggle", json={"enabled": True})
+    phrase = f"phase3 duplicate direct answers {uuid4().hex[:8]}"
+    api.post("/api/chat", json={"message": f"I prefer {phrase}."})
+    duplicate = api.post("/api/chat", json={"message": f"I prefer {phrase}."}).json()
+    memories = api.get(f"/api/brain/memories?q={phrase}").json()["data"]
+    candidates = api.get("/api/brain/candidates?decision=duplicate").json()["data"]
+    assert sum(1 for item in memories if phrase in item["summary"] and item["active"]) == 1
+    assert any("Already remembered" in receipt["summary"] for receipt in duplicate["receipts"])
+    assert any(candidate["decision"] == "duplicate" for candidate in candidates)
+
+
+def test_correction_updates_existing_memory_and_records_event() -> None:
+    api = client()
+    api.post("/api/brain/auto-capture/toggle", json={"enabled": True})
+    marker = uuid4().hex[:8]
+    api.post("/api/chat", json={"message": f"I prefer verbose phase3 answers {marker}."})
+    payload = api.post("/api/chat", json={"message": f"Actually, I prefer short direct answers unless we are debugging {marker}."}).json()
+    memories = api.get(f"/api/brain/memories?q={marker}").json()["data"]
+    events = api.get("/api/brain/events?event_type=correction_applied").json()["data"]
+    assert any(receipt["action"] == "brain.memory_correction_applied" for receipt in payload["receipts"])
+    assert any("short direct answers" in item["summary"] for item in memories)
+    assert any(marker in event["event_summary"] for event in events)
+
+
+def test_active_work_context_auto_saves_and_updates_focus() -> None:
+    api = client()
+    api.post("/api/brain/auto-capture/toggle", json={"enabled": True})
+    marker = uuid4().hex[:8]
+    api.post("/api/chat", json={"message": f"We are working on Brain V1 Phase 3 {marker}."})
+    status = api.get("/api/brain/status").json()["data"]
+    assert marker in status["active_focus"]
+    assert status["latest_auto_capture_event"]["decision"] == "auto_save"
+
+
+def test_validation_checkpoint_auto_saves() -> None:
+    api = client()
+    api.post("/api/brain/auto-capture/toggle", json={"enabled": True})
+    marker = uuid4().hex[:8]
+    api.post("/api/chat", json={"message": f"api-tests passed: 115 passed, 1 warning {marker}"})
+    memories = api.get(f"/api/brain/memories?q={marker}").json()["data"]
+    assert any(item["type"] == "validation_checkpoint" for item in memories)
+
+
+def test_sensitive_auto_capture_becomes_pending_approval() -> None:
+    api = client()
+    api.post("/api/brain/auto-capture/toggle", json={"enabled": True})
+    phrase = f"my family history includes phase3 pending {uuid4().hex[:8]}"
+    payload = api.post("/api/chat", json={"message": phrase}).json()
+    pending = api.get("/api/brain/memories?status_filter=pending").json()["data"]
+    assert any(receipt["action"] == "brain.memory_candidate_pending" for receipt in payload["receipts"])
+    assert any(phrase in item["summary"] for item in pending)
+
+
+def test_secret_auto_capture_is_blocked_and_redacted() -> None:
+    api = client()
+    api.post("/api/brain/auto-capture/toggle", json={"enabled": True})
+    token = f"ghp_{uuid4().hex}abc"
+    payload = api.post("/api/chat", json={"message": f"my GitHub token is {token}"}).json()
+    candidates = api.get("/api/brain/candidates?decision=blocked").json()["data"]
+    events = api.get("/api/brain/events").json()["data"]
+    assert any(receipt["action"] == "brain.memory_candidate_blocked" for receipt in payload["receipts"])
+    assert token not in str(payload)
+    assert token not in str(candidates)
+    assert token not in str(events)
+
+
+def test_auto_capture_disabled_prevents_auto_save_but_manual_remember_works() -> None:
+    api = client()
+    phrase = f"phase3 disabled auto {uuid4().hex[:8]}"
+    api.post("/api/brain/auto-capture/toggle", json={"enabled": False})
+    payload = api.post("/api/chat", json={"message": f"I prefer {phrase}."}).json()
+    memories = api.get(f"/api/brain/memories?q={phrase}").json()["data"]
+    manual = api.post("/api/brain/remember", json={"content": f"I prefer manual {phrase}"}).json()
+    api.post("/api/brain/auto-capture/toggle", json={"enabled": True})
+    assert not any(receipt["action"].startswith("brain.memory_auto") for receipt in payload["receipts"])
+    assert not memories
+    assert manual["status"] == "passed"
+
+
+def test_max_candidates_per_turn_enforced() -> None:
+    api = client()
+    api.post("/api/brain/auto-capture/toggle", json={"enabled": True})
+    marker = uuid4().hex[:8]
+    message = "\n".join([f"I prefer phase3 max {index} {marker}." for index in range(5)])
+    payload = api.post("/api/chat", json={"message": message}).json()
+    memory_receipts = [receipt for receipt in payload["receipts"] if receipt["action"] == "brain.memory_auto_saved"]
+    assert len(memory_receipts) <= 3
+
+
+def test_ignored_candidates_do_not_create_visible_receipt() -> None:
+    api = client()
+    api.post("/api/brain/auto-capture/toggle", json={"enabled": True})
+    payload = api.post("/api/chat", json={"message": "okay"}).json()
+    assert not any(str(receipt["action"]).startswith("brain.memory") for receipt in payload["receipts"])
+    assert not any(card["title"].startswith("Memory") for card in payload["data"]["assistant_message"]["cards"])
+
+
+def test_candidate_and_event_filters_work() -> None:
+    api = client()
+    api.post("/api/brain/auto-capture/toggle", json={"enabled": True})
+    phrase = f"phase3 filter direct answers {uuid4().hex[:8]}"
+    api.post("/api/chat", json={"message": f"I prefer {phrase}."})
+    candidates = api.get("/api/brain/candidates?decision=auto_save").json()
+    events = api.get("/api/brain/events?event_type=auto_saved").json()
+    assert candidates["status"] == "ready"
+    assert any(phrase in item["summary"] for item in candidates["data"])
+    assert any(phrase in item["event_summary"] for item in events["data"])
+
+
+def test_phase3_github_and_self_build_routes_not_stolen_by_auto_capture() -> None:
+    api = client()
+    api.post("/api/brain/auto-capture/toggle", json={"enabled": True})
+    github = api.post("/api/chat", json={"message": "github status and remember direct answers"}).json()
+    self_build = api.post("/api/chat", json={"message": "self-build proposal and I prefer direct answers"}).json()
+    assert github["receipts"][0]["metadata"]["kernel_lane"] == "github_status"
+    assert self_build["receipts"][0]["metadata"]["kernel_lane"] == "self_build"
+    assert not any(receipt["action"] == "brain.memory_auto_saved" for receipt in github["receipts"])
+    assert not any(receipt["action"] == "brain.memory_auto_saved" for receipt in self_build["receipts"])
