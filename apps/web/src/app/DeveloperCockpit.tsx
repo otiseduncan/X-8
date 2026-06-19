@@ -2,7 +2,7 @@ import { Activity, Boxes, Code2, FileText, GitBranch, Image, Search, Server, Shi
 import { useEffect, useMemo, useState } from 'react';
 import { CodeEditor } from '../components/cockpit/CodeEditor';
 import { StatusPill } from '../components/ui/StatusPill';
-import { approveBrainMemory, deleteBrainMemory, loadBrainCandidates, loadBrainEmbeddingStatus, loadBrainEvents, loadBrainMemories, reactivateBrainMemory, rejectBrainMemory, reindexBrainMemories, retrieveBrainMemory, toggleBrainAutoCapture, updateBrainFocus, updateBrainMemory } from '../services/apiClient';
+import { approveBrainMemory, createContinuityHandoff, createContinuityTask, deleteBrainMemory, loadBrainCandidates, loadBrainEmbeddingStatus, loadBrainEvents, loadBrainMemories, loadContinuityRecords, loadContinuityStatus, reactivateBrainMemory, rejectBrainMemory, reindexBrainMemories, retrieveBrainMemory, toggleBrainAutoCapture, updateBrainFocus, updateBrainMemory, updateContinuityRecord } from '../services/apiClient';
 import type { ChatCard, ChatMessage } from './AssistantComponents';
 import { Panel } from './AssistantComponents';
 
@@ -195,6 +195,10 @@ function BrainMemoryPanel({ memoryStatus, memoryDetails, brainDetails }: { memor
   const [actionStatus, setActionStatus] = useState('No memory action run yet.');
   const [retrievalProof, setRetrievalProof] = useState<Record<string, unknown> | null>(null);
   const [embeddingStatus, setEmbeddingStatus] = useState<Record<string, unknown>>({});
+  const [continuityStatus, setContinuityStatus] = useState<Record<string, unknown>>({});
+  const [continuityRecords, setContinuityRecords] = useState<Array<Record<string, unknown>>>([]);
+  const [taskDraft, setTaskDraft] = useState('');
+  const [handoffNote, setHandoffNote] = useState('');
   const [autoCapture, setAutoCapture] = useState(Boolean(brainDetails.auto_capture_enabled));
   const selected = records.find((record) => record.id === selectedId) || records[0];
   const selectedCandidate = candidates.find((candidate) => candidate.id === selectedCandidateId) || candidates[0];
@@ -233,11 +237,13 @@ function BrainMemoryPanel({ memoryStatus, memoryDetails, brainDetails }: { memor
   const scopes = Array.from(new Set(records.flatMap((record) => [record.project_scope, record.session_scope]).filter(Boolean).map(String))).sort();
 
   async function refresh() {
-    const [response, candidateResponse, eventResponse, embeddingResponse] = await Promise.all([
+    const [response, candidateResponse, eventResponse, embeddingResponse, continuityResponse, continuityRecordResponse] = await Promise.all([
       loadBrainMemories({ include_deleted: 'true' }),
       loadBrainCandidates(candidateFilter ? { decision: candidateFilter } : {}),
       loadBrainEvents({}),
-      loadBrainEmbeddingStatus()
+      loadBrainEmbeddingStatus(),
+      loadContinuityStatus(),
+      loadContinuityRecords({})
     ]);
     const next = (response.data || []) as BrainRecord[];
     setRecords(next);
@@ -247,6 +253,8 @@ function BrainMemoryPanel({ memoryStatus, memoryDetails, brainDetails }: { memor
     if (!selectedCandidateId && nextCandidates[0]) setSelectedCandidateId(nextCandidates[0].id);
     setEvents(eventResponse.data || []);
     setEmbeddingStatus(embeddingResponse.data || {});
+    setContinuityStatus(continuityResponse.data || {});
+    setContinuityRecords(continuityRecordResponse.data || []);
   }
 
   async function runAction(label: string, action: () => Promise<unknown>) {
@@ -287,6 +295,27 @@ function BrainMemoryPanel({ memoryStatus, memoryDetails, brainDetails }: { memor
     await runAction('Active focus updated.', () => updateBrainFocus(value));
   }
 
+  async function addTask() {
+    if (!taskDraft.trim()) return;
+    await runAction('Continuity task saved.', () => createContinuityTask(taskDraft.trim()));
+    setTaskDraft('');
+  }
+
+  async function completeTask(id: string) {
+    await runAction('Continuity task completed.', () => updateContinuityRecord(id, { status: 'done', active: false }));
+  }
+
+  async function archiveTask(id: string) {
+    await runAction('Continuity task archived.', () => updateContinuityRecord(id, { status: 'archived', active: false, soft_deleted: true }));
+  }
+
+  async function createHandoff() {
+    const response = await createContinuityHandoff();
+    setHandoffNote(String((response.data || {}).handoff || response.message || 'Handoff created.'));
+    setActionStatus('Continuity handoff created.');
+    await refresh();
+  }
+
   async function toggleCapture(enabled: boolean) {
     const response = await toggleBrainAutoCapture(enabled);
     setAutoCapture(Boolean((response.data || {}).auto_capture_enabled));
@@ -297,6 +326,13 @@ function BrainMemoryPanel({ memoryStatus, memoryDetails, brainDetails }: { memor
   const latestRetrieval = retrievalProof || (brainDetails.latest_retrieval as Record<string, unknown> | null);
   const lastEvent = brainDetails.last_memory_event as Record<string, unknown> | undefined;
   const latestAuto = brainDetails.latest_auto_capture_event as Record<string, unknown> | undefined;
+  const currentProject = continuityStatus.current_project as Record<string, unknown> | null;
+  const nextStep = continuityStatus.next_step as Record<string, unknown> | null;
+  const blockers = Array.isArray(continuityStatus.active_blockers) ? continuityStatus.active_blockers as Array<Record<string, unknown>> : [];
+  const tasks = Array.isArray(continuityStatus.active_tasks) ? continuityStatus.active_tasks as Array<Record<string, unknown>> : continuityRecords.filter((record) => record.record_type === 'task' && record.status === 'active');
+  const decisions = Array.isArray(continuityStatus.recent_decisions) ? continuityStatus.recent_decisions as Array<Record<string, unknown>> : [];
+  const lastValidation = continuityStatus.last_validation_checkpoint as Record<string, unknown> | null;
+  const latestCommit = continuityStatus.latest_commit_checkpoint as Record<string, unknown> | null;
 
   return (
     <Panel icon={<ShieldCheck />} title="Brain / Memory">
@@ -349,6 +385,34 @@ function BrainMemoryPanel({ memoryStatus, memoryDetails, brainDetails }: { memor
           <button className="chipButton" onClick={() => void reindex()}>Reindex active memories</button>
           <button className="chipButton" onClick={() => void toggleCapture(false)}>Disable auto-capture</button>
           <button className="chipButton" onClick={() => void toggleCapture(true)}>Enable auto-capture</button>
+        </section>
+
+        <section className="memoryDetail" aria-label="Continuity panel">
+          <header><strong>Continuity</strong><span>{String(continuityStatus.continuity_ready ?? false)}</span></header>
+          <div className="brainStatusGrid">
+            <div className="row"><strong>Current project</strong><span>{String(currentProject?.summary || 'none')}</span></div>
+            <div className="row"><strong>Next step</strong><span>{String(nextStep?.summary || 'none')}</span></div>
+            <div className="row"><strong>Active blockers</strong><span>{blockers.map((item) => String(item.summary)).join('; ') || 'none'}</span></div>
+            <div className="row"><strong>Last validation checkpoint</strong><span>{String(lastValidation?.summary || 'none')}</span></div>
+            <div className="row"><strong>Recent decisions</strong><span>{decisions.map((item) => String(item.summary)).join('; ') || 'none'}</span></div>
+            <div className="row"><strong>Latest commit checkpoint</strong><span>{String(latestCommit?.summary || 'none')}</span></div>
+          </div>
+          <div className="brainToolbar">
+            <input aria-label="New continuity task" value={taskDraft} onChange={(event) => setTaskDraft(event.target.value)} placeholder="Add task" />
+            <button className="chipButton" onClick={() => void addTask()}>Add task</button>
+            <button className="chipButton" onClick={() => void createHandoff()}>Create handoff note</button>
+          </div>
+          <div className="memoryRecords compact" aria-label="Continuity tasks">
+            {tasks.slice(0, 8).map((task) => (
+              <div key={String(task.id)} className="memoryRow">
+                <strong>{String(task.title || task.summary || task.id)}</strong>
+                <span>{String(task.summary || '').slice(0, 120)}</span>
+                <small>{String(task.status || 'active')} / {dateLabel(task.updated_at)}</small>
+                <div className="inlineActions"><button className="chipButton" onClick={() => void completeTask(String(task.id))}>Complete</button><button className="chipButton" onClick={() => void archiveTask(String(task.id))}>Archive</button></div>
+              </div>
+            ))}
+          </div>
+          {handoffNote && <pre className="codeBlock smallBlock">{handoffNote}</pre>}
         </section>
 
         <section className="memoryRecords" aria-label="Memory records">

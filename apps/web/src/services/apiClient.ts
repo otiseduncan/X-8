@@ -229,6 +229,33 @@ export function loadBrainStatus() {
   return getJson<ResultEnvelope<Record<string, unknown>>>('/api/brain/status');
 }
 
+export function loadContinuityStatus() {
+  return getJson<ResultEnvelope<Record<string, unknown>>>('/api/brain/continuity/status');
+}
+
+export function loadContinuityRecords(params: Record<string, string> = {}) {
+  const query = new URLSearchParams(params);
+  return getJson<ResultEnvelope<Array<Record<string, unknown>>>>(`/api/brain/continuity/records${query.toString() ? `?${query}` : ''}`);
+}
+
+export async function createContinuityTask(summary: string) {
+  const response = await fetch('/api/brain/continuity/tasks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ summary }) });
+  if (!response.ok) throw new Error('Continuity task create failed');
+  return response.json() as Promise<ResultEnvelope<Record<string, unknown>>>;
+}
+
+export async function updateContinuityRecord(id: string, patch: Record<string, unknown>) {
+  const response = await fetch(`/api/brain/continuity/records/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch) });
+  if (!response.ok) throw new Error('Continuity record update failed');
+  return response.json() as Promise<ResultEnvelope<Record<string, unknown>>>;
+}
+
+export async function createContinuityHandoff() {
+  const response = await fetch('/api/brain/continuity/handoff', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
+  if (!response.ok) throw new Error('Continuity handoff failed');
+  return response.json() as Promise<ResultEnvelope<Record<string, unknown>>>;
+}
+
 export function loadBrainMemories(params: Record<string, string> = {}) {
   const query = new URLSearchParams(params);
   return getJson<ResultEnvelope<Array<Record<string, unknown>>>>(`/api/brain/memories${query.toString() ? `?${query}` : ''}`);

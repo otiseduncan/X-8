@@ -600,3 +600,74 @@ def test_retrieval_proof_and_embedding_routes_are_stable() -> None:
     assert {"retrieval_mode", "memory_ids_used", "fallback_used", "fallback_reason", "embedding_available", "embedding_model", "semantic_index_count"} <= set(proof)
     assert "embedding_json" not in str(status)
     assert "embedding_json" not in str(reindex)
+
+
+def test_phase5_continuity_project_next_blocker_validation_and_decision() -> None:
+    api = client()
+    marker = uuid4().hex[:8]
+    project = api.post("/api/brain/continuity/project-state", json={"summary": f"Brain V1 Phase 5 {marker}", "session_scope": marker}).json()
+    next_step = api.post("/api/chat", json={"session_id": marker, "message": f"the next step is Phase 5 validation {marker}"}).json()
+    blocker = api.post("/api/chat", json={"session_id": marker, "message": f"the blocker is Docker Desktop is offline {marker}"}).json()
+    validation = api.post("/api/chat", json={"session_id": marker, "message": f"we validated Phase 4 with 139 API tests passing {marker}"}).json()
+    decision = api.post("/api/chat", json={"session_id": marker, "message": f"decision: continuity records should be structured before calendar automation {marker}"}).json()
+    assert project["message"] == f"Saved current project state: Brain V1 Phase 5 {marker}."
+    assert next_step["data"]["assistant_message"]["content"] == f"Saved next step: Phase 5 validation {marker}."
+    assert blocker["data"]["assistant_message"]["content"] == f"Saved blocker: Docker Desktop is offline {marker}."
+    assert validation["data"]["assistant_message"]["content"] == f"Saved validation checkpoint: Phase 4 with 139 API tests passing {marker}."
+    assert decision["data"]["assistant_message"]["content"] == f"Saved decision: continuity records should be structured before calendar automation {marker}."
+    assert api.post("/api/chat", json={"session_id": marker, "message": "what are we currently working on?"}).json()["data"]["assistant_message"]["content"] == f"Current project state: Brain V1 Phase 5 {marker}."
+    assert api.post("/api/chat", json={"session_id": marker, "message": "what is the next step?"}).json()["data"]["assistant_message"]["content"] == f"Next step: Phase 5 validation {marker}."
+    assert api.post("/api/chat", json={"session_id": marker, "message": "what is blocked?"}).json()["data"]["assistant_message"]["content"] == f"Current blocker: Docker Desktop is offline {marker}."
+    assert api.post("/api/chat", json={"session_id": marker, "message": "what did we validate last?"}).json()["data"]["assistant_message"]["content"] == f"Last validation checkpoint: Phase 4 with 139 API tests passing {marker}."
+    assert marker in api.post("/api/chat", json={"session_id": marker, "message": "what did we decide about the brain?"}).json()["data"]["assistant_message"]["content"]
+
+
+def test_phase5_continuity_tasks_handoff_and_routes_are_stable() -> None:
+    api = client()
+    marker = uuid4().hex[:8]
+    task = api.post("/api/brain/continuity/tasks", json={"summary": f"write Phase 5 tests {marker}", "session_scope": marker}).json()
+    assert task["status"] == "passed"
+    patched = api.patch(f"/api/brain/continuity/tasks/{task['data']['id']}", json={"status": "done", "active": False}).json()
+    archived = api.delete(f"/api/brain/continuity/tasks/{task['data']['id']}").json()
+    api.post("/api/chat", json={"session_id": marker, "message": f"we are working on Brain V1 Phase 5 {marker}"})
+    api.post("/api/chat", json={"session_id": marker, "message": f"the next step is validation {marker}"})
+    api.post("/api/chat", json={"session_id": marker, "message": f"the blocker is no live browser connector {marker}"})
+    api.post("/api/chat", json={"session_id": marker, "message": f"we validated API tests {marker}"})
+    api.post("/api/chat", json={"session_id": marker, "message": f"decision: brain continuity stays structured {marker}"})
+    handoff = api.post("/api/brain/continuity/handoff", json={"session_scope": marker}).json()
+    assert patched["data"]["status"] == "done"
+    assert archived["data"]["soft_deleted"] is True
+    assert "Handoff note:" in handoff["data"]["handoff"]
+    assert f"Brain V1 Phase 5 {marker}" in handoff["data"]["handoff"]
+    assert f"validation {marker}" in handoff["data"]["handoff"]
+    assert f"no live browser connector {marker}" in handoff["data"]["handoff"]
+
+
+def test_phase5_next_step_updates_without_duplicates_and_blocker_clears() -> None:
+    api = client()
+    marker = uuid4().hex[:8]
+    api.post("/api/chat", json={"session_id": marker, "message": f"the next step is first step {marker}"})
+    api.post("/api/chat", json={"session_id": marker, "message": f"the next step is second step {marker}"})
+    records = api.get(f"/api/brain/continuity/records?record_type=next_step&session_scope={marker}").json()["data"]
+    assert len([item for item in records if item["status"] == "active"]) == 1
+    assert records[0]["summary"] == f"second step {marker}"
+    api.post("/api/chat", json={"session_id": marker, "message": f"the blocker is blocker {marker}"})
+    assert api.post("/api/chat", json={"session_id": marker, "message": "clear the blocker"}).json()["data"]["assistant_message"]["content"] == "Current blocker cleared."
+    assert api.post("/api/chat", json={"session_id": marker, "message": "what is blocked?"}).json()["data"]["assistant_message"]["content"] == "I don’t have a blocker saved yet."
+
+
+def test_phase5_auto_capture_and_secret_blocking_do_not_steal_guarded_routes() -> None:
+    api = client()
+    marker = uuid4().hex[:8]
+    captured = api.post("/api/chat", json={"session_id": marker, "message": f"we are working on captured continuity {marker}"}).json()
+    secret = f"ghp_{uuid4().hex}abc"
+    blocked = api.post("/api/chat", json={"session_id": marker, "message": f"the blocker is token {secret}"}).json()
+    github = api.post("/api/chat", json={"session_id": marker, "message": "github status and the next step is do not steal"}).json()
+    self_build = api.post("/api/chat", json={"session_id": marker, "message": "create a self-build proposal to improve continuity routing"}).json()
+    memory = api.post("/api/chat", json={"session_id": marker, "message": f"remember that I prefer continuity tests {marker}"}).json()
+    assert captured["receipts"][0]["metadata"]["kernel_lane"] == "brain_continuity"
+    assert blocked["data"]["assistant_message"]["content"] == "I can’t save secrets or credentials in continuity memory."
+    assert secret not in str(blocked)
+    assert github["receipts"][0]["metadata"]["kernel_lane"] == "github_status"
+    assert self_build["receipts"][0]["metadata"]["kernel_lane"] == "self_build"
+    assert memory["receipts"][0]["metadata"]["kernel_lane"] == "brain_remember"

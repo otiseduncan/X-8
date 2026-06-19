@@ -3,6 +3,7 @@ from fastapi import APIRouter, Request
 from x8.contracts.base import ResultEnvelope
 from x8.contracts.chat import AttachmentReference, ChatRequest, ChatResponse, ChatRoleMessage, PromptReceipt
 from x8.contracts.receipts import Receipt
+from x8.brain.continuity_manager import BrainContinuityManager
 from x8.brain.memory_manager import BrainMemoryManager
 from x8.brain.embedding_client import OllamaEmbeddingClient
 from x8.kernel.brain_context import BrainContextAssembler
@@ -64,7 +65,8 @@ def _kernel(request: Request) -> XV8Kernel:
         retrieval_max_results=settings.memory_retrieval_max_results,
         retrieval_min_score=settings.memory_retrieval_min_score,
     )
-    return XV8Kernel(context, ModelRouter(OllamaAdapter(settings.ollama_base_url), profiles), brain_manager=brain_manager)
+    continuity_manager = BrainContinuityManager(settings.database_url)
+    return XV8Kernel(context, ModelRouter(OllamaAdapter(settings.ollama_base_url), profiles), brain_manager=brain_manager, continuity_manager=continuity_manager)
 
 
 @router.post("/chat", response_model=ResultEnvelope[ChatResponse])

@@ -246,6 +246,28 @@ test('Brain auto-capture saves deduplicates gates secrets and respects toggle', 
   await request.post('/api/brain/auto-capture/toggle', { data: { enabled: true } });
 });
 
+test('Brain continuity saves next step blocker validation and handoff', async ({ page, request }) => {
+  const stamp = Date.now().toString();
+  await page.goto('/');
+  await ask(page, `we are working on Brain V1 Phase 5 ${stamp}`);
+  await expect(page.getByText(`Saved current project state: Brain V1 Phase 5 ${stamp}.`)).toBeVisible({ timeout: 30000 });
+  await ask(page, `the next step is Phase 5 validation ${stamp}`);
+  await expect(page.getByText(`Saved next step: Phase 5 validation ${stamp}.`)).toBeVisible();
+  await ask(page, `the blocker is no live browser connector ${stamp}`);
+  await expect(page.getByText(`Saved blocker: no live browser connector ${stamp}.`)).toBeVisible();
+  await ask(page, `we validated Phase 4 with 139 API tests passing ${stamp}`);
+  await expect(page.getByText(`Saved validation checkpoint: Phase 4 with 139 API tests passing ${stamp}.`)).toBeVisible();
+  await ask(page, 'what is the next step?');
+  await expect(page.getByText(`Next step: Phase 5 validation ${stamp}.`)).toBeVisible();
+  await ask(page, 'what is blocked?');
+  await expect(page.getByText(`Current blocker: no live browser connector ${stamp}.`)).toBeVisible();
+  const handoff = await (await request.post('/api/brain/continuity/handoff', { data: {} })).json();
+  expect(handoff.data.handoff).toContain('Handoff note:');
+  await page.getByRole('button', { name: /^Info/ }).click();
+  await page.getByRole('button', { name: /settings/i }).click();
+  await expect(page.getByLabel('Continuity panel')).toContainText(`Brain V1 Phase 5 ${stamp}`);
+});
+
 test('Brain semantic retrieval indexes approved memory and excludes inactive records', async ({ request }) => {
   const embeddingStatus = await (await request.get('/api/brain/embedding-status')).json();
   test.skip(!embeddingStatus.data?.available, `Embedding unavailable: ${embeddingStatus.data?.failure_reason || 'unknown'}`);

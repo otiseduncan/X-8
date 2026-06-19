@@ -1,6 +1,7 @@
 import re
 from datetime import datetime, timezone
 
+from x8.brain.continuity_manager import BrainContinuityManager
 from x8.brain.memory_manager import BrainMemoryManager
 from x8.kernel.context_assembler import KernelContextAssembler
 from x8.kernel.contracts import KernelDecision, KernelRequest, KernelResponse, KernelTrace, ResponseCard
@@ -25,6 +26,7 @@ class XV8Kernel:
         receipt_builder: KernelReceiptBuilder | None = None,
         event_bus: EventBus | None = None,
         brain_manager: BrainMemoryManager | None = None,
+        continuity_manager: BrainContinuityManager | None = None,
     ) -> None:
         self.context_assembler = context_assembler
         self.model_router = model_router
@@ -34,6 +36,7 @@ class XV8Kernel:
         self.receipt_builder = receipt_builder or KernelReceiptBuilder()
         self.events = event_bus or EventBus()
         self.brain_manager = brain_manager
+        self.continuity_manager = continuity_manager
 
     def handle(self, request: KernelRequest) -> KernelResponse:
         started_at = datetime.now(timezone.utc)
@@ -47,7 +50,9 @@ class XV8Kernel:
         model_status, selection = self.model_router.select(lane)
         self.events.emit("model_selected", model=selection.selected_model, ready=selection.model_ready)
         brain_result = self._brain_command_result(request, lane)
-        deterministic = (brain_result.message, brain_result.status if brain_result.status != "approval_required" else "passed", brain_result.limitations) if brain_result and brain_result.handled else self._deterministic_response(request, lane, context.context_bundle)
+        continuity_result = self._continuity_command_result(request, lane)
+        command_result = brain_result if brain_result and brain_result.handled else continuity_result
+        deterministic = (command_result.message, command_result.status if command_result.status != "approval_required" else "passed", getattr(command_result, "limitations", [])) if command_result and command_result.handled else self._deterministic_response(request, lane, context.context_bundle)
         deterministic_used = deterministic is not None
         content, status, limitations = deterministic or self._respond(selection, context.prompt)
         model_status.selected_model = selection.selected_model
@@ -67,11 +72,19 @@ class XV8Kernel:
         if brain_result and brain_result.handled:
             cards.extend(brain_result.cards)
             extra_receipts.extend(brain_result.receipts)
+        if continuity_result and continuity_result.handled:
+            cards.extend(continuity_result.cards)
+            extra_receipts.extend(continuity_result.receipts)
         if self.brain_manager and not lane.startswith("brain_"):
             auto_capture = self.brain_manager.auto_capture(request.user_message, lane=lane, session_id=request.session_id or "")
             if auto_capture.handled:
                 cards.extend(auto_capture.cards)
                 extra_receipts.extend(auto_capture.receipts)
+        if self.continuity_manager and not lane.startswith("brain_"):
+            continuity_capture = self.continuity_manager.auto_capture(request.user_message, lane=lane, session_id=request.session_id or "")
+            if continuity_capture.handled:
+                cards.extend(continuity_capture.cards)
+                extra_receipts.extend(continuity_capture.receipts)
         tools = [tool_intent.name] if tool_intent else []
         receipt = self.receipt_builder.build(
             lane=lane,
@@ -113,7 +126,9 @@ class XV8Kernel:
     def _deterministic_response(self, request: KernelRequest, lane: str, bundle) -> tuple[str, str, list[str]] | None:
         lower = request.user_message.lower().strip()
         if lane.startswith("brain_"):
-            if not self.brain_manager and lane != "brain_focus_query":
+            if lane == "brain_continuity" and not self.continuity_manager:
+                return "Brain continuity is unavailable right now.", "unavailable", ["Brain continuity manager unavailable."]
+            if not self.brain_manager and lane != "brain_continuity":
                 return "Brain memory is unavailable right now.", "unavailable", ["Brain manager unavailable."]
         if lower in {"hi", "hi xv8", "hello", "hello xv8", "hey", "hey xv8", "good morning", "good afternoon", "good evening"}:
             return "Hello. I'm XV8.", "passed", []
@@ -148,9 +163,14 @@ class XV8Kernel:
         return None
 
     def _brain_command_result(self, request: KernelRequest, lane: str):
-        if not lane.startswith("brain_") or not self.brain_manager:
+        if lane == "brain_continuity" or not lane.startswith("brain_") or not self.brain_manager:
             return None
         return self.brain_manager.handle_chat_command(request.user_message, session_id=request.session_id or "")
+
+    def _continuity_command_result(self, request: KernelRequest, lane: str):
+        if lane != "brain_continuity" or not self.continuity_manager:
+            return None
+        return self.continuity_manager.handle_chat_command(request.user_message, session_id=request.session_id or "")
 
     def _cards(self, lane: str, status: str, limitations: list[str], request: KernelRequest) -> list[ResponseCard]:
         cards: list[ResponseCard] = []

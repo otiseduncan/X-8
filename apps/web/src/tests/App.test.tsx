@@ -125,6 +125,16 @@ function mockRuntime() {
                                               ? { enabled: true, available: true, embedding_model: 'nomic-embed-text:latest', indexed_memory_count: 2, failure_reason: '' }
                                             : String(path).includes('brain/reindex')
                                               ? { indexed: 2, skipped: 0, embedding_status: { available: true, indexed_memory_count: 2 } }
+                                            : String(path).includes('brain/continuity/status')
+                                              ? { continuity_ready: true, current_project: { summary: 'Brain V1 Phase 5' }, next_step: { summary: 'Phase 5 validation' }, active_blockers: [{ summary: 'no live browser connector' }], active_tasks: [{ id: 'cont_task_1', title: 'Phase 5 task', summary: 'wire continuity panel', status: 'active', updated_at: new Date().toISOString() }], last_validation_checkpoint: { summary: '139 API tests passing' }, recent_decisions: [{ summary: 'structured before calendar automation' }], latest_commit_checkpoint: { summary: '56858f7 Brain V4' } }
+                                            : String(path).includes('brain/continuity/records') && options?.method === 'PATCH'
+                                              ? { id: 'cont_task_1', summary: 'wire continuity panel', status: text.status || 'done', active: text.active ?? false }
+                                            : String(path).includes('brain/continuity/records')
+                                              ? [{ id: 'cont_task_1', record_type: 'task', title: 'Phase 5 task', summary: 'wire continuity panel', status: 'active', updated_at: new Date().toISOString() }]
+                                            : String(path).includes('brain/continuity/tasks')
+                                              ? { id: 'cont_task_2', record_type: 'task', title: text.summary, summary: text.summary, status: 'active' }
+                                            : String(path).includes('brain/continuity/handoff')
+                                              ? { handoff: 'Handoff note:\\n- Current project: Brain V1 Phase 5' }
                                             : String(path).includes('brain/status')
                                               ? { brain_ready: true, storage_backend: 'postgres', active_memory_count: 2, pending_approval_count: 1, active_focus: 'Brain V1 Batch 1', last_memory_event: { event_type: 'auto_saved' }, latest_auto_capture_event: { decision: 'auto_save', reason: 'Clear low-risk preference.' }, last_ignored_or_blocked_reason: 'Low-value chatter.', auto_capture_enabled: true, auto_capture_min_confidence: 0.7, auto_capture_max_per_turn: 3, semantic_retrieval_enabled: true, embedding_available: true, indexed_memory_count: 2, embedding_model: 'nomic-embed-text:latest', last_embedding_event: { event_type: 'embedding_indexed' }, latest_retrieval: { retrieval_mode: 'semantic', selected_ids: ['brain_mem_active'], scores: [0.91], fallback_reason: '', embedding_model: 'nomic-embed-text:latest' } }
                                               : String(path).includes('brain/auto-capture/toggle')
@@ -300,6 +310,11 @@ test('Brain memory panel searches filters opens detail and runs actions', async 
   expect(screen.getByText('Brain V1 Batch 1')).toBeInTheDocument();
   expect(screen.getByText('Latest auto-capture event')).toBeInTheDocument();
   expect(screen.getByText('auto_save')).toBeInTheDocument();
+  expect(screen.getByLabelText('Continuity panel')).toBeInTheDocument();
+  expect(screen.getByText('Brain V1 Phase 5')).toBeInTheDocument();
+  expect(screen.getByText('Phase 5 validation')).toBeInTheDocument();
+  expect(screen.getByText('no live browser connector')).toBeInTheDocument();
+  expect(screen.getByText('139 API tests passing')).toBeInTheDocument();
   expect(screen.getByText('Semantic retrieval')).toBeInTheDocument();
   expect(screen.getByText('Embedding available')).toBeInTheDocument();
   expect(screen.getByText('Indexed memories')).toBeInTheDocument();
@@ -334,6 +349,11 @@ test('Brain memory panel searches filters opens detail and runs actions', async 
   await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/brain/auto-capture/toggle', expect.objectContaining({ method: 'POST' })));
   fireEvent.click(screen.getByRole('button', { name: /reindex active memories/i }));
   await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/brain/reindex', expect.objectContaining({ method: 'POST' })));
+  fireEvent.change(screen.getByLabelText('New continuity task'), { target: { value: 'new continuity task' } });
+  fireEvent.click(screen.getByRole('button', { name: /add task/i }));
+  await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/brain/continuity/tasks', expect.objectContaining({ method: 'POST' })));
+  fireEvent.click(screen.getByRole('button', { name: /create handoff note/i }));
+  await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/brain/continuity/handoff', expect.objectContaining({ method: 'POST' })));
   expect(screen.getByRole('button', { name: /supersede unavailable/i })).toBeDisabled();
   expect(document.body).not.toHaveTextContent(/ghp_/i);
   expect(document.body).not.toHaveTextContent(/embedding_json/i);
