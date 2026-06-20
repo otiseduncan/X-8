@@ -21,6 +21,10 @@
   padding: 12px 14px;
 }
 
+.chatTimeline:has(.message.assistant:last-child) + .thinkingIndicator {
+  display: none;
+}
+
 .thinkingIndicator.caution {
   border-color: var(--color-warning);
 }
