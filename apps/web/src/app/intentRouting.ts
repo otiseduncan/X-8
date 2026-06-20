@@ -65,11 +65,22 @@ export function isGitHubRequest(lower: string) {
     || isGitHubCreateRepoRequest(lower);
 }
 
+function firstQuotedValue(text: string) {
+  for (const quote of ['"', "'", '`']) {
+    const start = text.indexOf(quote);
+    if (start < 0) continue;
+    const end = text.indexOf(quote, start + 1);
+    if (end > start + 1) return text.slice(start + 1, end);
+  }
+  return '';
+}
+
 export function parseGitHubCreateRepo(text: string, configuredOwner: string) {
+  const quoted = firstQuotedValue(text);
   const named = text.match(/\bnamed\s+([A-Za-z0-9_.-]+)/i);
   const ownerMatch = text.match(/\bowner\s+([A-Za-z0-9_.-]+)/i) || text.match(/\bunder\s+([A-Za-z0-9_.-]+)/i);
   return {
-    repo_name: (named?.[1] || 'xv8-lab-repo').trim(),
+    repo_name: (quoted || named?.[1] || 'xv8-lab-repo').trim(),
     owner: ownerMatch?.[1] || configuredOwner,
     visibility: /\bpublic\b/i.test(text) ? 'public' : 'private'
   };
