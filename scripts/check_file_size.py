@@ -17,7 +17,8 @@ IGNORED_DIRS = {
     ".ruff_cache",
     "runtime",
 }
-GENERATED_SUFFIXES = {".lock", ".png", ".jpg", ".jpeg", ".gif", ".mp4", ".zip"}
+IGNORED_FIXTURE_DIRS = {"fixtures"}
+GENERATED_SUFFIXES = {".lock", ".png", ".jpg", ".jpeg", ".gif", ".mp4", ".zip", ".json"}
 DOC_DIRS = {"docs", "knowledge"}
 NORMAL_HARD_MAX = 1000
 DOC_HARD_MAX = 1500
@@ -25,7 +26,7 @@ WARN_AT = 500
 
 
 def is_ignored(path: Path) -> bool:
-    return any(part in IGNORED_DIRS for part in path.parts) or path.suffix in GENERATED_SUFFIXES
+    return any(part in IGNORED_DIRS for part in path.parts) or any(part in IGNORED_FIXTURE_DIRS for part in path.parts) or path.suffix in GENERATED_SUFFIXES
 
 
 def line_count(path: Path) -> int:

@@ -14,6 +14,8 @@ class ResponsePlanner:
             "body status",
             "check local system",
             "check my computer",
+            "show your body",
+            "show body status",
         ),
         "github_create_repo": ("create-repo", "create repo", "create github repo", "create a github repo proposal", "github repo proposal", "new github repository", "private disposable repo"),
         "github_connect_init": ("connect this repo", "connect remote", "initialize this as a repo", "init repo"),
@@ -53,10 +55,10 @@ class ResponsePlanner:
         ),
         "image_generation": ("image", "generate picture", "generate image"),
         "artifact_preview": ("website preview", "preview only", "html preview"),
-        "web_search": ("search", "searxng", "web research"),
+        "web_search": ("search", "searxng", "web research", "browse the web", "search the web", "search online", "look up"),
         "repo_inspection": ("open readme", "read file", "show file"),
         "approval_required_action": ("edit file", "apply patch", "delete"),
-        "operator_blocked": ("run shell", "run powershell", "run cmd", "arbitrary shell", "rm -rf", "commit and push", "send email", "send sms", "remote control"),
+        "operator_blocked": ("run shell", "run powershell", "run cmd", "arbitrary shell", "rm -rf", "commit and push", "send sms", "remote control"),
         "attachment_question": ("attachment", "attached", "use this"),
         "model_status_request": ("what model", "model status", "using"),
         "reasoning": ("reason through", "deep plan", "think deeply", "architecture plan"),
@@ -73,6 +75,17 @@ class ResponsePlanner:
             return "project_builder"
         if "say github" in lower:
             return "normal_chat"
+        # Priority 1: GitHub and self-build routes beat brain_continuity
+        for priority_lane in ("github_status", "github_create_repo", "github_connect_init", "github_push", "github_pull", "self_build"):
+            needles = self.LANES.get(priority_lane, ())
+            if any(needle in lower for needle in needles):
+                return priority_lane
+        # Priority 2: Explicit brain write/read commands (remember/forget/retrieve/focus) beat normal LANES
+        for brain_lane in ("brain_remember", "brain_forget", "brain_retrieve", "brain_focus_update"):
+            needles = self.LANES.get(brain_lane, ())
+            if any(needle in lower for needle in needles):
+                return brain_lane
+        # Priority 3: All remaining LANES in order (brain_continuity included)
         for lane, needles in self.LANES.items():
             if any(needle in lower for needle in needles):
                 return lane
@@ -85,6 +98,9 @@ class ResponsePlanner:
         if "self-build" in lower or "self build" in lower:
             return False
         if "preview only" in lower or "do not write files" in lower or "no files" in lower:
+            return False
+        # Brain commands starting with explicit brain triggers take precedence
+        if lower.startswith(("remember that ", "remember this ", "forget that ", "forget this ", "update your focus to ", "what do you remember")):
             return False
         has_build_intent = any(marker in lower for marker in build_markers)
         has_project_intent = any(marker in lower for marker in project_markers)

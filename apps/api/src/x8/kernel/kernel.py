@@ -72,8 +72,8 @@ class XV8Kernel:
             model_status.failure_reason = selection.reason_if_unavailable
         if not deterministic_used:
             limitations.extend(context.context_bundle.limitations)
-        if model_status.failure_reason and model_status.failure_reason not in limitations:
-            limitations.append(model_status.failure_reason)
+            if model_status.failure_reason and model_status.failure_reason not in limitations:
+                limitations.append(model_status.failure_reason)
         cards = self._cards(lane, status, limitations, request)
         extra_receipts = []
         if brain_result and brain_result.handled:
@@ -137,8 +137,8 @@ class XV8Kernel:
         if "currently working on" in lower or "what are we working on" in lower or "current task" in lower:
             recent = [item for item in bundle.session_context if item.strip()][-4:]
             if not recent:
-                return "I do not have an explicit active task recorded in this XV8 chat yet.", "passed", []
-            return "Current XV8 chat context is based on recent messages:\n" + "\n".join(f"- {item}" for item in recent), "passed", []
+                return "I do not have an explicit active task recorded in this session yet.", "passed", []
+            return "Current session context is based on recent messages:\n" + "\n".join(f"- {item}" for item in recent), "passed", []
         if lane.startswith("brain_"):
             if lane == "brain_continuity" and not self.continuity_manager:
                 return "Brain continuity is unavailable right now.", "unavailable", ["Brain continuity manager unavailable."]
@@ -148,29 +148,47 @@ class XV8Kernel:
             return self._local_system_body_response(request)
         if lower in {"hi", "hi xv8", "hi x", "hello", "hello xv8", "hello x", "hey", "hey xv8", "hey x", "good morning", "good afternoon", "good evening"}:
             return "Hello. I'm X. I'm here and ready.", "passed", []
-        if "what is your name" in lower or "who are you" in lower:
-            return "I'm X. I'm Otis's local assistant and operator cockpit.", "passed", []
+        if "what is your name" in lower or lower in {"who are you", "who are you?"}:
+            return "I'm X — Otis's local assistant, project builder, and operator cockpit.", "passed", []
+        if "what should i call you" in lower or "what do i call you" in lower:
+            return "Call me X. That's Otis's short name for me.", "passed", []
+        if "what are you built for" in lower or "what are you for" in lower:
+            return "X is built for Otis: local AI workstation, project builder, code review, research, and operator cockpit.", "passed", []
+        if "what is your role" in lower or "what is your purpose" in lower:
+            return "X's role: Otis's personal AI assistant \u2014 local-first, honest about capability state, approval-gated for writes and pushes.", "passed", []
+        if "say your name" in lower or "tell me your name" in lower:
+            return "X.", "passed", []
+        if "who is xoduz" in lower:
+            return "Xoduz — short name X — is Otis Duncan's local AI assistant and operator cockpit.", "passed", []
         if "how do you pronounce" in lower and "xoduz" in lower:
             return "Xoduz is pronounced Exodus.", "passed", []
         if "short name" in lower and ("xoduz" in lower or "your" in lower):
             return "My short name is X.", "passed", []
-        if "are you chatgpt" in lower:
-            return "No. I'm X, Otis's local assistant and operator cockpit.", "passed", []
-        if ("who is otis" in lower or "who do you assist" in lower or "who are you for" in lower) and "otis" in lower:
-            return "I am Otis Duncan's personal assistant, local AI workstation, project builder, and operator cockpit.", "passed", []
+        if "are you chatgpt" in lower or "are you gpt" in lower:
+            return "No. I'm X, Otis's local assistant and operator cockpit. Not ChatGPT.", "passed", []
+        if ("who do you assist" in lower or "who are you for" in lower) and "otis" in lower:
+            return "I'm Otis Duncan's personal assistant, local AI workstation, project builder, and operator cockpit.", "passed", []
+        if any(phrase in lower for phrase in ("can you write files", "can you write to disk", "can you save files outside")):
+            return "Writes outside the sandbox require explicit approval. Inside the project-builder sandbox path, I can write with your approval.", "passed", []
+        if any(phrase in lower for phrase in ("can you push to github", "can you push to git", "can you push this")):
+            return "GitHub push requires approval. I can preview the push and create an approval card — no write runs until you click approve.", "passed", []
+        if any(phrase in lower for phrase in ("can you generate an image", "can you generate images", "can you make an image")):
+            return "Image generation routes to ComfyUI. Status is reported honestly — if ComfyUI is unavailable, I will say so.", "passed", []
+        if any(phrase in lower for phrase in ("can you browse the web", "can you search the web", "can you search online")):
+            return "Web research routes to SearXNG. If the search backend is unavailable, I report that rather than faking results.", "passed", []
         if "email" in lower and any(term in lower for term in ("write", "draft", "compose", "send")):
             return (
                 "I can draft email content, but I cannot send email from this environment. "
                 "Share recipient, subject, and intent and I will return a ready-to-send draft.",
                 "passed",
-                ["External email sending is disabled."],
+                [],
             )
-        if any(term in lower for term in ("sms", "text message", "send text", "send sms")):
+        if any(term in lower for term in ("sms", "text message", "send text", "send sms", "send a text")):
             return (
-                "I can draft SMS content, but I cannot send text messages from this environment. "
-                "Share audience, tone, and key points and I will return a short draft.",
+                "X can draft SMS content, but cannot send text messages from this environment. "
+                "Share audience, tone, and key points and X will return a short draft.",
                 "passed",
-                ["External SMS sending is disabled."],
+                [],
             )
         if "say github" in lower:
             return "GitHub.", "passed", []
@@ -193,10 +211,10 @@ class XV8Kernel:
         if lane == "project_builder":
             return self._project_builder_response(request)
         if lane == "operator_blocked":
-            return "That operator action is blocked or approval-gated. Xoduz cannot run arbitrary shell, broad remote control, external sends, or automatic commit/push from chat.", "blocked", []
+            return "That action is blocked or approval-gated. X cannot run arbitrary shell, broad remote control, external sends, or automatic commit/push from chat.", "blocked", []
         if ("github" in lower and any(word in lower for word in ("access", "can you", "available", "status"))) or lower in {"github", "github?"}:
-            return ("XV8 has GitHub Ops routes for status, previews, and approval-gated writes. "
-                    "I should not claim GitHub is inaccessible; write operations still require explicit approval."), "passed", []
+            return ("X has GitHub Ops routes for status, previews, and approval-gated writes. "
+                    "Write operations require explicit approval before any mutation runs."), "passed", []
         if "generate a website" in lower and self._session_says_generate_preview(bundle.session_context):
             return "Website preview selected from your correction: generate means preview only, so no files will be written.", "passed", []
         if "build" in lower and "sandbox" in lower and self._session_says_generate_preview(bundle.session_context):

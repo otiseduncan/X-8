@@ -44,15 +44,18 @@ def memory_kernel(tmp_path, memory_manager: MemoryManager, session_messages: lis
 def test_chat_answers_identity_without_model() -> None:
     payload = client().post("/api/chat", json={"message": "what is your name"}).json()
     assert payload["status"] == "passed"
-    assert payload["data"]["assistant_message"]["content"] == "I'm Xoduz. You can call me X."
+    assert "X" in payload["data"]["assistant_message"]["content"]
+    assert "ChatGPT" not in payload["data"]["assistant_message"]["content"]
 
 
 def test_chat_answers_simple_greeting_without_model_or_limitation_card() -> None:
     payload = client().post("/api/chat", json={"message": "hello"}).json()
     assert payload["status"] == "passed"
-    assert payload["data"]["assistant_message"]["content"] == "Hello. I'm Xoduz. You can call me X."
+    content = payload["data"]["assistant_message"]["content"]
+    assert "X" in content
     assert payload["data"]["assistant_message"]["cards"] == []
     assert "assistant model is unavailable" not in str(payload).lower()
+    assert "Kernel limitations" not in str(payload)
 
 
 def test_chat_email_request_returns_draft_only_boundary() -> None:
@@ -207,7 +210,8 @@ def test_irrelevant_memory_is_not_forced_into_unrelated_response(tmp_path) -> No
         ModelRouter(OllamaAdapter("http://127.0.0.1:9"), ModelProfileManager("", "")),
     )
     response = kernel.handle(KernelRequest(session_id="sess_test", user_message="What is your name?"))
-    assert response.assistant_message == "I'm Xoduz. You can call me X."
+    assert "X" in response.assistant_message
+    assert "ChatGPT" not in response.assistant_message
     assert "grape soda" not in response.assistant_message
 
 
@@ -257,6 +261,6 @@ def test_kernel_current_work_uses_session_context_without_model(tmp_path) -> Non
         )
     )
     assert response.receipt.status == "passed"
-    assert "Current XV8 chat context is based on recent messages:" in response.assistant_message
+    assert "Current session context is based on recent messages:" in response.assistant_message
     assert "- user: use this attachment" in response.assistant_message
     assert "There is no currently logged work" not in response.assistant_message

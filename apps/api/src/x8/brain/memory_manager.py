@@ -169,12 +169,12 @@ class BrainMemoryManager:
 
     def handle_chat_command(self, message: str, session_id: str = "", project_scope: str = "") -> BrainCommandResult:
         lowered = message.strip().lower()
-        if lowered.startswith("remember that ") or lowered.startswith("remember this "):
-            content = re.sub(r"(?i)^remember (that|this)\s+", "", message.strip()).strip()
+        if lowered.startswith("remember that ") or lowered.startswith("remember this ") or lowered.startswith("remember this:"):
+            content = re.sub(r"(?i)^remember (that|this)[:]\s*", "", re.sub(r"(?i)^remember (that|this)\s+", "", message.strip()).strip()).strip()
             return self.remember(content, session_id=session_id, project_scope=project_scope)
-        if lowered.startswith("forget that ") or lowered.startswith("forget this "):
-            content = re.sub(r"(?i)^forget (that|this)\s+", "", message.strip()).strip()
-            return self.forget(content, project_scope=project_scope, session_scope=session_id)
+        if lowered.startswith("forget that ") or lowered.startswith("forget this ") or lowered == "forget that" or lowered == "forget this":
+            content = re.sub(r"(?i)^forget (that|this)\s*", "", message.strip()).strip()
+            return self.forget(content or message, project_scope=project_scope, session_scope=session_id)
         if lowered.startswith("what do you remember"):
             query = re.sub(r"(?i)^what do you remember( about)?\s*", "", message.strip()).strip(" ?")
             return self.retrieve(query or message, project_scope=project_scope, session_scope=session_id)

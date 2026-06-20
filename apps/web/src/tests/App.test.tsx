@@ -413,17 +413,17 @@ test('thinking indicator appears while a request is pending and resolves after s
 test('hello text-only response keeps thinking visible and routes through speech lifecycle', async () => {
   const original = vi.mocked(fetch).getMockImplementation();
   vi.mocked(fetch).mockImplementation((path: string, options?: { body?: BodyInit }) => {
-    if (String(path).includes('/api/chat')) return Promise.resolve({ ok: true, json: () => Promise.resolve({ status: 'passed', message: 'ok', receipts: [], data: { session_id: 'sess_hello', message_id: 'msg_hello', assistant_message: { role: 'assistant', content: "Hello. I'm XV8.", cards: [] }, receipt: { receipt_id: 'rcpt_hello', action_type: 'prompt_round_trip', status: 'passed', model: '', limitations: [] }, attachments: [] } }) } as Response);
+    if (String(path).includes('/api/chat')) return Promise.resolve({ ok: true, json: () => Promise.resolve({ status: 'passed', message: 'ok', receipts: [], data: { session_id: 'sess_hello', message_id: 'msg_hello', assistant_message: { role: 'assistant', content: "Hello. I'm X. I'm here and ready.", cards: [] }, receipt: { receipt_id: 'rcpt_hello', action_type: 'prompt_round_trip', status: 'passed', model: '', limitations: [] }, attachments: [] } }) } as Response);
     return original?.(path, options) as ReturnType<typeof fetch>;
   });
   render(<App />);
   await send('hello');
   expect(await screen.findByLabelText('XV8 thinking')).toBeInTheDocument();
-  expect(await screen.findByText("Hello. I'm XV8.")).toBeInTheDocument();
+  expect(await screen.findByText("Hello. I'm X. I'm here and ready.")).toBeInTheDocument();
   expect(screen.getByTestId('avatar-stage')).toHaveAttribute('data-avatar-state', 'thinking');
   expect(speechSynthesis.speak).not.toHaveBeenCalled();
   await waitFor(() => expect(speechSynthesis.speak).toHaveBeenCalled(), { timeout: 1200 });
-  expect(spokenUtterance?.text).toBe("Hello. I'm XV8.");
+  expect(spokenUtterance?.text).toBe("Hello. I'm X. I'm here and ready.");
   expect(spokenUtterance?.voice).toBe(femaleVoice);
   expect(screen.getByTestId('avatar-stage')).toHaveAttribute('data-avatar-state', 'speaking');
   expect(within(screen.getByLabelText('Audio diagnostics')).getByText('deterministic/text-only')).toBeInTheDocument();
@@ -435,13 +435,13 @@ test('hello text-only response keeps thinking visible and routes through speech 
 test('muted text-only response shows responded stage and speech skip reason', async () => {
   const original = vi.mocked(fetch).getMockImplementation();
   vi.mocked(fetch).mockImplementation((path: string, options?: { body?: BodyInit }) => {
-    if (String(path).includes('/api/chat')) return Promise.resolve({ ok: true, json: () => Promise.resolve({ status: 'passed', message: 'ok', receipts: [], data: { session_id: 'sess_muted', message_id: 'msg_muted', assistant_message: { role: 'assistant', content: "Hello. I'm XV8.", cards: [] }, receipt: { receipt_id: 'rcpt_muted', action_type: 'prompt_round_trip', status: 'passed', model: '', limitations: [] }, attachments: [] } }) } as Response);
+    if (String(path).includes('/api/chat')) return Promise.resolve({ ok: true, json: () => Promise.resolve({ status: 'passed', message: 'ok', receipts: [], data: { session_id: 'sess_muted', message_id: 'msg_muted', assistant_message: { role: 'assistant', content: "Hello. I'm X. I'm here and ready.", cards: [] }, receipt: { receipt_id: 'rcpt_muted', action_type: 'prompt_round_trip', status: 'passed', model: '', limitations: [] }, attachments: [] } }) } as Response);
     return original?.(path, options) as ReturnType<typeof fetch>;
   });
   render(<App />);
   fireEvent.click(within(openAudioControls()).getByRole('button', { name: /mute voice/i }));
   await send('hello');
-  expect(await screen.findByText("Hello. I'm XV8.")).toBeInTheDocument();
+  expect(await screen.findByText("Hello. I'm X. I'm here and ready.")).toBeInTheDocument();
   await waitFor(() => expect(screen.getByTestId('avatar-stage')).toHaveAttribute('data-avatar-state', 'responded'), { timeout: 1200 });
   expect(speechSynthesis.speak).not.toHaveBeenCalled();
   expect(within(screen.getByLabelText('Audio diagnostics')).getAllByText('Muted state prevented speech playback.').length).toBeGreaterThan(0);
