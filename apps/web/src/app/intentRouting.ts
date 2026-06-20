@@ -2,6 +2,7 @@ export function classifyRequest(text: string) {
   const lower = text.toLowerCase();
   if (isSelfBuildRequest(lower)) return 'self_build';
   if (isGitHubRequest(lower)) return 'github';
+  if (isIDERequest(lower)) return 'ide';
   if (lower.includes('open') && lower.includes('readme')) return 'file';
   if (lower.includes('propose') && (lower.includes('edit') || lower.includes('diff'))) return 'diff';
   if (isArtifactRequest(lower)) return 'artifact';
@@ -9,6 +10,29 @@ export function classifyRequest(text: string) {
   if (lower.includes('image') || lower.includes('generate')) return 'image';
   if (lower.includes('test') || lower.includes('testing')) return 'test';
   return 'chat';
+}
+
+export function isIDERequest(lower: string) {
+  const markers = [
+    'show repo tree',
+    'show workspace tree',
+    'show git status',
+    'git status',
+    'what branch are we on',
+    'current branch',
+    'show me the diff',
+    'show diff',
+    'run web tests',
+    'run api tests',
+    'run architecture guard',
+    'show architecture guard',
+    'prepare a commit',
+    'commit proposal',
+    'rollback this change',
+    'rollback proposal',
+    'open app.tsx'
+  ];
+  return markers.some((marker) => lower.includes(marker));
 }
 
 export function isSelfBuildRequest(lower: string) {

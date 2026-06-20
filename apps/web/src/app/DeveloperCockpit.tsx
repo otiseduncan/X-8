@@ -5,6 +5,7 @@ import { StatusPill } from '../components/ui/StatusPill';
 import { approveBrainMemory, createContinuityHandoff, createContinuityTask, deleteBrainMemory, loadBrainCandidates, loadBrainEmbeddingStatus, loadBrainEvents, loadBrainMemories, loadContinuityRecords, loadContinuityStatus, reactivateBrainMemory, rejectBrainMemory, reindexBrainMemories, retrieveBrainMemory, toggleBrainAutoCapture, updateBrainFocus, updateBrainMemory, updateContinuityRecord } from '../services/apiClient';
 import type { ChatCard, ChatMessage } from './AssistantComponents';
 import { Panel } from './AssistantComponents';
+import { ChatIDESurface } from './ChatIDESurface';
 
 type DeveloperCockpitProps = {
   files: Array<{ path: string }>;
@@ -58,6 +59,7 @@ export function DeveloperCockpit(props: DeveloperCockpitProps) {
   const { files, selectedPath, setSelectedPath, proposal, code, setCode, proposeDiffCard, requestApply, searchStatus, imageStatus, selfBuildTrustSummary, selfBuildTrustStatus, modelDetails, memoryStatus, memoryDetails, brainDetails, team, capabilities, integrations, githubStatus, dockerPresets, githubAuth, githubOps, githubOpsResult, refreshGitHubOps, previewGitHubOp, appendMessage, githubApprovalCard, nowId, bridgeStatus, x7ImportStatus, x6ImportStatus, legacySignals, importStatus, submitConfigScan, muted, micStatus, voiceStatus, voiceName, volume, changeVolume, toggleMute, readAloud, startMicrophone, audioReceipts } = props;
   return (
     <section className="developerCockpit" aria-label="Developer Cockpit Mode">
+      <ChatIDESurface />
       <Panel icon={<FileText />} title="Project File Tree">
         <div className="fileList">{files.map((file) => <button key={file.path} className={file.path === selectedPath ? 'file active' : 'file'} onClick={() => setSelectedPath(file.path)}>{file.path}</button>)}</div>
       </Panel>

@@ -137,6 +137,55 @@ export async function readFile(path: string) {
   return response.json() as Promise<ResultEnvelope<FileRead>>;
 }
 
+export function loadIDESummary(selectedPath = 'README.md') {
+  const query = new URLSearchParams({ selected_path: selectedPath });
+  return getJson<ResultEnvelope<Record<string, unknown>>>(`/api/ide/summary?${query}`);
+}
+
+export async function openIDEFile(path: string) {
+  const response = await fetch('/api/ide/open-file', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path })
+  });
+  if (!response.ok) throw new Error('IDE file open failed');
+  return response.json() as Promise<ResultEnvelope<FileRead>>;
+}
+
+export async function proposeIDECommand(command: string) {
+  const response = await fetch('/api/ide/command/propose', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ command, approved: false })
+  });
+  if (!response.ok) throw new Error('IDE command proposal failed');
+  return response.json() as Promise<ResultEnvelope<Record<string, unknown>>>;
+}
+
+export async function runIDECommand(command: string, approved = false) {
+  const response = await fetch('/api/ide/command/run', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ command, approved })
+  });
+  if (!response.ok) throw new Error('IDE command run failed');
+  return response.json() as Promise<ResultEnvelope<Record<string, unknown>>>;
+}
+
+export function loadIDEGitStatus() {
+  return getJson<ResultEnvelope<Record<string, unknown>>>('/api/ide/git/status');
+}
+
+export async function proposeIDERollback(action: string) {
+  const response = await fetch('/api/ide/rollback/propose', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action })
+  });
+  if (!response.ok) throw new Error('IDE rollback proposal failed');
+  return response.json() as Promise<ResultEnvelope<Record<string, unknown>>>;
+}
+
 export async function proposeUpdate(path: string, proposed_content: string) {
   const response = await fetch('/api/repo/propose-update', {
     method: 'POST',
