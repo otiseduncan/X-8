@@ -264,6 +264,8 @@ test('renders assistant mode without permanent dashboard panels', async () => {
   expect(screen.getByLabelText('Avatar presence')).toBeInTheDocument();
   expect(screen.getByText('State: idle')).toBeInTheDocument();
   expect(screen.getByLabelText('Chat timeline')).toBeInTheDocument();
+  expect(screen.getByText('New chat is ready.')).toBeInTheDocument();
+  expect(screen.queryByText('Ready. Ask me what you want to build, inspect, search, preview, or fix.')).not.toBeInTheDocument();
   expect(screen.getByLabelText('Message XV8')).toBeInTheDocument();
   expect(screen.getByPlaceholderText('Ask XV8 anything...')).toBeInTheDocument();
   expect(screen.getByLabelText('Attach file')).toBeInTheDocument();

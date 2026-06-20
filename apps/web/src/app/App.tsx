@@ -2,7 +2,7 @@ import { Activity, Boxes, Check, ChevronDown, ChevronUp, Code2, Copy, FileText, 
 import { useEffect, useRef, useState } from 'react';
 import { SpeechInputManager, SpeechOutputManager } from '../audio/speechManagers';
 import type { SpeechReceipt, SttStatus, TtsStatus } from '../audio/speechManagers';
-import { CHAT_TIMEOUT_MS, applySelfBuildPatch, applyUpdate, connectGitHubRemote, createArtifactPreview, createGitHubRepo, createSpeechReceipt, loadAvatarManifest, loadBrainStatus, loadBridgeStatus, loadCapabilities, loadConfigImportStatus, loadDockerPresets, loadFiles, loadGitHubOpsAuthStatus, loadGitHubOpsStatus, loadGitHubStatus, loadImageStatus, loadIntegrations, loadMemoryStatus, loadModelStatus, loadReceipts, loadSearchStatus, loadSession, loadSessions, loadSpeechStatus, loadTeam, previewGitHubPull, previewGitHubPush, proposeUpdate, readFile, requestImage, runGitHubOperation, runSearch, runSelfBuildPrompt, loadSelfBuildTrustStatus, scanX7Configs, sendChat, uploadAttachment } from '../services/apiClient';
+import { CHAT_TIMEOUT_MS, applySelfBuildPatch, applyUpdate, connectGitHubRemote, createArtifactPreview, createGitHubRepo, createSpeechReceipt, loadAvatarManifest, loadBrainStatus, loadBridgeStatus, loadCapabilities, loadConfigImportStatus, loadDockerPresets, loadFiles, loadGitHubOpsAuthStatus, loadGitHubOpsStatus, loadGitHubStatus, loadImageStatus, loadIntegrations, loadLocalSystemStatus, loadMemoryStatus, loadModelStatus, loadReceipts, loadSearchStatus, loadSession, loadSessions, loadSpeechStatus, loadTeam, previewGitHubPull, previewGitHubPush, proposeUpdate, readFile, requestImage, runGitHubOperation, runSearch, runSelfBuildPrompt, loadSelfBuildTrustStatus, scanX7Configs, sendChat, uploadAttachment } from '../services/apiClient';
 import type { AttachmentReference, Capability, FileEntry, IntegrationStatus, PatchProposal, SessionDetail, TeamSeat } from '../types/contracts';
 import { CodeEditor } from '../components/cockpit/CodeEditor';
 import { StatusPill } from '../components/ui/StatusPill';
@@ -43,6 +43,7 @@ export function App() {
   const [searchStatus, setSearchStatus] = useState('loading');
   const [imageStatus, setImageStatus] = useState('loading');
   const [bridgeStatus, setBridgeStatus] = useState('loading');
+  const [localSystemStatus, setLocalSystemStatus] = useState<Record<string, unknown>>({});
   const [importStatus, setImportStatus] = useState('loading');
   const [x7ImportStatus, setX7ImportStatus] = useState('loading');
   const [x6ImportStatus, setX6ImportStatus] = useState('loading');
@@ -79,7 +80,7 @@ export function App() {
   const [entry, setEntry] = useState('');
   const [attachments, setAttachments] = useState<AttachmentReference[]>([]);
   const [localChatId, setLocalChatId] = useState(() => window.localStorage.getItem('x8.localActiveChatId') || nowId());
-  const [messages, setMessages] = useState<ChatMessage[]>([{ id: 'welcome', role: 'assistant', text: 'Ready. Ask me what you want to build, inspect, search, preview, or fix.', createdAt: new Date().toISOString() }]);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [error, setError] = useState('');
   const voiceSelection = useVoiceSelection(speechOutput.tts);
   const voiceName = voiceSelection.displayVoiceName;
@@ -95,8 +96,8 @@ export function App() {
   const { chatPending, setChatPending, lastApiStatus, setLastApiStatus, setLastApiError, setLastTimeoutReason, setStage, startSpeechAttempt, markSpeechUnavailable, recordResponseLifecycle, markSpeechTriggered, markSpeechSkipped, recordSpeechReceipt, runRawAudioTest } = audioLifecycle;
   const localHistory = useLocalChatHistory(localChatId, messages);
   useEffect(() => {
-    Promise.all([loadCapabilities(), loadIntegrations(), loadTeam(), loadFiles(), loadDockerPresets(), loadGitHubStatus(), loadSearchStatus(), loadImageStatus(), loadBridgeStatus(), loadConfigImportStatus(), loadAvatarManifest(), loadSpeechStatus(), loadGitHubOpsAuthStatus(), loadGitHubOpsStatus()])
-      .then(([caps, ints, seats, fileList, presets, github, search, image, bridge, configImport, avatar, speech, githubAuthStatus, githubOpsStatus]) => {
+    Promise.all([loadCapabilities(), loadIntegrations(), loadTeam(), loadFiles(), loadDockerPresets(), loadGitHubStatus(), loadSearchStatus(), loadImageStatus(), loadBridgeStatus(), loadLocalSystemStatus(), loadConfigImportStatus(), loadAvatarManifest(), loadSpeechStatus(), loadGitHubOpsAuthStatus(), loadGitHubOpsStatus()])
+      .then(([caps, ints, seats, fileList, presets, github, search, image, bridge, localSystem, configImport, avatar, speech, githubAuthStatus, githubOpsStatus]) => {
         setCapabilities(caps.data);
         setIntegrations(ints.data);
         setTeam(seats.data);
@@ -108,6 +109,7 @@ export function App() {
         setSearchStatus(String(search.data.status || search.status));
         setImageStatus(String(image.data.status || image.status));
         setBridgeStatus(String(bridge.data.bridge_reachable ? 'reachable' : 'unreachable'));
+        setLocalSystemStatus(localSystem.data || {});
         setX7ImportStatus(`${configImport.data.x7_import_status || 'unknown'} / ${configImport.data.x7_files_found || 0} files`);
         setX6ImportStatus(`${configImport.data.x6_import_status || 'unknown'} / ${configImport.data.x6_files_found || 0} files`);
         setImportStatus(`X7 ${configImport.data.x7_files_found || 0}, X6 ${configImport.data.x6_files_found || 0}`);
@@ -133,7 +135,7 @@ export function App() {
       const saved = window.localStorage.getItem('x8.activeSessionId');
       const candidate = saved || sessionsResult.value.data[0]?.session_id;
       if (!candidate) return;
-      loadSession(candidate).then((response) => restoreSession(response.data)).catch(() => undefined);
+      setLatestResult('History available. Open History to restore a prior chat.');
     });
   }, []);
   function restoreSession(session: SessionDetail) {
@@ -969,7 +971,7 @@ export function App() {
           </form>
         </section>
       </section>
-      {developerOpen && <DeveloperCockpit files={files} selectedPath={selectedPath} setSelectedPath={setSelectedPath} proposal={proposal} code={code} setCode={setCode} proposeDiffCard={proposeDiffCard} requestApply={requestApply} searchStatus={searchStatus} imageStatus={imageStatus} selfBuildTrustSummary={selfBuildTrustSummary} selfBuildTrustStatus={selfBuildTrustStatus} modelDetails={modelDetails} memoryStatus={memoryStatus} memoryDetails={memoryDetails} brainDetails={brainDetails} team={team} capabilities={capabilities} integrations={integrations} githubStatus={githubStatus} dockerPresets={dockerPresets} githubAuth={githubAuth} githubOps={githubOps} githubOpsResult={githubOpsResult} refreshGitHubOps={refreshGitHubOps} previewGitHubOp={previewGitHubOp} appendMessage={appendMessage} githubApprovalCard={githubApprovalCard} nowId={nowId} bridgeStatus={bridgeStatus} x7ImportStatus={x7ImportStatus} x6ImportStatus={x6ImportStatus} legacySignals={legacySignals} importStatus={importStatus} submitConfigScan={submitConfigScan} muted={muted} micStatus={micStatus} voiceStatus={voiceStatus} voiceName={voiceName} volume={volume} changeVolume={changeVolume} toggleMute={toggleMute} readAloud={readAloud} startMicrophone={startMicrophone} audioReceipts={audioReceipts} />}
+      {developerOpen && <DeveloperCockpit files={files} selectedPath={selectedPath} setSelectedPath={setSelectedPath} proposal={proposal} code={code} setCode={setCode} proposeDiffCard={proposeDiffCard} requestApply={requestApply} searchStatus={searchStatus} imageStatus={imageStatus} selfBuildTrustSummary={selfBuildTrustSummary} selfBuildTrustStatus={selfBuildTrustStatus} modelDetails={modelDetails} memoryStatus={memoryStatus} memoryDetails={memoryDetails} brainDetails={brainDetails} team={team} capabilities={capabilities} integrations={integrations} githubStatus={githubStatus} dockerPresets={dockerPresets} githubAuth={githubAuth} githubOps={githubOps} githubOpsResult={githubOpsResult} refreshGitHubOps={refreshGitHubOps} previewGitHubOp={previewGitHubOp} appendMessage={appendMessage} githubApprovalCard={githubApprovalCard} nowId={nowId} bridgeStatus={bridgeStatus} localSystemStatus={localSystemStatus} x7ImportStatus={x7ImportStatus} x6ImportStatus={x6ImportStatus} legacySignals={legacySignals} importStatus={importStatus} submitConfigScan={submitConfigScan} muted={muted} micStatus={micStatus} voiceStatus={voiceStatus} voiceName={voiceName} volume={volume} changeVolume={changeVolume} toggleMute={toggleMute} readAloud={readAloud} startMicrophone={startMicrophone} audioReceipts={audioReceipts} />}
       {approvalOpen && proposal?.approval && (
         <div className="modalBackdrop" role="dialog" aria-modal="true" aria-label="Approval request">
           <div className="modal">

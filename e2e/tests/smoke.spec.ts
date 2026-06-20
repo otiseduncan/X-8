@@ -56,10 +56,11 @@ test('message and transcript copy controls work', async ({ page, context }) => {
     });
   });
   await page.goto('/');
-  await ask(page, 'hello copy check');
-  await page.getByTestId('copy-message-button').last().click();
-  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain('You:\nhello copy check');
-  await page.getByTestId('copy-message-button').first().click();
+  await ask(page, 'hello');
+  await page.locator('.message.user').last().getByTestId('copy-message-button').click();
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain('You:\nhello');
+  await expect(page.locator('.message.assistant')).toHaveCount(1, { timeout: 30000 });
+  await page.locator('.message.assistant').last().getByTestId('copy-message-button').click();
   await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain('XV8:');
   await page.getByRole('button', { name: /^Info/ }).click();
   await page.getByTestId('copy-transcript-button').last().click();
@@ -89,10 +90,12 @@ test('attachment chip appears before sending', async ({ page }) => {
 test('chat loop returns honest model status and restores after refresh', async ({ page }) => {
   await page.goto('/');
   await ask(page, 'hello XV8');
-  await expect(page.locator('.message.assistant')).toHaveCount(2, { timeout: 30000 });
+  await expect(page.locator('.message.assistant')).toHaveCount(1, { timeout: 30000 });
   await expect(page.getByText('The assistant model is unavailable right now.')).toHaveCount(0);
   await page.reload();
-  await expect(page.getByText('hello XV8')).toBeVisible({ timeout: 90000 });
+  await expect(page.getByText('hello XV8')).toHaveCount(0);
+  await expect(page.getByText('New chat is ready.')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'History' })).toBeVisible();
 });
 
 test('chat loop sends uploaded text attachment', async ({ page }) => {

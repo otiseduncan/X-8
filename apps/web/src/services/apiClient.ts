@@ -83,6 +83,10 @@ export function loadBridgeStatus() {
   return getJson<ResultEnvelope<Record<string, unknown>>>('/api/local-bridge/status');
 }
 
+export function loadLocalSystemStatus() {
+  return getJson<ResultEnvelope<Record<string, unknown>>>('/api/local-system/status');
+}
+
 export function loadConfigImportStatus() {
   return getJson<ResultEnvelope<Record<string, unknown>>>('/api/config-import/legacy/status');
 }
@@ -346,6 +350,16 @@ export async function retrieveBrainMemory(query: string) {
 export async function updateBrainFocus(focus: string) {
   const response = await fetch('/api/brain/focus', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ focus }) });
   if (!response.ok) throw new Error('Brain focus update failed');
+  return response.json() as Promise<ResultEnvelope<Record<string, unknown>>>;
+}
+
+export function loadBrainIdentityRecords() {
+  return getJson<ResultEnvelope<Array<Record<string, unknown>>>>('/api/brain/identity/records');
+}
+
+export async function seedBrainIdentityRecords() {
+  const response = await fetch('/api/brain/identity/seed', { method: 'POST' });
+  if (!response.ok) throw new Error('Brain identity seed failed');
   return response.json() as Promise<ResultEnvelope<Record<string, unknown>>>;
 }
 

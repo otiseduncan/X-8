@@ -50,6 +50,9 @@ def test_capability_truth_model() -> None:
     response = client().get("/api/capabilities")
     names = {item["name"]: item["status"] for item in response.json()["data"]}
     assert names["artifact_preview"] == "implemented"
+    assert names["local_system_body"] == "implemented"
+    assert names["email_draft"] == "implemented"
+    assert names["sms_draft"] == "implemented"
     assert names["email_send"] == "disabled"
     assert names["remote_access"] == "disabled"
 
@@ -575,6 +578,28 @@ def test_local_bridge_status_endpoint_exists() -> None:
     response = client().get("/api/local-bridge/status")
     assert response.status_code == 200
     assert "bridge_reachable" in response.json()["data"]
+
+
+def test_local_system_status_endpoint_exists() -> None:
+    response = client().get("/api/local-system/status")
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert "cpu_count" in payload
+    assert "workspace_root" in payload
+    assert "docker_engine_reachable" in payload
+
+
+def test_brain_identity_seed_and_list_endpoints_exist() -> None:
+    seed = client().post("/api/brain/identity/seed")
+    assert seed.status_code == 200
+    seeded = seed.json()["data"]
+    assert "count" in seeded
+    listed = client().get("/api/brain/identity/records")
+    assert listed.status_code == 200
+    records = listed.json()["data"]
+    assert isinstance(records, list)
+    assert len(records) >= 1
+    assert any("identity_record" in (item.get("tags") or []) for item in records)
 
 
 def test_avatar_status_reports_fallback_or_ready() -> None:

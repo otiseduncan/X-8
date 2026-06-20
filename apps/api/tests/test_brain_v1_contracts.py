@@ -405,7 +405,7 @@ def test_self_build_prompt_still_routes_to_self_build() -> None:
 
 def test_hello_still_bypasses_model() -> None:
     payload = client().post("/api/chat", json={"message": "hello"}).json()
-    assert payload["data"]["assistant_message"]["content"] == "Hello. I'm XV8."
+    assert payload["data"]["assistant_message"]["content"] == "Hello. I'm Xoduz. You can call me X."
     assert payload["status"] == "passed"
 
 

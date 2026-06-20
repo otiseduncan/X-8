@@ -44,15 +44,31 @@ def memory_kernel(tmp_path, memory_manager: MemoryManager, session_messages: lis
 def test_chat_answers_identity_without_model() -> None:
     payload = client().post("/api/chat", json={"message": "what is your name"}).json()
     assert payload["status"] == "passed"
-    assert payload["data"]["assistant_message"]["content"] == "My name is XV8."
+    assert payload["data"]["assistant_message"]["content"] == "I'm Xoduz. You can call me X."
 
 
 def test_chat_answers_simple_greeting_without_model_or_limitation_card() -> None:
     payload = client().post("/api/chat", json={"message": "hello"}).json()
     assert payload["status"] == "passed"
-    assert payload["data"]["assistant_message"]["content"] == "Hello. I'm XV8."
+    assert payload["data"]["assistant_message"]["content"] == "Hello. I'm Xoduz. You can call me X."
     assert payload["data"]["assistant_message"]["cards"] == []
     assert "assistant model is unavailable" not in str(payload).lower()
+
+
+def test_chat_email_request_returns_draft_only_boundary() -> None:
+    payload = client().post("/api/chat", json={"message": "write and send an email to the team"}).json()
+    content = payload["data"]["assistant_message"]["content"].lower()
+    assert payload["status"] == "passed"
+    assert "draft" in content
+    assert "cannot send email" in content
+
+
+def test_chat_sms_request_returns_draft_only_boundary() -> None:
+    payload = client().post("/api/chat", json={"message": "send sms to everyone"}).json()
+    content = payload["data"]["assistant_message"]["content"].lower()
+    assert payload["status"] == "passed"
+    assert "draft" in content
+    assert "cannot send text" in content
 
 
 def test_chat_can_say_github_without_capability_denial() -> None:
@@ -191,7 +207,7 @@ def test_irrelevant_memory_is_not_forced_into_unrelated_response(tmp_path) -> No
         ModelRouter(OllamaAdapter("http://127.0.0.1:9"), ModelProfileManager("", "")),
     )
     response = kernel.handle(KernelRequest(session_id="sess_test", user_message="What is your name?"))
-    assert response.assistant_message == "My name is XV8."
+    assert response.assistant_message == "I'm Xoduz. You can call me X."
     assert "grape soda" not in response.assistant_message
 
 

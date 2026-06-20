@@ -153,6 +153,19 @@ def list_events(request: Request, memory_id: str = "", event_type: str = "") -> 
     return ResultEnvelope(ok=True, status="ready", data=data, message=f"{len(data)} Brain memory events found.")
 
 
+@router.get("/identity/records", response_model=ResultEnvelope[list[dict[str, Any]]])
+def list_identity_records(request: Request) -> ResultEnvelope[list[dict[str, Any]]]:
+    data = _manager(request).list_identity_records()
+    return ResultEnvelope(ok=True, status="ready", data=data, message=f"{len(data)} identity profile records loaded.")
+
+
+@router.post("/identity/seed", response_model=ResultEnvelope[dict[str, Any]])
+def seed_identity_records(request: Request) -> ResultEnvelope[dict[str, Any]]:
+    data = _manager(request).seed_identity_records()
+    message = f"Identity profile records repaired: +{data['created']} created, {data['updated']} updated, {data['skipped']} unchanged."
+    return ResultEnvelope(ok=True, status="updated", data=data, message=message)
+
+
 @router.post("/memories", response_model=ResultEnvelope[dict[str, Any] | None])
 def create_memory(payload: MemoryCreateRequest, request: Request) -> ResultEnvelope[dict[str, Any] | None]:
     result = _manager(request).remember(payload.content, session_id=payload.session_id, project_scope=payload.project_scope, session_scope=payload.session_scope, global_scope=payload.global_scope)

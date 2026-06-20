@@ -2,7 +2,7 @@ import { Activity, Boxes, Code2, FileText, GitBranch, Image, Search, Server, Shi
 import { useEffect, useMemo, useState } from 'react';
 import { CodeEditor } from '../components/cockpit/CodeEditor';
 import { StatusPill } from '../components/ui/StatusPill';
-import { approveBrainMemory, createContinuityHandoff, createContinuityTask, deleteBrainMemory, loadBrainCandidates, loadBrainEmbeddingStatus, loadBrainEvents, loadBrainMemories, loadContinuityRecords, loadContinuityStatus, previewProjectBuild, reactivateBrainMemory, rejectBrainMemory, reindexBrainMemories, retrieveBrainMemory, toggleBrainAutoCapture, updateBrainFocus, updateBrainMemory, updateContinuityRecord, writeProjectBuild } from '../services/apiClient';
+import { approveBrainMemory, createContinuityHandoff, createContinuityTask, deleteBrainMemory, loadBrainCandidates, loadBrainEmbeddingStatus, loadBrainEvents, loadBrainIdentityRecords, loadBrainMemories, loadContinuityRecords, loadContinuityStatus, previewProjectBuild, reactivateBrainMemory, rejectBrainMemory, reindexBrainMemories, retrieveBrainMemory, seedBrainIdentityRecords, toggleBrainAutoCapture, updateBrainFocus, updateBrainMemory, updateContinuityRecord, writeProjectBuild } from '../services/apiClient';
 import type { ChatCard, ChatMessage } from './AssistantComponents';
 import { Panel } from './AssistantComponents';
 
@@ -37,6 +37,7 @@ type DeveloperCockpitProps = {
   githubApprovalCard: (operation: string, title: string, preview: Record<string, unknown>) => ChatCard;
   nowId: () => string;
   bridgeStatus: string;
+  localSystemStatus: Record<string, unknown>;
   x7ImportStatus: string;
   x6ImportStatus: string;
   legacySignals: string;
@@ -55,7 +56,7 @@ type DeveloperCockpitProps = {
 };
 
 export function DeveloperCockpit(props: DeveloperCockpitProps) {
-  const { files, selectedPath, setSelectedPath, proposal, code, setCode, proposeDiffCard, requestApply, searchStatus, imageStatus, selfBuildTrustSummary, selfBuildTrustStatus, modelDetails, memoryStatus, memoryDetails, brainDetails, team, capabilities, integrations, githubStatus, dockerPresets, githubAuth, githubOps, githubOpsResult, refreshGitHubOps, previewGitHubOp, appendMessage, githubApprovalCard, nowId, bridgeStatus, x7ImportStatus, x6ImportStatus, legacySignals, importStatus, submitConfigScan, muted, micStatus, voiceStatus, voiceName, volume, changeVolume, toggleMute, readAloud, startMicrophone, audioReceipts } = props;
+  const { files, selectedPath, setSelectedPath, proposal, code, setCode, proposeDiffCard, requestApply, searchStatus, imageStatus, selfBuildTrustSummary, selfBuildTrustStatus, modelDetails, memoryStatus, memoryDetails, brainDetails, team, capabilities, integrations, githubStatus, dockerPresets, githubAuth, githubOps, githubOpsResult, refreshGitHubOps, previewGitHubOp, appendMessage, githubApprovalCard, nowId, bridgeStatus, localSystemStatus, x7ImportStatus, x6ImportStatus, legacySignals, importStatus, submitConfigScan, muted, micStatus, voiceStatus, voiceName, volume, changeVolume, toggleMute, readAloud, startMicrophone, audioReceipts } = props;
   const [projectPrompt, setProjectPrompt] = useState('Build a small local web app scaffold');
   const [projectName, setProjectName] = useState('v8-release-proof-project');
   const [projectStatus, setProjectStatus] = useState('no_preview');
@@ -135,6 +136,17 @@ export function DeveloperCockpit(props: DeveloperCockpitProps) {
           <div className="row"><strong>Blocked models</strong><span>{Array.isArray(modelDetails.blocked_models) && modelDetails.blocked_models.length ? modelDetails.blocked_models.join(', ') : 'none'} / installed: {Array.isArray(modelDetails.installed_but_blocked) && modelDetails.installed_but_blocked.length ? modelDetails.installed_but_blocked.join(', ') : 'none'}</span></div>
           <div className="row split"><strong>Model ready</strong><StatusPill label={String(modelDetails.model_ready ? 'yes' : 'no')} status={modelDetails.model_ready ? 'ready' : 'unavailable'} /></div>
           <div className="row"><strong>Missing models</strong><span>{Array.isArray(modelDetails.missing_models) && modelDetails.missing_models.length ? modelDetails.missing_models.join(', ') : 'none'}</span></div>
+        </div>
+      </Panel>
+      <Panel icon={<Server />} title="Local System">
+        <div className="list dense">
+          <div className="row split"><strong>OS</strong><span>{String(localSystemStatus.os_name || 'unknown')} {String(localSystemStatus.os_release || '')}</span></div>
+          <div className="row split"><strong>Machine</strong><span>{String(localSystemStatus.machine || 'unknown')}</span></div>
+          <div className="row split"><strong>CPU cores</strong><span>{String(localSystemStatus.cpu_count || 'unknown')}</span></div>
+          <div className="row"><strong>Workspace root</strong><span>{String(localSystemStatus.workspace_root || 'unknown')}</span></div>
+          <div className="row split"><strong>Docker CLI</strong><span>{String(localSystemStatus.docker_cli_available ? 'available' : 'missing')}</span></div>
+          <div className="row split"><strong>Docker engine</strong><span>{String(localSystemStatus.docker_engine_reachable ? 'reachable' : 'unreachable')}</span></div>
+          <div className="row"><strong>Docker version</strong><span>{String(localSystemStatus.docker_engine_version || localSystemStatus.docker_failure_reason || 'unknown')}</span></div>
         </div>
       </Panel>
       <BrainMemoryPanel memoryStatus={memoryStatus} memoryDetails={memoryDetails} brainDetails={brainDetails} />
@@ -276,15 +288,21 @@ function BrainMemoryPanel({ memoryStatus, memoryDetails, brainDetails }: { memor
   const scopes = Array.from(new Set(records.flatMap((record) => [record.project_scope, record.session_scope]).filter(Boolean).map(String))).sort();
 
   async function refresh() {
-    const [response, candidateResponse, eventResponse, embeddingResponse, continuityResponse, continuityRecordResponse] = await Promise.all([
+    const [response, candidateResponse, eventResponse, embeddingResponse, continuityResponse, continuityRecordResponse, identityResponse] = await Promise.all([
       loadBrainMemories({ include_deleted: 'true' }),
       loadBrainCandidates(candidateFilter ? { decision: candidateFilter } : {}),
       loadBrainEvents({}),
       loadBrainEmbeddingStatus(),
       loadContinuityStatus(),
-      loadContinuityRecords({})
+      loadContinuityRecords({}),
+      loadBrainIdentityRecords()
     ]);
-    const next = (response.data || []) as BrainRecord[];
+    const existing = (response.data || []) as BrainRecord[];
+    const identity = (identityResponse.data || []) as BrainRecord[];
+    const nextById = new Map<string, BrainRecord>();
+    for (const item of existing) nextById.set(item.id, item);
+    for (const item of identity) nextById.set(item.id, item);
+    const next = Array.from(nextById.values());
     setRecords(next);
     if (!selectedId && next[0]) setSelectedId(next[0].id);
     const nextCandidates = (candidateResponse.data || []) as BrainCandidate[];
@@ -327,6 +345,10 @@ function BrainMemoryPanel({ memoryStatus, memoryDetails, brainDetails }: { memor
 
   async function reindex() {
     await runAction('Brain memories reindexed.', () => reindexBrainMemories());
+  }
+
+  async function seedIdentityRecords() {
+    await runAction('Identity profile records seeded/repaired.', () => seedBrainIdentityRecords());
   }
 
   async function updateFocus() {
@@ -422,6 +444,7 @@ function BrainMemoryPanel({ memoryStatus, memoryDetails, brainDetails }: { memor
           <button className="chipButton" onClick={() => void refresh()}>Refresh</button>
           <button className="chipButton" onClick={() => void retrieve()}>Retrieve</button>
           <button className="chipButton" onClick={() => void reindex()}>Reindex active memories</button>
+          <button className="chipButton" onClick={() => void seedIdentityRecords()}>Seed identity profiles</button>
           <button className="chipButton" onClick={() => void toggleCapture(false)}>Disable auto-capture</button>
           <button className="chipButton" onClick={() => void toggleCapture(true)}>Enable auto-capture</button>
         </section>

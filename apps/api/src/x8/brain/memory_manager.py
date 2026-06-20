@@ -6,6 +6,7 @@ from x8.brain.brain_receipts import brain_card, brain_receipt
 from x8.brain.active_focus_manager import ActiveFocusManager
 from x8.brain.embedding_client import OllamaEmbeddingClient
 from x8.brain.memory_candidate_extractor import MemoryCandidateExtractor
+from x8.brain.identity_profiles import IDENTITY_PROFILE_RECORDS
 from x8.brain.memory_policy import MemoryPolicyManager
 from x8.brain.memory_store import BrainMemoryStore
 from x8.contracts.receipts import Receipt
@@ -84,6 +85,69 @@ class BrainMemoryManager:
         data["retrieval_min_score"] = self.retrieval_min_score
         data["retrieval_max_results"] = self.retrieval_max_results
         return data
+
+    def list_identity_records(self) -> list[dict[str, Any]]:
+        records = self.store.list_memories(include_deleted=False, layer="identity")
+        return [item for item in records if "identity_record" in item.get("tags", [])]
+
+    def seed_identity_records(self) -> dict[str, Any]:
+        created = 0
+        updated = 0
+        skipped = 0
+        existing = self.list_identity_records()
+        by_title = {str(item.get("title") or "").lower(): item for item in existing}
+        for record in IDENTITY_PROFILE_RECORDS:
+            current = by_title.get(record.title.lower())
+            tags = sorted(set([*record.tags, "seeded_profile", record.key]))
+            if current is None:
+                self.store.create_memory(
+                    record.content,
+                    layer="identity",
+                    memory_type="profile_record",
+                    title=record.title,
+                    summary=record.summary,
+                    source="seed_profile",
+                    provenance="v8_1_identity_seed",
+                    confidence=1.0,
+                    sensitivity="low",
+                    requires_approval=False,
+                    approved_by_user=True,
+                    tags=tags,
+                    project_scope="",
+                    session_scope="",
+                    global_scope=True,
+                )
+                created += 1
+                continue
+            content_unchanged = str(current.get("content") or "") == record.content
+            summary_unchanged = str(current.get("summary") or "") == record.summary
+            title_unchanged = str(current.get("title") or "") == record.title
+            tags_unchanged = set(current.get("tags") or []) == set(tags)
+            if content_unchanged and summary_unchanged and title_unchanged and tags_unchanged and current.get("active", True):
+                skipped += 1
+                continue
+            self.store.update_memory(
+                str(current["id"]),
+                {
+                    "title": record.title,
+                    "content": record.content,
+                    "summary": record.summary,
+                    "tags": json_tags(tags),
+                    "active": True,
+                    "soft_deleted": False,
+                    "requires_approval": False,
+                    "approved_by_user": True,
+                },
+            )
+            updated += 1
+        seeded = self.list_identity_records()
+        return {
+            "created": created,
+            "updated": updated,
+            "skipped": skipped,
+            "count": len(seeded),
+            "records": seeded,
+        }
 
     def embedding_status(self) -> dict[str, Any]:
         indexed = self.store.semantic_index_count()

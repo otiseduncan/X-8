@@ -141,10 +141,32 @@ class XV8Kernel:
                 return "Brain continuity is unavailable right now.", "unavailable", ["Brain continuity manager unavailable."]
             if not self.brain_manager and lane != "brain_continuity":
                 return "Brain memory is unavailable right now.", "unavailable", ["Brain manager unavailable."]
-        if lower in {"hi", "hi xv8", "hello", "hello xv8", "hey", "hey xv8", "good morning", "good afternoon", "good evening"}:
-            return "Hello. I'm XV8.", "passed", []
+        if lower in {"hi", "hi xv8", "hi x", "hello", "hello xv8", "hello x", "hey", "hey xv8", "hey x", "good morning", "good afternoon", "good evening"}:
+            return "Hello. I'm Xoduz. You can call me X.", "passed", []
         if "what is your name" in lower or lower in {"who are you", "who are you?"}:
-            return "My name is XV8.", "passed", []
+            return "I'm Xoduz. You can call me X.", "passed", []
+        if "how do you pronounce" in lower and "xoduz" in lower:
+            return "Xoduz is pronounced Exodus.", "passed", []
+        if "short name" in lower and ("xoduz" in lower or "your" in lower):
+            return "My short name is X.", "passed", []
+        if "are you chatgpt" in lower:
+            return "No. I'm Xoduz, Otis's local assistant and operator cockpit.", "passed", []
+        if ("who is otis" in lower or "who do you assist" in lower or "who are you for" in lower) and "otis" in lower:
+            return "I am Otis Duncan's personal assistant, local AI workstation, project builder, and operator cockpit.", "passed", []
+        if "email" in lower and any(term in lower for term in ("write", "draft", "compose", "send")):
+            return (
+                "I can draft email content, but I cannot send email from this environment. "
+                "Share recipient, subject, and intent and I will return a ready-to-send draft.",
+                "passed",
+                ["External email sending is disabled."],
+            )
+        if any(term in lower for term in ("sms", "text message", "send text", "send sms")):
+            return (
+                "I can draft SMS content, but I cannot send text messages from this environment. "
+                "Share audience, tone, and key points and I will return a short draft.",
+                "passed",
+                ["External SMS sending is disabled."],
+            )
         if "say github" in lower:
             return "GitHub.", "passed", []
         if lane == "github_status":
@@ -166,7 +188,7 @@ class XV8Kernel:
         if lane == "project_builder":
             return self._project_builder_response(request)
         if lane == "operator_blocked":
-            return "That operator action is blocked or approval-gated. XV8 cannot run arbitrary shell, broad remote control, external sends, or automatic commit/push from chat.", "blocked", []
+            return "That operator action is blocked or approval-gated. Xoduz cannot run arbitrary shell, broad remote control, external sends, or automatic commit/push from chat.", "blocked", []
         if ("github" in lower and any(word in lower for word in ("access", "can you", "available", "status"))) or lower in {"github", "github?"}:
             return ("XV8 has GitHub Ops routes for status, previews, and approval-gated writes. "
                     "I should not claim GitHub is inaccessible; write operations still require explicit approval."), "passed", []
