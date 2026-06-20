@@ -8,23 +8,81 @@
   white-space: pre !important;
 }
 .codeBlock[data-x8-enhanced="true"]::before, .diff[data-x8-enhanced="true"]::before { content: none !important; }
-.x8CodeLine { display: grid; grid-template-columns: 46px minmax(max-content, 1fr); min-height: 25px; font-family: "Cascadia Code", "Fira Code", Consolas, monospace; font-size: 0.84rem; }
+.x8CodeLine { display: grid; grid-template-columns: 46px minmax(max-content, 1fr); min-height: 25px; font-family: "Cascadia Code", "Fira Code", Consolas, monospace; font-size: 0.84rem; line-height: 25px; }
 .x8CodeLine:nth-child(odd) { background: #070b14; }
 .x8CodeLine:nth-child(even) { background: #101827; }
 .x8CodeLine.added { background: rgba(22, 101, 52, 0.25); }
 .x8CodeLine.removed { background: rgba(127, 29, 29, 0.25); }
 .x8CodeLine.hunk { background: rgba(14, 116, 144, 0.25); }
-.x8LineNumber { position: sticky; left: 0; z-index: 1; display: inline-flex; justify-content: flex-end; padding: 2px 10px 2px 6px; border-right: 1px solid rgba(34, 211, 238, 0.18); background: rgba(0, 0, 0, 0.32); color: #6f86a3; user-select: none; }
-.x8LineContent { min-width: 0; padding: 2px 12px; color: #dce7f5; }
+.x8LineNumber { position: sticky; left: 0; z-index: 1; display: inline-flex; justify-content: flex-end; padding: 0 10px 0 6px; border-right: 1px solid rgba(34, 211, 238, 0.18); background: rgba(0, 0, 0, 0.32); color: #6f86a3; user-select: none; }
+.x8LineContent { min-width: 0; padding: 0 12px; color: #dce7f5; }
 .x8TokTag { color: #67e8f9; }
 .x8TokKeyword { color: #93c5fd; font-weight: 700; }
 .x8TokString { color: #fcd34d; }
 .x8TokComment { color: #94a3b8; font-style: italic; }
-.x8TokColor { color: #f472b6; }
+.x8TokColor { color: #f472b6; font-weight: 800; }
 .x8TokProperty { color: #a7f3d0; }
 .x8TokNumber { color: #c4b5fd; }
 .x8TokAdded { color: #22c55e; font-weight: 800; }
 .x8TokRemoved { color: #fb7185; font-weight: 800; }
+
+.x8EditableCodeShell {
+  position: relative;
+  min-height: 320px;
+  max-height: 55vh;
+  border: 1px solid rgba(34, 211, 238, 0.38);
+  border-radius: 8px;
+  background: #05070d;
+  overflow: hidden;
+}
+.x8EditableCodeHighlight {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #dce7f5;
+  pointer-events: none;
+  white-space: pre;
+  overflow: visible;
+  min-width: max-content;
+}
+.x8EditableCodeShell .artifactCodeEditor {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  width: 100%;
+  height: 100%;
+  min-height: 320px;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  color: transparent !important;
+  -webkit-text-fill-color: transparent !important;
+  caret-color: #f8fafc;
+  font-family: "Cascadia Code", "Fira Code", Consolas, monospace;
+  font-size: 0.84rem;
+  line-height: 25px !important;
+  padding: 0 12px 0 58px !important;
+  resize: none;
+  overflow: auto;
+  white-space: pre;
+  tab-size: 2;
+  outline: none;
+}
+.x8EditableCodeShell .artifactCodeEditor::selection {
+  background: rgba(34, 211, 238, 0.28);
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+}
+.x8EditableCodeShell:focus-within {
+  border-color: rgba(34, 211, 238, 0.78);
+  box-shadow: 0 0 0 1px rgba(34, 211, 238, 0.18), 0 0 20px rgba(34, 211, 238, 0.08);
+}
+.x8EditableCodeShell .x8LineNumber { position: relative; left: auto; }
+.x8EditableCodeShell .x8LineContent { min-width: max-content; }
+
 .inlineCard.approval .x8ApproveButton { border-color: rgba(34, 197, 94, 0.75); background: linear-gradient(180deg, rgba(34, 197, 94, 0.95), rgba(21, 128, 61, 0.95)); color: #03150a; font-weight: 900; }
 .inlineCard.approval .x8DenyButton { border-color: rgba(248, 113, 113, 0.72); background: linear-gradient(180deg, rgba(127, 29, 29, 0.92), rgba(69, 10, 10, 0.92)); color: #ffe4e6; font-weight: 900; }
 .inlineCard.approval .x8RealApplyButton { border-color: rgba(34, 211, 238, 0.75) !important; background: linear-gradient(180deg, rgba(34, 211, 238, 0.95), rgba(8, 145, 178, 0.95)) !important; color: #00141a !important; font-weight: 900; }
