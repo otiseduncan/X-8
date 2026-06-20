@@ -1,6 +1,7 @@
 const CODE_SELECTOR = 'pre.codeBlock:not([data-x8-enhanced="true"]), pre.diff:not([data-x8-enhanced="true"])';
 const APPROVAL_SELECTOR = '.inlineCard.approval:not([data-x8-approval-enhanced="true"])';
 const ARTIFACT_SELECTOR = '.inlineCard.artifact:not([data-x8-artifact-enhanced="true"])';
+const EDITOR_SELECTOR = 'textarea.artifactCodeEditor:not([data-x8-editor-enhanced="true"])';
 
 function appendToken(parent: HTMLElement, text: string, className = '') {
   if (!text) return;
@@ -70,6 +71,57 @@ function enhanceCodeBlock(pre: HTMLPreElement) {
   renderCodeLines(pre, source);
 }
 
+function renderEditorOverlay(pre: HTMLPreElement, source: string) {
+  pre.textContent = '';
+  source.split(/\r?\n/).forEach((line, lineIndex) => {
+    const row = document.createElement('div');
+    row.className = 'x8CodeLine';
+
+    const gutter = document.createElement('span');
+    gutter.className = 'x8LineNumber';
+    gutter.textContent = String(lineIndex + 1);
+
+    const content = document.createElement('span');
+    content.className = 'x8LineContent';
+    renderTokens(content, line);
+
+    row.append(gutter, content);
+    pre.appendChild(row);
+  });
+}
+
+function syncEditorOverlay(textarea: HTMLTextAreaElement) {
+  const shell = textarea.closest<HTMLElement>('.x8EditableCodeShell');
+  const overlay = shell?.querySelector<HTMLPreElement>('.x8EditableCodeHighlight');
+  if (!overlay) return;
+  renderEditorOverlay(overlay, textarea.value || '');
+  overlay.style.transform = `translate(${-textarea.scrollLeft}px, ${-textarea.scrollTop}px)`;
+}
+
+function enhanceEditableEditor(textarea: HTMLTextAreaElement) {
+  textarea.dataset.x8EditorEnhanced = 'true';
+  let shell = textarea.closest<HTMLElement>('.x8EditableCodeShell');
+  if (!shell) {
+    shell = document.createElement('div');
+    shell.className = 'x8EditableCodeShell';
+    textarea.parentElement?.insertBefore(shell, textarea);
+    shell.appendChild(textarea);
+  }
+  if (!shell.querySelector('.x8EditableCodeHighlight')) {
+    const overlay = document.createElement('pre');
+    overlay.className = 'x8EditableCodeHighlight';
+    overlay.setAttribute('aria-hidden', 'true');
+    shell.insertBefore(overlay, textarea);
+  }
+  const sync = () => syncEditorOverlay(textarea);
+  textarea.addEventListener('input', sync);
+  textarea.addEventListener('change', sync);
+  textarea.addEventListener('keyup', sync);
+  textarea.addEventListener('click', sync);
+  textarea.addEventListener('scroll', sync);
+  sync();
+}
+
 function downloadText(filename: string, content: string, type = 'text/html') {
   const blob = new Blob([content], { type });
   const url = URL.createObjectURL(blob);
@@ -85,6 +137,10 @@ function downloadText(filename: string, content: string, type = 'text/html') {
 function artifactSource(card: HTMLElement) {
   const iframe = card.querySelector<HTMLIFrameElement>('iframe');
   const code = card.querySelector<HTMLPreElement>('pre.codeBlock');
+  source: {
+    const textarea = card.querySelector<HTMLTextAreaElement>('textarea.artifactCodeEditor');
+    if (textarea?.value) return textarea.value.trim();
+  }
   const source = code?.dataset.x8Source || iframe?.getAttribute('srcdoc') || code?.textContent || '';
   return source.trim();
 }
@@ -95,11 +151,20 @@ function setArtifactSource(card: HTMLElement, source: string) {
   if (iframe) iframe.srcdoc = source;
   const code = card.querySelector<HTMLPreElement>('pre.codeBlock');
   if (code) renderCodeLines(code, source);
+  const textarea = card.querySelector<HTMLTextAreaElement>('textarea.artifactCodeEditor');
+  if (textarea && textarea.value !== source) {
+    textarea.value = source;
+    syncEditorOverlay(textarea);
+  }
 }
 
 function enhanceArtifactCard(card: HTMLElement) {
   card.dataset.x8ArtifactEnhanced = 'true';
   card.classList.add('x8ArtifactPackage');
+
+  if (card.querySelector('.artifactPackageShell')) {
+    return;
+  }
 
   const header = card.querySelector<HTMLElement>('.inlineCardHeader');
   if (header && !card.querySelector('.x8PackageBadge')) {
@@ -128,57 +193,6 @@ function enhanceArtifactCard(card: HTMLElement) {
       });
     }
   });
-
-  if (!actions.querySelector('.x8EditArtifactButton')) {
-    const edit = document.createElement('button');
-    edit.type = 'button';
-    edit.className = 'chipButton x8EditArtifactButton';
-    edit.textContent = 'Edit';
-    edit.addEventListener('click', () => {
-      let editor = card.querySelector<HTMLTextAreaElement>('textarea.x8ArtifactEditor');
-      if (!editor) {
-        editor = document.createElement('textarea');
-        editor.className = 'x8ArtifactEditor';
-        editor.spellcheck = false;
-        editor.value = sourceForExport();
-        actions.parentElement?.insertBefore(editor, actions);
-      }
-      editor.hidden = !editor.hidden;
-      if (!editor.hidden) editor.focus();
-    });
-    actions.prepend(edit);
-  }
-
-  if (!actions.querySelector('.x8RefreshPreviewButton')) {
-    const refresh = document.createElement('button');
-    refresh.type = 'button';
-    refresh.className = 'chipButton x8RefreshPreviewButton';
-    refresh.textContent = 'Refresh preview';
-    refresh.addEventListener('click', () => {
-      const editor = card.querySelector<HTMLTextAreaElement>('textarea.x8ArtifactEditor');
-      if (!editor) return;
-      setArtifactSource(card, editor.value);
-    });
-    actions.insertBefore(refresh, actions.children[1] || null);
-  }
-
-  if (!actions.querySelector('.x8ProposeArtifactButton')) {
-    const propose = document.createElement('button');
-    propose.type = 'button';
-    propose.className = 'chipButton x8ProposeArtifactButton';
-    propose.textContent = 'Propose apply';
-    propose.addEventListener('click', () => {
-      card.classList.add('x8ProposalRequested');
-      let note = card.querySelector<HTMLElement>('.x8PackageNote');
-      if (!note) {
-        note = document.createElement('span');
-        note.className = 'x8PackageNote';
-        actions.appendChild(note);
-      }
-      note.textContent = 'Proposal requested. Apply still requires an approval card.';
-    });
-    actions.appendChild(propose);
-  }
 }
 
 function enhanceApprovalCard(card: HTMLElement) {
@@ -231,6 +245,7 @@ function enhanceApprovalCard(card: HTMLElement) {
 
 function enhanceDom() {
   document.querySelectorAll<HTMLPreElement>(CODE_SELECTOR).forEach(enhanceCodeBlock);
+  document.querySelectorAll<HTMLTextAreaElement>(EDITOR_SELECTOR).forEach(enhanceEditableEditor);
   document.querySelectorAll<HTMLElement>(ARTIFACT_SELECTOR).forEach(enhanceArtifactCard);
   document.querySelectorAll<HTMLElement>(APPROVAL_SELECTOR).forEach(enhanceApprovalCard);
 }
