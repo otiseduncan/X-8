@@ -33,7 +33,7 @@ export function createChatIDEHandlers(deps: ChatIDEHandlersDeps) {
       if (lower.includes('diff')) return createDiffCard();
       if (lower.includes('show code') && lower.includes('app.tsx')) return openIDEPath('apps/web/src/app/App.tsx', true);
       if (lower.includes('open app.tsx')) return openIDEPath('apps/web/src/app/App.tsx', false);
-      if (lower.includes('branch') || lower.includes('git status') || lower.includes('changed') || lower.includes('dirty') || lower.includes('committed')) return createGitStatusCard();
+      if (lower.includes('branch') || lower.includes('git status') || lower.includes('changed') || lower.includes('dirty') || lower.includes('committed')) return createGitStatusCard(lower);
       return createWorkspaceCard();
     } catch {
       setStage('error');
@@ -77,10 +77,10 @@ export function createChatIDEHandlers(deps: ChatIDEHandlersDeps) {
     setStage(muted ? 'muted' : 'idle');
   }
 
-  async function createGitStatusCard() {
+  async function createGitStatusCard(prompt: string) {
     const response = await loadIDEGitStatus();
     const rows = [...gitRows(response.data), ...changedFileRecommendations(response.data)];
-    appendIDEReceipt('IDE Git status loaded without mutation.', 'Chat IDE Git status', response.status, response.message, {
+    appendIDEReceipt(gitStatusText(response.data, prompt), 'Chat IDE Git status', response.status, response.message, {
       rows,
       recommendation: String(response.data.overall_recommendation || 'Review changed files before staging.'),
       safety: 'Read-only Git inspection. No staging, commit, push, or merge occurred.',
@@ -141,4 +141,73 @@ export function createChatIDEHandlers(deps: ChatIDEHandlersDeps) {
   }
 
   return { createIDECard };
+}
+
+export function gitStatusText(git: Record<string, unknown>, prompt: string) {
+  const branch = String(git.branch || 'unknown');
+  const dirty = Boolean(git.dirty);
+  const changed = changedFiles(git);
+  const counts = changedCounts(changed);
+  const commitCandidates = recommendationPaths(git, 'include in commit');
+  const excludes = recommendationPaths(git, 'do not commit');
+  const risks = recommendationPaths(git, 'possible secret/risk');
+  const excluded = [...excludes, ...risks];
+
+  if (prompt.includes('branch')) {
+    if (!dirty) return `You are on \`${branch}\`. Working tree is clean.`;
+    return `You are on \`${branch}\`. Working tree is dirty: ${dirtyCountText(counts)}.`;
+  }
+
+  if (prompt.includes('what changed') || prompt.includes('changed')) {
+    if (!dirty || !changed.length) return 'No working-tree changes are currently present.';
+    return `Working-tree changes: ${changed.map(displayPath).join(', ')}.`;
+  }
+
+  if (prompt.includes('what should') || prompt.includes('committed')) {
+    if (!dirty || !changed.length) return `Branch: \`${branch}\`. Working tree is clean. Nothing needs to be committed.`;
+    const includeText = commitCandidates.length ? `Include: ${commitCandidates.map(displayPath).join(', ')}.` : 'No clear source/test/docs commit candidates were detected.';
+    const excludeText = excluded.length ? ` Exclude: ${excluded.map(displayPath).join(', ')}.` : '';
+    return `${includeText}${excludeText} Run the validation gates before committing.`;
+  }
+
+  if (!dirty || !changed.length) return `Branch: \`${branch}\`. Working tree is clean. Nothing needs to be committed.`;
+  const candidateText = commitCandidates.length ? ` Commit candidates: ${commitCandidates.map(displayPath).join(', ')}.` : '';
+  const excludeText = excluded.length ? ` Exclude: ${excluded.map(displayPath).join(', ')}.` : '';
+  return `Branch: \`${branch}\`. Working tree is dirty. ${changed.length} changed file${changed.length === 1 ? '' : 's'}.${candidateText}${excludeText}`;
+}
+
+function changedFiles(git: Record<string, unknown>) {
+  const files = Array.isArray(git.changed_files) ? git.changed_files : [];
+  return files.map((item) => String(item).trim()).filter(Boolean);
+}
+
+function changedCounts(files: string[]) {
+  return files.reduce((counts, item) => {
+    const status = item.slice(0, 2);
+    if (status.includes('?')) counts.untracked += 1;
+    else if (status.includes('D')) counts.deleted += 1;
+    else counts.modified += 1;
+    return counts;
+  }, { modified: 0, untracked: 0, deleted: 0 });
+}
+
+function dirtyCountText(counts: { modified: number; untracked: number; deleted: number }) {
+  const parts = [
+    counts.modified ? `${counts.modified} modified` : '',
+    counts.untracked ? `${counts.untracked} untracked` : '',
+    counts.deleted ? `${counts.deleted} deleted` : ''
+  ].filter(Boolean);
+  return parts.join(', ') || 'changes present';
+}
+
+function recommendationPaths(git: Record<string, unknown>, recommendation: string) {
+  const items = Array.isArray(git.file_recommendations) ? git.file_recommendations as Array<Record<string, unknown>> : [];
+  return items
+    .filter((item) => String(item.recommendation || '') === recommendation)
+    .map((item) => String(item.path || '').trim())
+    .filter(Boolean);
+}
+
+function displayPath(path: string) {
+  return path.replace(/^[?MADRCU ]{1,2}\s+/, '');
 }

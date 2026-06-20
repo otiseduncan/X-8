@@ -1,5 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
+import { gitStatusText } from '../app/handlers/chatIDEHandlers';
 import { ChatIDESurface } from '../app/ChatIDESurface';
 
 const summary = {
@@ -69,4 +70,20 @@ test('shows rollback as approval-required proposal, not a failure', async () => 
   fireEvent.click(await screen.findByRole('button', { name: 'Discard proposal' }));
   expect(await screen.findByText('Rollback is destructive and requires explicit approval.')).toBeInTheDocument();
   expect(screen.getByText('No rollback has run. Destructive rollback actions require explicit approval.')).toBeInTheDocument();
+});
+
+test('formats Git IDE answers as human-readable assistant text', () => {
+  const git = {
+    branch: 'feature/chat-ide-core-v1',
+    dirty: true,
+    changed_files: ['M apps/web/src/app/App.tsx', '?? test-results/'],
+    file_recommendations: [
+      { path: 'apps/web/src/app/App.tsx', recommendation: 'include in commit', reason: 'Source change.' },
+      { path: 'test-results/', recommendation: 'do not commit', reason: 'Generated runtime output.' }
+    ]
+  };
+  expect(gitStatusText(git, 'what branch are we on')).toBe('You are on `feature/chat-ide-core-v1`. Working tree is dirty: 1 modified, 1 untracked.');
+  expect(gitStatusText(git, 'show git status')).toContain('Commit candidates: apps/web/src/app/App.tsx.');
+  expect(gitStatusText(git, 'what should be committed')).toContain('Exclude: test-results/.');
+  expect(gitStatusText({ branch: 'feature/chat-ide-core-v1', dirty: false, changed_files: [] }, 'what changed')).toBe('No working-tree changes are currently present.');
 });

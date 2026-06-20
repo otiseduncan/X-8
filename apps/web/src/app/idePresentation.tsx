@@ -23,10 +23,10 @@ export function HumanFirstDetails({ rows, recommendation, safety, raw }: { rows:
 export function IDECodeViewer({ path, content }: { path: string; content: string }) {
   const lines = content.split('\n');
   return (
-    <pre className="codeBlock" aria-label={`Source code for ${path}`}>
+    <pre className="codeBlock ideCodeBlock" aria-label={`Source code for ${path}`}>
       {lines.map((line, index) => (
-        <span key={`${index}-${line}`} style={{ display: 'block', whiteSpace: 'pre', overflow: 'visible' }}>
-          <span style={{ color: '#64748b', userSelect: 'none', display: 'inline-block', width: '3.5em' }}>{String(index + 1).padStart(3, ' ')}</span>
+        <span className="codeLine" key={`${index}-${line}`}>
+          <span className="codeLineNumber">{String(index + 1).padStart(3, ' ')}</span>
           <SyntaxLine line={line} />
           {index < lines.length - 1 ? '\n' : ''}
         </span>

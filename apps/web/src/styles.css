@@ -22,6 +22,13 @@
 * {
   box-sizing: border-box;
 }
+html,
+body,
+#root {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+}
 .srOnly {
   position: absolute;
   width: 1px;
@@ -62,6 +69,7 @@ button:disabled {
   grid-template-columns: minmax(320px, 360px) minmax(0, 1fr);
   gap: 28px;
   min-height: calc(100vh - 56px);
+  min-width: 0;
 }
 .avatarPresence {
   position: sticky;
@@ -366,10 +374,12 @@ h2 {
   align-content: end;
   display: grid;
   gap: 12px;
+  min-width: 0;
   padding: 10px 2px 14px;
 }
 .message {
   display: flex;
+  min-width: 0;
 }
 .message.user {
   justify-content: flex-end;
@@ -377,6 +387,8 @@ h2 {
 .messageBubble {
   position: relative;
   width: min(760px, 100%);
+  max-width: 100%;
+  min-width: 0;
   border: 1px solid rgba(148, 163, 184, 0.16);
   border-radius: 8px;
   background: rgba(11, 15, 26, 0.82);
@@ -522,6 +534,9 @@ input:focus {
   line-height: 1.2;
 }
 .inlineCard {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   margin-top: 12px;
   border: 1px solid var(--color-xv-accent-border);
   border-radius: 8px;
@@ -542,6 +557,10 @@ input:focus {
   grid-template-columns: auto 1fr auto;
   align-items: center;
   gap: 10px;
+  min-width: 0;
+}
+.inlineCardHeader > div {
+  min-width: 0;
 }
 .icon {
   display: grid;
@@ -563,6 +582,8 @@ input:focus {
 }
 .cardBody {
   margin-top: 12px;
+  min-width: 0;
+  max-width: 100%;
 }
 .tabs,
 .chips {
@@ -577,12 +598,17 @@ input:focus {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   margin-top: 18px;
   border-top: 1px solid var(--color-border);
   padding-top: 18px;
 }
 .panel {
   min-height: 220px;
+  min-width: 0;
+  max-width: 100%;
   border: 1px solid var(--color-border);
   border-radius: 8px;
   background: rgba(11, 15, 26, 0.92);
@@ -594,6 +620,7 @@ input:focus {
 .stack {
   display: grid;
   gap: 10px;
+  min-width: 0;
 }
 .panel header {
   display: flex;
@@ -642,6 +669,9 @@ input:focus {
 }
 .codeBlock,
 .diff {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   max-height: 360px;
   overflow: auto;
   border: 1px solid var(--color-border);
@@ -650,6 +680,33 @@ input:focus {
   color: #d5d9e2;
   padding: 12px;
   white-space: pre-wrap;
+}
+.ideCodeBlock {
+  white-space: pre;
+}
+.codeLine {
+  display: block;
+  min-width: max-content;
+  white-space: pre;
+}
+.codeLineNumber {
+  display: inline-block;
+  width: 3.5em;
+  color: #64748b;
+  user-select: none;
+}
+.row,
+.source,
+.cardSummary,
+.messageBubble p,
+.inlineCardHeader h2,
+.inlineCardHeader .cardMeta {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.row span {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .smallBlock {
   max-height: 180px;

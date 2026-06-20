@@ -492,7 +492,7 @@ test('copy transcript copies readable conversation markdown', async () => {
   expect(copied).toContain('# XV8 Conversation Transcript');
   expect(copied).toContain('hello transcript');
   expect(copied).toContain('Echo: hello transcript');
-  expect(copied).toContain('Kernel limitations');
+  expect(copied).not.toContain('Kernel limitations');
 });
 test('clear chat confirms and resets visible conversation', async () => {
   render(<App />);

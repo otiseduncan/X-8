@@ -137,7 +137,7 @@ export function createChatConversationHandlers(deps: ChatConversationHandlersDep
       setLatestResult(outgoingAttachments.length ? `Attachments processed: ${response.status}` : response.status);
       setLastApiStatus(response.status || 'ok');
       const responseText = response.data.assistant_message.content;
-      const responseCards = response.data.assistant_message.cards.map(mapKernelCard);
+      const responseCards = response.data.assistant_message.cards.map(mapKernelCard).filter((card): card is ChatCard => Boolean(card));
       recordResponseLifecycle(responseCards.length ? 'text-with-cards' : 'deterministic/text-only', Boolean(responseText.trim()), responseCards.length > 0);
       appendMessage({
         id: response.data.message_id || nowId(),
