@@ -3,8 +3,27 @@ import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { App } from '../app/App';
 
 vi.mock('../components/cockpit/CodeEditor', () => ({
-  CodeEditor: ({ value, onChange }: { value: string; onChange: (next: string) => void }) => (
-    <textarea aria-label="Artifact page code editor" value={value} onChange={(event) => onChange(event.target.value)} />
+  CodeEditor: ({
+    value,
+    onChange,
+    highlightLineStart,
+    highlightLineEnd,
+    diffEntries = []
+  }: {
+    value: string;
+    onChange: (next: string) => void;
+    highlightLineStart?: number;
+    highlightLineEnd?: number;
+    diffEntries?: Array<{ line_number: number; kind: string }>;
+  }) => (
+    <div
+      data-testid="mock-code-editor"
+      data-highlight-line-start={highlightLineStart || ''}
+      data-highlight-line-end={highlightLineEnd || ''}
+      data-diff-kinds={diffEntries.map((entry) => `${entry.line_number}:${entry.kind}`).join('|')}
+    >
+      <textarea aria-label="Artifact page code editor" value={value} onChange={(event) => onChange(event.target.value)} />
+    </div>
   )
 }));
 
@@ -152,6 +171,14 @@ test('background locate asks what to change and stores pending revision', async 
   await send('what is the color for the background?');
   expect(chatBodies).toHaveLength(0);
   expect(await screen.findByText(/What would you like to change it to\?/i)).toBeInTheDocument();
+  expect(await screen.findByText(/black \(#1b0909\)/i)).toBeInTheDocument();
+  expect(await screen.findByText(/red \(#e11d24\)/i)).toBeInTheDocument();
+  fireEvent.click(within(artifactCard).getByRole('button', { name: 'Code' }));
+  fireEvent.click(within(artifactCard).getByRole('button', { name: /styles\.css/i }));
+  const codeEditor = within(artifactCard).getByTestId('mock-code-editor');
+  expect(codeEditor).toHaveAttribute('data-highlight-line-start', '1');
+  expect(codeEditor).toHaveAttribute('data-highlight-line-end', '4');
+  expect(codeEditor).toHaveAttribute('data-diff-kinds', '');
   openHistory(artifactCard);
   expect(within(artifactCard).getByTestId('artifact-pending-revision')).toHaveTextContent(/background_color/);
   expect(within(artifactCard).getByTestId('artifact-pending-revision')).toHaveTextContent(/styles\.css/);
@@ -165,6 +192,9 @@ test('I want blue after background locate edits styles.css and refreshes preview
   expect(await screen.findByText(/I changed the background to blue in styles\.css and refreshed the preview\./i)).toBeInTheDocument();
   fireEvent.click(within(artifactCard).getByRole('button', { name: 'Code' }));
   fireEvent.click(within(artifactCard).getByRole('button', { name: /styles\.css/i }));
+  const mockEditor = within(artifactCard).getByTestId('mock-code-editor');
+  expect(mockEditor.getAttribute('data-diff-kinds') || '').toMatch(/1:modified_old/);
+  expect(mockEditor.getAttribute('data-diff-kinds') || '').toMatch(/1:modified_new/);
   const cssEditor = within(artifactCard).getByLabelText('Artifact page code editor') as HTMLTextAreaElement;
   expect(cssEditor.value).toContain('#0b3b8f');
 });
@@ -203,11 +233,14 @@ test('website-name locate asks what to change then applies Harrys Hot Dogs', asy
 });
 
 test('direct change background to blue edits without asking', async () => {
-  await generateArtifact();
+  const artifactCard = await generateArtifact();
   await send('change the background to blue');
   expect(chatBodies).toHaveLength(0);
   expect(await screen.findByText(/I changed the background to blue in styles\.css and refreshed the preview\./i)).toBeInTheDocument();
   expect(screen.queryByText(/What would you like to change it to\?/i)).not.toBeInTheDocument();
+  fireEvent.click(within(artifactCard).getByRole('button', { name: 'Code' }));
+  fireEvent.click(within(artifactCard).getByRole('button', { name: /styles\.css/i }));
+  expect(within(artifactCard).getByTestId('mock-code-editor').getAttribute('data-diff-kinds') || '').toMatch(/modified_new/);
 });
 
 test('sandbox edits do not create new artifact packages', async () => {
@@ -223,6 +256,9 @@ test('diff history marks added lines green and deleted lines red', async () => {
   const artifactCard = await generateArtifact();
   await send('what controls the background color?');
   await send('I want blue');
+  fireEvent.click(within(artifactCard).getByRole('button', { name: 'Code' }));
+  fireEvent.click(within(artifactCard).getByRole('button', { name: /styles\.css/i }));
+  expect(within(artifactCard).getByTestId('mock-code-editor').getAttribute('data-diff-kinds') || '').toMatch(/modified_new/);
   openHistory(artifactCard);
   const diffPanel = within(artifactCard).getByTestId('artifact-diff-history');
   expect(within(diffPanel).getAllByText(/\+ /i).length).toBeGreaterThan(0);

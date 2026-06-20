@@ -279,6 +279,7 @@ export function ArtifactWorkbench({ card, onCardUpdate }: ArtifactWorkbenchProps
 
   const filePaths = useMemo(() => Object.keys(filesByPath).sort(), [filesByPath]);
   const pagePaths = useMemo(() => collectPreviewPaths(filesByPath), [filesByPath]);
+  const activeFileDiffEntries = useMemo(() => diffEntries.filter((entry) => entry.file_path === activeFilePath), [activeFilePath, diffEntries]);
 
   const packageDirty = useMemo(() => Object.values(dirtyByPath).some(Boolean), [dirtyByPath]);
   const activeFileContent = filesByPath[activeFilePath] || '';
@@ -664,7 +665,14 @@ export function ArtifactWorkbench({ card, onCardUpdate }: ArtifactWorkbenchProps
               </p>
             )}
             <div data-testid="artifact-code-editor">
-              <CodeEditor path={activeFilePath} value={activeFileContent} onChange={updateActiveFile} />
+              <CodeEditor
+                path={activeFilePath}
+                value={activeFileContent}
+                onChange={updateActiveFile}
+                highlightLineStart={activeFileDiffEntries.length === 0 ? highlightedLine : undefined}
+                highlightLineEnd={activeFileDiffEntries.length === 0 ? highlightedLineEnd : undefined}
+                diffEntries={activeFileDiffEntries.map((entry) => ({ line_number: entry.line_number, kind: entry.kind }))}
+              />
             </div>
             <div className="inlineActions">
               <button className="chipButton" type="button" onClick={saveCurrentFile}>Save current file</button>

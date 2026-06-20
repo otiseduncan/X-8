@@ -104,6 +104,7 @@ test.describe('artifact package viewer workflow', () => {
     await expect(artifactCard.getByRole('button', { name: 'Code' })).toHaveClass(/active/);
     await expect(artifactCard.getByTestId('artifact-highlight-summary')).toContainText('styles.css');
     await expect(artifactCard.getByTestId('artifact-highlight-summary')).toContainText('background');
+    await expect(artifactCard.getByTestId('artifact-code-editor').locator('.artifactLineLocate').first()).toBeVisible({ timeout: 5000 });
     await artifactCard.getByRole('button', { name: 'History/Log' }).click();
     await expect(artifactCard.getByTestId('artifact-pending-revision')).toContainText('What would you like to change it to?');
     await expect(page.getByTestId('inline-artifact-card')).toHaveCount(1);
@@ -111,6 +112,9 @@ test.describe('artifact package viewer workflow', () => {
     await ask(page, 'make it blue');
     await expect(page.getByText(/changed the background to blue in styles\.css/i).first()).toBeVisible({ timeout: 5000 });
     await expect(page.getByTestId('inline-artifact-card')).toHaveCount(1);
+    await artifactCard.getByRole('button', { name: 'Code' }).click();
+    await artifactCard.getByRole('button', { name: /styles\.css/i }).click();
+    await expect(artifactCard.getByTestId('artifact-code-editor').locator('.artifactLineReplaced, .artifactLineAdded, .artifactLineModifiedNew').first()).toBeVisible({ timeout: 5000 });
 
     await artifactCard.getByRole('button', { name: 'History/Log' }).click();
     await expect(artifactCard.getByTestId('artifact-diff-history')).toBeVisible({ timeout: 5000 });
@@ -142,6 +146,9 @@ test.describe('artifact package viewer workflow', () => {
 
     await ask(page, 'change the background to purple');
     await expect(page.getByText(/changed the background to purple in styles\.css/i).first()).toBeVisible({ timeout: 5000 });
+    await artifactCard.getByRole('button', { name: 'Code' }).click();
+    await artifactCard.getByRole('button', { name: /styles\.css/i }).click();
+    await expect(artifactCard.getByTestId('artifact-code-editor').locator('.artifactLineReplaced, .artifactLineAdded, .artifactLineModifiedNew').first()).toBeVisible({ timeout: 5000 });
     await expect(applyBtn).toBeDisabled({ timeout: 5000 });
   });
 });

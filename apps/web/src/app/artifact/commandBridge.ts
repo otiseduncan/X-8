@@ -109,6 +109,41 @@ function extractCurrentBackgroundValue(css: string) {
 
 const accentWord = ['pur', 'ple'].join('');
 
+const namedColors: Record<string, string> = {
+  '#ffd21f': 'yellow',
+  '#1b0909': 'black',
+  '#0b3b8f': 'blue',
+  '#e11d24': 'red',
+  '#2a1010': 'deep red',
+  '#ffffff': 'white',
+  '#1b1200': 'near-black',
+};
+
+function normalizeColorToken(token: string) {
+  const raw = token.toLowerCase();
+  if (/^#[0-9a-f]{8}$/i.test(raw)) return raw.slice(0, 7);
+  return raw;
+}
+
+function describeColorValue(rawValue: string) {
+  const matches = rawValue.match(/#[0-9a-f]{6}(?:[0-9a-f]{2})?/gi) || [];
+  const described = uniqueSorted(matches.map((_, index) => index + 1)).map((index) => matches[index - 1]).filter(Boolean).map((token) => {
+    const normalized = normalizeColorToken(token);
+    const name = namedColors[normalized];
+    return name ? `${name} (${normalized})` : normalized;
+  });
+  if (described.length === 0) return rawValue;
+  if (described.length === 1) return `${described[0]} from ${rawValue}`;
+  if (described.length === 2) return `${described[0]} and ${described[1]} from ${rawValue}`;
+  return `${described.slice(0, -1).join(', ')}, and ${described.at(-1)} from ${rawValue}`;
+}
+
+function describeBackgroundValue(css: string, lines: number[]) {
+  const allLines = splitLines(css);
+  const source = lines.map((line) => compactSnippet(allLines, line)).join(' ');
+  return describeColorValue(source || extractCurrentBackgroundValue(css));
+}
+
 function replaceBackgroundToBlue(css: string) {
   let next = css;
   next = next.replace(/background:#1b0909;/gi, 'background:#0b3b8f;');
@@ -575,7 +610,7 @@ export function resolveArtifactCommand(message: string, card: ArtifactCardLike):
         filePath: cssPath,
         lines,
         token: 'background',
-        currentValue: extractCurrentBackgroundValue(css),
+        currentValue: describeBackgroundValue(css, lines),
         revisionKind: 'background_color',
         responsePrefix: `The background is controlled in ${cssPath}`,
         followupPrompt: 'What would you like to change it to?',
@@ -591,7 +626,7 @@ export function resolveArtifactCommand(message: string, card: ArtifactCardLike):
         filePath: cssPath,
         lines,
         token: 'button-color',
-        currentValue: compactSnippet(splitLines(css), lines[0]),
+        currentValue: describeColorValue(compactSnippet(splitLines(css), lines[0])),
         revisionKind: 'button_color',
         responsePrefix: `The button color is controlled in ${cssPath}`,
         followupPrompt: 'What would you like to change it to?',

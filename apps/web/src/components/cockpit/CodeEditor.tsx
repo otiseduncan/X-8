@@ -4,9 +4,22 @@ import { html } from '@codemirror/lang-html';
 import { json } from '@codemirror/lang-json';
 import { javascript } from '@codemirror/lang-javascript';
 import { python } from '@codemirror/lang-python';
+import { RangeSetBuilder } from '@codemirror/state';
 import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
-import { EditorView } from '@codemirror/view';
+import { Decoration, EditorView, ViewPlugin } from '@codemirror/view';
 import { tags } from '@lezer/highlight';
+import { useEffect, useMemo, useRef } from 'react';
+
+type DiffHighlightEntry = { line_number: number; kind: string };
+
+interface CodeEditorProps {
+  path: string;
+  value: string;
+  onChange: (value: string) => void;
+  highlightLineStart?: number;
+  highlightLineEnd?: number;
+  diffEntries?: DiffHighlightEntry[];
+}
 
 function languageFor(path: string) {
   if (path.endsWith('.py')) return python();
@@ -55,6 +68,18 @@ const artifactEditorTheme = EditorView.theme({
   '.cm-selectionBackground, &.cm-focused .cm-selectionBackground': {
     backgroundColor: '#164e63'
   },
+  '.cm-line.artifactLineLocate': {
+    backgroundColor: 'rgba(250, 204, 21, 0.22)'
+  },
+  '.cm-line.artifactLineAdded, .cm-line.artifactLineModifiedNew': {
+    backgroundColor: 'rgba(16, 185, 129, 0.22)'
+  },
+  '.cm-line.artifactLineDeleted, .cm-line.artifactLineModifiedOld': {
+    backgroundColor: 'rgba(244, 63, 94, 0.18)'
+  },
+  '.cm-line.artifactLineReplaced': {
+    backgroundImage: 'linear-gradient(90deg, rgba(244, 63, 94, 0.18) 0%, rgba(244, 63, 94, 0.18) 46%, rgba(16, 185, 129, 0.22) 54%, rgba(16, 185, 129, 0.22) 100%)'
+  },
   '&.cm-focused': {
     outline: '1px solid #22d3ee'
   }
@@ -78,15 +103,100 @@ const artifactHighlighting = syntaxHighlighting(HighlightStyle.define([
   { tag: tags.invalid, color: '#fecdd3', backgroundColor: '#7f1d1d' }
 ]));
 
-export function CodeEditor({ path, value, onChange }: { path: string; value: string; onChange: (value: string) => void }) {
+function clampLineNumber(doc: EditorView['state']['doc'], lineNumber: number) {
+  return Math.max(1, Math.min(lineNumber, doc.lines));
+}
+
+function classNameForDiffKinds(kinds: Set<string>) {
+  const hasNew = kinds.has('added') || kinds.has('modified_new');
+  const hasOld = kinds.has('deleted') || kinds.has('modified_old');
+  if (hasNew && hasOld) return 'artifactLineReplaced';
+  if (kinds.has('modified_new')) return 'artifactLineModifiedNew';
+  if (kinds.has('modified_old')) return 'artifactLineModifiedOld';
+  if (kinds.has('added')) return 'artifactLineAdded';
+  if (kinds.has('deleted')) return 'artifactLineDeleted';
+  return '';
+}
+
+function lineHighlightExtension(args: { highlightLineStart?: number; highlightLineEnd?: number; diffEntries?: DiffHighlightEntry[] }) {
+  const { diffEntries = [], highlightLineEnd, highlightLineStart } = args;
+  return ViewPlugin.fromClass(class {
+    decorations;
+
+    constructor(view: EditorView) {
+      this.decorations = this.buildDecorations(view);
+    }
+
+    update(update: { view: EditorView; docChanged: boolean; viewportChanged: boolean }) {
+      if (update.docChanged || update.viewportChanged) {
+        this.decorations = this.buildDecorations(update.view);
+      }
+    }
+
+    buildDecorations(view: EditorView) {
+      const builder = new RangeSetBuilder<Decoration>();
+      const diffMap = new Map<number, Set<string>>();
+      diffEntries.forEach((entry) => {
+        const lineNumber = clampLineNumber(view.state.doc, Number(entry.line_number || 1));
+        const kinds = diffMap.get(lineNumber) || new Set<string>();
+        kinds.add(String(entry.kind || ''));
+        diffMap.set(lineNumber, kinds);
+      });
+
+      if (diffMap.size > 0) {
+        diffMap.forEach((kinds, lineNumber) => {
+          const className = classNameForDiffKinds(kinds);
+          if (!className) return;
+          const line = view.state.doc.line(lineNumber);
+          builder.add(line.from, line.from, Decoration.line({ attributes: { class: className, 'data-artifact-line-kind': className } }));
+        });
+        return builder.finish();
+      }
+
+      if (highlightLineStart && highlightLineStart > 0) {
+        const start = clampLineNumber(view.state.doc, highlightLineStart);
+        const end = clampLineNumber(view.state.doc, highlightLineEnd && highlightLineEnd >= start ? highlightLineEnd : start);
+        for (let lineNumber = start; lineNumber <= end; lineNumber += 1) {
+          const line = view.state.doc.line(lineNumber);
+          builder.add(line.from, line.from, Decoration.line({ attributes: { class: 'artifactLineLocate', 'data-artifact-line-kind': 'artifactLineLocate' } }));
+        }
+      }
+      return builder.finish();
+    }
+  }, {
+    decorations: (value) => value.decorations
+  });
+}
+
+export function CodeEditor({ path, value, onChange, highlightLineEnd, highlightLineStart, diffEntries = [] }: CodeEditorProps) {
+  const editorRef = useRef<EditorView | null>(null);
+  const decorationExtension = useMemo(() => lineHighlightExtension({ highlightLineStart, highlightLineEnd, diffEntries }), [diffEntries, highlightLineEnd, highlightLineStart]);
+  const highlightKey = useMemo(() => `${path}:${highlightLineStart || 0}:${highlightLineEnd || 0}:${diffEntries.map((entry) => `${entry.line_number}-${entry.kind}`).join('|')}`, [diffEntries, highlightLineEnd, highlightLineStart, path]);
+  const targetLine = diffEntries.find((entry) => entry.kind === 'added' || entry.kind === 'modified_new')?.line_number
+    || diffEntries[0]?.line_number
+    || highlightLineStart
+    || 0;
+
+  useEffect(() => {
+    const view = editorRef.current;
+    if (!view || !targetLine) return;
+    const safeLine = clampLineNumber(view.state.doc, targetLine);
+    const line = view.state.doc.line(safeLine);
+    view.dispatch({ effects: EditorView.scrollIntoView(line.from, { y: 'center' }) });
+  }, [highlightKey, targetLine]);
+
   return (
     <div className="codeMirrorShell">
       <CodeMirror
+        key={highlightKey}
         value={value}
         height="318px"
-        extensions={[languageFor(path), artifactEditorTheme, artifactHighlighting].flat()}
+        extensions={[languageFor(path), artifactEditorTheme, artifactHighlighting, decorationExtension].flat()}
         basicSetup={{ lineNumbers: true, foldGutter: true, highlightActiveLine: true }}
         onChange={onChange}
+        onCreateEditor={(view) => {
+          editorRef.current = view;
+        }}
       />
     </div>
   );
