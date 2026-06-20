@@ -5,17 +5,22 @@ from pathlib import Path
 
 IGNORED_DIRS = {
     ".git",
+    ".hg",
+    ".mypy_cache",
     ".pytest_cache",
-    "node_modules",
-    "dist",
+    ".ruff_cache",
+    ".tox",
+    ".venv",
+    "__pycache__",
     "build",
     "coverage",
+    "dist",
+    "htmlcov",
+    "node_modules",
     "playwright-report",
-    "test-results",
-    "__pycache__",
-    ".mypy_cache",
-    ".ruff_cache",
     "runtime",
+    "test-results",
+    "venv",
 }
 GENERATED_SUFFIXES = {".lock", ".png", ".jpg", ".jpeg", ".gif", ".mp4", ".zip"}
 DOC_DIRS = {"docs", "knowledge"}
