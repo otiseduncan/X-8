@@ -125,4 +125,4 @@ Full validation:
 - Architecture guard still emits existing preferred-length warnings for several large files, but there are no hard-max failures.
 
 ## Commit Hash
-- Pending final commit
+- Feature commit: `a89e75b`
