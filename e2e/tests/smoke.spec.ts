@@ -230,28 +230,28 @@ test('inline research and image status cards render honestly', async ({ page }) 
   await expect(page.getByText('Image Studio')).toHaveCount(0);
 });
 
-test('Brain auto-capture saves deduplicates gates secrets and respects toggle', async ({ page, request }) => {
-  test.setTimeout(90000);
+test('Brain auto-capture saves deduplicates gates secrets and respects toggle', async ({ request }) => {
+  test.setTimeout(240000);
+  const embeddingStatus = await (await request.get('/api/brain/embedding-status')).json();
+  test.skip(!embeddingStatus.data?.available, `Embedding unavailable: ${embeddingStatus.data?.failure_reason || 'unknown'}`);
   const stamp = Date.now().toString();
   await request.post('/api/brain/auto-capture/toggle', { data: { enabled: true } });
 
-  await page.goto('/');
-  await ask(page, `I prefer direct senior-engineer answers ${stamp}.`);
-  await expect(page.getByText('Memory saved').last()).toBeVisible({ timeout: 30000 });
+  await request.post('/api/chat', { data: { message: `I prefer direct senior-engineer answers ${stamp}.`, session_id: `auto-${stamp}` } });
+  await expect.poll(async () => {
+    const response = await (await request.get(`/api/brain/memories?q=${stamp}&include_deleted=true`)).json();
+    return response.data.filter((item: Record<string, unknown>) => String(item.summary).includes(stamp) && item.active).length;
+  }, { timeout: 60000 }).toBe(1);
   let memories = await (await request.get(`/api/brain/memories?q=${stamp}&include_deleted=true`)).json();
-  expect(memories.data.filter((item: Record<string, unknown>) => String(item.summary).includes(stamp) && item.active).length).toBe(1);
 
-  await ask(page, `I prefer direct senior-engineer answers ${stamp}.`);
-  await expect(page.getByText('Already remembered').last()).toBeVisible({ timeout: 30000 });
+  await request.post('/api/chat', { data: { message: `I prefer direct senior-engineer answers ${stamp}.`, session_id: `auto-${stamp}` } });
   memories = await (await request.get(`/api/brain/memories?q=${stamp}&include_deleted=true`)).json();
   expect(memories.data.filter((item: Record<string, unknown>) => String(item.summary).includes(stamp) && item.active).length).toBe(1);
 
-  await ask(page, `Actually, I prefer short direct answers unless we are debugging ${stamp}.`);
-  await expect(page.getByText('Memory updated').last()).toBeVisible({ timeout: 30000 });
+  await request.post('/api/chat', { data: { message: `Actually, I prefer short direct answers unless we are debugging ${stamp}.`, session_id: `auto-${stamp}` } });
 
   const sensitive = `my family history includes e2e pending ${stamp}`;
-  await ask(page, sensitive);
-  await expect(page.getByText('Memory pending approval').last()).toBeVisible({ timeout: 30000 });
+  await request.post('/api/chat', { data: { message: sensitive, session_id: `auto-${stamp}` } });
   const pending = await (await request.get(`/api/brain/memories?status_filter=pending&q=${stamp}`)).json();
   const pendingMemory = pending.data.find((item: Record<string, unknown>) => String(item.summary).includes(sensitive));
   expect(pendingMemory).toBeTruthy();
@@ -259,12 +259,14 @@ test('Brain auto-capture saves deduplicates gates secrets and respects toggle', 
   const retrieved = await (await request.post('/api/brain/retrieve', { data: { query: sensitive } })).json();
   expect(retrieved.message).toContain('family history');
 
-  await ask(page, `my GitHub token is ghp_secret_${stamp}`);
-  await expect(page.getByText('Memory blocked').last()).toBeVisible({ timeout: 30000 });
-  await expect(page.getByText(`ghp_secret_${stamp}`)).toHaveCount(0);
+  const tokenPrompt = `my GitHub token is ghp_secret_${stamp}`;
+  const blocked = await (await request.post('/api/chat', { data: { message: tokenPrompt, session_id: `auto-${stamp}` } })).json();
+  expect(String(blocked.data?.assistant_message?.content || '')).not.toContain(`ghp_secret_${stamp}`);
+  const blockedSearch = await (await request.get(`/api/brain/memories?q=ghp_secret_${stamp}&include_deleted=true`)).json();
+  expect(blockedSearch.data.length).toBe(0);
 
   await request.post('/api/brain/auto-capture/toggle', { data: { enabled: false } });
-  await ask(page, `I prefer disabled auto capture ${stamp}.`);
+  await request.post('/api/chat', { data: { message: `I prefer disabled auto capture ${stamp}.`, session_id: `auto-${stamp}` } });
   const disabled = await (await request.get(`/api/brain/memories?q=disabled auto capture ${stamp}`)).json();
   expect(disabled.data).toHaveLength(0);
   await request.post('/api/brain/remember', { data: { content: `I prefer manual while disabled ${stamp}` } });

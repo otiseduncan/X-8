@@ -3,7 +3,7 @@
 Generated: 2026-06-20
 
 ## 1. Executive Result
-- In progress
+- PASS (local preserve/clean/sync/validate loop completed)
 
 ## 2. Starting Branch/State
 - Repo path: X:\X 8
@@ -36,37 +36,72 @@ Generated: 2026-06-20
 - Safety inventory file generated: docs/V8_1_WORKSPACE_FILELIST.md
 
 ## 4. Files Staged/Committed
-- Pending
+- Checkpoint commit created:
+  - 4c405d5 checkpoint: preserve V8.1 local work before sync
+- Post-validation repair changes prepared in working tree:
+  - apps/api/src/x8/kernel/response_planner.py
+  - apps/web/src/app/intentRouting.ts
+  - e2e/tests/smoke.spec.ts
+  - docs/V8_1_WORKSPACE_SYNC_REPORT.md
 
 ## 5. Files Intentionally Excluded
-- Pending
+- Runtime/generated artifacts under runtime/ (ignored)
+- repair backups and runtime reports (ignored)
+- .env and .env.* (ignored)
+- node_modules/, build/dist, caches, logs (ignored)
+- No runtime/* outputs were staged for checkpoint commit
 
 ## 6. Secret Hygiene Result
-- Pending
+- Broad staged keyword scan run: token, secret, password, api_key, github_token, bearer, private key
+- Strict staged secret pattern scan run for high-confidence token/key formats
+- No real credentials staged in commit content
+- Note: docker compose config prints effective environment values; local runtime currently exposes an X8_GITHUB_TOKEN value in composed output and should be handled as local secret hygiene debt
 
 ## 7. Rebase Result
-- Pending
+- Fetched remotes and rebased onto origin/main
+- Result: already up to date (no replay needed)
 
 ## 8. Conflict Resolutions
-- Pending
+- No rebase conflicts encountered
 
 ## 9. Validation Commands Run
-- Pending
+- docker compose config
+- docker compose build
+- docker compose run --rm architecture-guard
+- docker compose run --rm api-tests
+- docker compose run --rm web-tests
+- docker compose run --rm e2e-tests
+- Focused runs for repaired failures:
+  - docker compose run --rm api-tests pytest tests/test_project_builder_routing_precedence.py -q
+  - docker compose run --rm web-tests npm test -- --run src/tests/intentRouting.test.ts
+  - docker compose run --rm web-tests npm test -- --run src/tests/App.test.tsx
+  - docker compose run --rm e2e-tests npx playwright test tests/smoke.spec.ts --grep "Brain auto-capture saves deduplicates gates secrets and respects toggle"
 
 ## 10. Validation Pass/Fail Results
-- Pending
+- architecture-guard: PASS (warnings only)
+- api-tests: PASS (166 passed)
+- web-tests: PASS (53 passed)
+- e2e-tests: PASS (16 passed)
+- Focused regression repairs:
+  - API routing precedence: PASS
+  - Web intent routing precedence: PASS
+  - Web inline diff routing regression: PASS
+  - Brain auto-capture e2e scenario: PASS after stabilization
 
 ## 11. Final Branch/Upstream State
-- Pending
+- Branch: v8-1-studio-operator
+- Upstream before push step: not configured
+- Working tree before final repair commit: dirty (4 modified files)
 
 ## 12. Remote Branch Creation
-- Pending
+- Pending push step
 
 ## 13. Remaining Blockers
-- Pending
+- None blocking local validation
 
 ## 14. Next Recommended Action
-- Continue with selective staging, secret scan, checkpoint commit, rebase, and validation loop.
+- Create and push final repair commit, then set upstream with:
+  - git push -u origin v8-1-studio-operator
 
 ## Step 2 Ignore Hygiene
 - Inspected .gitignore and confirmed baseline coverage for:

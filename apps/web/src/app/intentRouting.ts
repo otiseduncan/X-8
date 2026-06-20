@@ -2,8 +2,8 @@ export function classifyRequest(text: string) {
   const lower = text.toLowerCase();
   if (isProjectBuilderRequest(lower)) return 'project_builder';
   if (isSelfBuildRequest(lower)) return 'self_build';
-  if (lower.includes('open') && lower.includes('readme')) return 'file';
   if (lower.includes('propose') && (lower.includes('edit') || lower.includes('diff'))) return 'diff';
+  if (lower.includes('readme') && (lower.includes('open') || lower.includes('read') || lower.includes('show') || lower.includes('view') || lower.includes('file'))) return 'file';
   if (lower.includes('website') || lower.includes('preview') || lower.includes('html')) return 'artifact';
   if (lower.includes('search') || lower.includes('searxng')) return 'research';
   if (lower.includes('image') || lower.includes('generate')) return 'image';
@@ -16,7 +16,10 @@ export function isProjectBuilderRequest(lower: string) {
   if (lower.includes('self-build') || lower.includes('self build')) return false;
   const buildMarkers = ['build', 'create', 'generate', 'scaffold', 'write'];
   const projectMarkers = ['v8 project builder', 'project builder', 'real project', 'generated project', 'project output path', 'project folder name'];
-  return buildMarkers.some((marker) => lower.includes(marker)) && projectMarkers.some((marker) => lower.includes(marker));
+  const generatedFileMarkers = ['readme.md', 'manifest.json', 'index.html', 'css', 'styles', 'src', 'app files'];
+  const generatedFileHits = generatedFileMarkers.filter((marker) => lower.includes(marker)).length;
+  const hasGeneratedRequirements = lower.includes('project') && generatedFileHits >= 2;
+  return buildMarkers.some((marker) => lower.includes(marker)) && (projectMarkers.some((marker) => lower.includes(marker)) || hasGeneratedRequirements);
 }
 
 export function parseProjectBuilderName(text: string) {

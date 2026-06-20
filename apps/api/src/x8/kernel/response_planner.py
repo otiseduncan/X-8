@@ -68,10 +68,16 @@
     def _is_project_builder_request(self, lower: str) -> bool:
         build_markers = ("build", "create", "generate", "scaffold", "write")
         project_markers = ("project builder", "real project", "generated project", "project output path", "project folder name")
+        generated_file_markers = ("readme.md", "manifest.json", "index.html", "css", "styles", "src", "app files")
         if "self-build" in lower or "self build" in lower:
             return False
         if "preview only" in lower or "do not write files" in lower or "no files" in lower:
             return False
-        return any(marker in lower for marker in build_markers) and any(marker in lower for marker in project_markers)
+        has_build_intent = any(marker in lower for marker in build_markers)
+        has_project_intent = any(marker in lower for marker in project_markers)
+        generated_file_hits = sum(1 for marker in generated_file_markers if marker in lower)
+        # Treat generated file requirement lists as project-builder intent when coupled with explicit build+project wording.
+        has_generated_requirements = "project" in lower and generated_file_hits >= 2
+        return has_build_intent and (has_project_intent or has_generated_requirements)
 
 
