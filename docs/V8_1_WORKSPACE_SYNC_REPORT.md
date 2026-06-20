@@ -38,7 +38,9 @@ Generated: 2026-06-20
 ## 4. Files Staged/Committed
 - Checkpoint commit created:
   - 4c405d5 checkpoint: preserve V8.1 local work before sync
-- Post-validation repair changes prepared in working tree:
+- Post-validation repair commit created:
+  - e140ba7 fix: stabilize routing precedence and validation suites
+- Files in repair commit:
   - apps/api/src/x8/kernel/response_planner.py
   - apps/web/src/app/intentRouting.ts
   - e2e/tests/smoke.spec.ts
@@ -90,18 +92,25 @@ Generated: 2026-06-20
 
 ## 11. Final Branch/Upstream State
 - Branch: v8-1-studio-operator
-- Upstream before push step: not configured
-- Working tree before final repair commit: dirty (4 modified files)
+- Upstream: origin/v8-1-studio-operator
+- Working tree: clean
+- Recent commits:
+  - e140ba7 fix: stabilize routing precedence and validation suites
+  - 4c405d5 checkpoint: preserve V8.1 local work before sync
 
 ## 12. Remote Branch Creation
-- Pending push step
+- Created and pushed:
+  - origin/v8-1-studio-operator
+- Push command:
+  - git push -u origin v8-1-studio-operator
 
 ## 13. Remaining Blockers
 - None blocking local validation
 
 ## 14. Next Recommended Action
-- Create and push final repair commit, then set upstream with:
-  - git push -u origin v8-1-studio-operator
+- Open PR from v8-1-studio-operator to main and review:
+  - checkpoint + repair commit pair
+  - secret hygiene follow-up for local compose env expansion visibility
 
 ## Step 2 Ignore Hygiene
 - Inspected .gitignore and confirmed baseline coverage for:
