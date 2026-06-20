@@ -1,11 +1,29 @@
 class ResponsePlanner:
     LANES = {
         "self_build": ("self-build", "self build", "self-build proposal", "repair loop"),
-        "github_create_repo": ("create-repo", "create repo", "create github repo", "new github repository", "private disposable repo"),
+        "github_create_repo": (
+            "create-repo",
+            "create repo",
+            "create github repo",
+            "new github repository",
+            "private disposable repo",
+            "create a private disposable repo",
+            "make a github repo",
+            "make a private repo named",
+        ),
         "github_connect_init": ("connect this repo", "connect remote", "initialize this as a repo", "init repo"),
-        "github_push": ("push this repo", "prepare to push", "git push"),
-        "github_pull": ("pull latest", "git pull"),
-        "github_status": ("check github status", "github status", "github ops status"),
+        "github_pull": ("pull latest", "git pull", "pull from github"),
+        "github_push": (
+            "push this repo",
+            "prepare to push",
+            "git push",
+            "push to github",
+            "publish to github",
+            "publish this repo",
+            "publish this website to github",
+            "github publish",
+        ),
+        "github_status": ("check github", "check github status", "github status", "github ops status"),
         "brain_remember": ("remember that", "remember this"),
         "brain_forget": ("forget that", "forget this"),
         "brain_retrieve": ("what do you remember",),
@@ -38,7 +56,7 @@ class ResponsePlanner:
         ),
         "image_generation": ("image", "generate picture", "generate image"),
         "web_search": ("search", "searxng", "web research"),
-        "repo_inspection": ("open readme", "read file", "show file"),
+        "repo_inspection": ("open readme", "read file", "show file", "check the repo", "repo status"),
         "approval_required_action": ("edit file", "apply patch", "delete"),
         "attachment_question": ("attachment", "attached", "use this"),
         "model_status_request": ("what model", "model status", "using"),
@@ -48,13 +66,37 @@ class ResponsePlanner:
         "settings_request": ("settings", "configure"),
     }
 
+    PRECEDENCE = (
+        "self_build",
+        "github_create_repo",
+        "github_connect_init",
+        "github_pull",
+        "github_push",
+        "github_status",
+        "brain_remember",
+        "brain_forget",
+        "brain_retrieve",
+        "brain_focus_update",
+        "brain_continuity",
+        "attachment_question",
+        "web_search",
+        "repo_inspection",
+        "approval_required_action",
+        "image_generation",
+        "model_status_request",
+        "reasoning",
+        "code_help",
+        "prompt_generation",
+        "settings_request",
+    )
+
     def classify(self, message: str, has_attachments: bool = False) -> str:
         lower = message.lower()
         if has_attachments:
             return "attachment_question"
         if "say github" in lower:
             return "normal_chat"
-        for lane, needles in self.LANES.items():
-            if any(needle in lower for needle in needles):
+        for lane in self.PRECEDENCE:
+            if any(needle in lower for needle in self.LANES[lane]):
                 return lane
         return "normal_chat"
