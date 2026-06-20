@@ -10,11 +10,11 @@ class BrainContextAssembler:
         self.limits = limits
         self.memory_manager = memory_manager
 
-    def assemble(self, session_messages: list[dict[str, object]], attachments: list[dict[str, object]]) -> BrainContextBundle:
+    def assemble(self, session_messages: list[dict[str, object]], attachments: list[dict[str, object]], current_user_message: str = "") -> BrainContextBundle:
         bundle = BrainContextBundle()
         bundle.session_context = self._session_context(session_messages)
         bundle.attachments, attachment_limits = self._attachment_context(attachments)
-        bundle.memory, memory_limits = self._memory_context(session_messages)
+        bundle.memory, memory_limits = self._memory_context(session_messages, current_user_message)
         bundle.knowledge, knowledge_limits = self._knowledge_context()
         bundle.preferences = ["Use concise, honest, action-oriented engineering responses."]
         bundle.verified_status = ["Runtime status is only included when produced by live endpoints in this turn."]
@@ -55,12 +55,12 @@ class BrainContextAssembler:
                 continue
         return values, []
 
-    def _memory_context(self, messages: list[dict[str, object]]) -> tuple[list[str], list[str]]:
+    def _memory_context(self, messages: list[dict[str, object]], current_user_message: str = "") -> tuple[list[str], list[str]]:
         if not self.memory_manager:
             return [], ["memory_recall: unavailable; reason: embedding model or vector store not ready"]
-        query = ""
+        query = current_user_message
         for item in reversed(messages):
-            if item.get("role") == "user" and item.get("content"):
+            if not query and item.get("role") == "user" and item.get("content"):
                 query = str(item.get("content"))
                 break
         items, receipt = self.memory_manager.brain_recall.context_items(query, self.limits["context_max_memory_items"])

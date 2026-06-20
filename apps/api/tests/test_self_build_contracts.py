@@ -285,6 +285,43 @@ def test_self_build_noop_change_fails_validation(tmp_path) -> None:
     assert any("No code changes were generated" in reason for reason in result.reasons)
 
 
+def test_self_build_supported_release_task_types_generate_bounded_changes(tmp_path) -> None:
+    create_ui_workspace(tmp_path)
+    (tmp_path / "README.md").write_text("# XV8\n", encoding="utf-8")
+    (tmp_path / ".env.example").write_text("X8_ENV=development\n", encoding="utf-8")
+    project_builder = tmp_path / "apps" / "api" / "src" / "x8" / "project_builder"
+    self_build = tmp_path / "apps" / "api" / "src" / "x8" / "self_build"
+    routes = tmp_path / "apps" / "api" / "src" / "x8" / "api" / "routes"
+    tests = tmp_path / "apps" / "api" / "tests"
+    project_builder.mkdir(parents=True, exist_ok=True)
+    self_build.mkdir(parents=True, exist_ok=True)
+    routes.mkdir(parents=True, exist_ok=True)
+    tests.mkdir(parents=True, exist_ok=True)
+    (project_builder / "manager.py").write_text("class ProjectBuilderManager:\n    pass\n", encoding="utf-8")
+    (routes / "project_builder.py").write_text("from fastapi import APIRouter\nrouter = APIRouter()\n", encoding="utf-8")
+    (routes / "self_build.py").write_text("from fastapi import APIRouter\nrouter = APIRouter()\n", encoding="utf-8")
+    (self_build / "manager.py").write_text("class SelfBuildManager:\n    pass\n", encoding="utf-8")
+    (tests / "test_project_builder_contracts.py").write_text("def test_existing() -> None:\n    assert True\n", encoding="utf-8")
+    (tests / "test_api_contracts.py").write_text("def test_existing_api() -> None:\n    assert True\n", encoding="utf-8")
+    manager = SelfBuildManager(str(tmp_path))
+    prompts = {
+        "ui_feature": "Self-build proposal add a UI panel for release status",
+        "api_feature": "Self-build proposal add an API endpoint manager feature",
+        "test_only": "Self-build proposal add test only coverage",
+        "docs_only": "Self-build proposal update README documentation",
+        "config_change": "Self-build proposal update safe config",
+        "repair_patch": "Self-build proposal repair patch for a small bug fix",
+        "project_builder_feature": "Self-build proposal improve Project Builder generated project feature",
+    }
+    for expected_type, prompt in prompts.items():
+        task = manager.create_task(SelfBuildRequest(user_prompt=prompt))
+        detail = manager.proposal_detail(task)
+        assert detail["task_type"] == expected_type
+        assert detail["apply_safe"] is True
+        assert detail["changed_file_paths"]
+        assert detail["changes"][0]["before_hash"] != detail["changes"][0]["after_hash"]
+
+
 def test_self_build_validate_task_records_report(tmp_path, monkeypatch) -> None:
     (tmp_path / "README.md").write_text("# XV8\n", encoding="utf-8")
     manager = SelfBuildManager(str(tmp_path))

@@ -194,7 +194,14 @@ class BrainContinuityStore:
         return dict(row) if row else None
 
     def upsert_singleton(self, record_type: str, summary: str, **kwargs: Any) -> dict[str, Any]:
-        existing = self.latest(record_type, statuses=("active",), project_scope=str(kwargs.get("project_scope") or ""), session_scope=str(kwargs.get("session_scope") or ""))
+        matches = self.list_records(
+            record_type=record_type,
+            status="active",
+            project_scope=str(kwargs.get("project_scope") or ""),
+            session_scope=str(kwargs.get("session_scope") or ""),
+            limit=1,
+        )
+        existing = matches[0] if matches else None
         patch = {"title": kwargs.get("title") or summary[:120], "summary": summary, "content": kwargs.get("content") or summary, "status": kwargs.get("status") or "active", "priority": kwargs.get("priority") or "normal"}
         if existing:
             return self.update_record(existing["id"], patch) or existing

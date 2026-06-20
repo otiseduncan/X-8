@@ -8,6 +8,8 @@ from x8.kernel.kernel import XV8Kernel
 from x8.kernel.model_router import ModelProfileManager, ModelRouter
 from x8.kernel.prompt_builder import KernelPromptBuilder
 from x8.managers.model_manager import OllamaAdapter
+from x8.managers.memory_manager import MemoryManager, MemoryProposal
+from x8.project_builder.manager import ProjectBuilderManager
 from x8.settings import Settings
 
 
@@ -31,7 +33,12 @@ def unavailable_kernel(tmp_path, context_max_messages: int = 20) -> XV8Kernel:
     return XV8Kernel(
         KernelContextAssembler(BrainContextAssembler(str(tmp_path), limits), KernelPromptBuilder()),
         ModelRouter(OllamaAdapter("http://127.0.0.1:9"), ModelProfileManager("", "")),
+        project_builder_manager=ProjectBuilderManager(str(tmp_path), str(tmp_path / "runtime" / "generated-projects")),
     )
+
+
+def memory_kernel(tmp_path, memory_manager: MemoryManager, session_messages: list[dict[str, object]] | None = None) -> KernelRequest:
+    return KernelRequest(session_id="sess_test", user_message="", session_messages=session_messages or [])
 
 
 def test_chat_answers_identity_without_model() -> None:
@@ -67,6 +74,35 @@ def test_chat_github_status_routes_to_github_ops_card() -> None:
     assert cards[0]["payload"]["provider"] == "github_ops"
     assert cards[0]["payload"]["read_only"] is True
     assert "assistant model is unavailable" not in str(payload).lower()
+
+
+def test_chat_response_includes_required_decision_trace_fields() -> None:
+    payload = client().post("/api/chat", json={"message": "open README.md"}).json()
+    trace = payload["data"]["decision_trace"]
+    required = {
+        "message_id",
+        "user_input_summary",
+        "detected_speech_act",
+        "selected_route",
+        "route_confidence",
+        "input_constraints_detected",
+        "memories_retrieved",
+        "memories_used",
+        "memories_rejected",
+        "active_focus_used",
+        "current_instruction_overrides",
+        "capability_status_checked",
+        "action_selected",
+        "safety_boundary_applied",
+        "fallback_used",
+        "fallback_reason",
+        "final_response_type",
+        "receipt_id",
+    }
+    assert required <= set(trace)
+    assert trace["selected_route"] == "repo_inspection"
+    assert trace["detected_speech_act"] == "action_request"
+    assert "readme_mentioned" in trace["input_constraints_detected"]
 
 
 def test_chat_github_create_repo_routes_to_approval_card_without_token_leak() -> None:
@@ -115,6 +151,67 @@ def test_chat_self_build_github_bug_routes_to_self_build_before_github_or_code_h
     assert cards[0]["title"] == "Self-build prompt detected"
     assert cards[0]["payload"]["provider"] == "self_build"
     assert "assistant model is unavailable" not in str(payload).lower()
+
+
+def test_input_constraints_change_routes_and_readme_mentions_do_not_force_file_viewer(tmp_path) -> None:
+    kernel = unavailable_kernel(tmp_path)
+    preview = kernel.handle(KernelRequest(session_id="sess_test", user_message="Build a website preview only. Do not write files."))
+    write = kernel.handle(KernelRequest(session_id="sess_test", user_message="Create a project that includes README.md using your Project Builder. I approve writing only inside the sandbox/project output path. Use the project folder name: comm-trace-shop"))
+    read = kernel.handle(KernelRequest(session_id="sess_test", user_message="Open README.md"))
+    assert preview.receipt.kernel_lane == "artifact_preview"
+    assert "No files will be written" in preview.assistant_message
+    assert write.receipt.kernel_lane == "project_builder"
+    assert "Project Builder wrote" in write.assistant_message
+    assert read.receipt.kernel_lane == "repo_inspection"
+
+
+def test_memory_influences_relevant_ui_question_without_raw_dump(tmp_path) -> None:
+    memory = MemoryManager(str(tmp_path / "memory.json"))
+    record, receipt = memory.propose(MemoryProposal(memory_type="project_fact", source="user_explicit", text="Otis prefers dark UI with red/cyan accents and compact receipts.", confidence=0.95))
+    assert record is not None
+    if record.status != "active":
+        memory.approve(type("Decision", (), {"memory_record_id": record.memory_record_id, "decision": "approve"})())
+    limits = {"context_max_messages": 4, "context_max_attachment_chars": 200, "context_max_memory_items": 5, "context_max_knowledge_items": 0}
+    kernel = XV8Kernel(
+        KernelContextAssembler(BrainContextAssembler(str(tmp_path), limits, memory), KernelPromptBuilder()),
+        ModelRouter(OllamaAdapter("http://127.0.0.1:9"), ModelProfileManager("", "")),
+    )
+    response = kernel.handle(KernelRequest(session_id="sess_test", user_message="What style should this shop dashboard UI use?"))
+    assert response.receipt.status == "passed"
+    assert "dark UI with red/cyan accents and compact receipts" in response.assistant_message
+    assert "project_fact [user_explicit" not in response.assistant_message
+
+
+def test_irrelevant_memory_is_not_forced_into_unrelated_response(tmp_path) -> None:
+    memory = MemoryManager(str(tmp_path / "memory.json"))
+    memory.propose(MemoryProposal(memory_type="project_fact", source="user_explicit", text="Otis likes grape soda on Fridays.", confidence=0.95))
+    limits = {"context_max_messages": 4, "context_max_attachment_chars": 200, "context_max_memory_items": 5, "context_max_knowledge_items": 0}
+    kernel = XV8Kernel(
+        KernelContextAssembler(BrainContextAssembler(str(tmp_path), limits, memory), KernelPromptBuilder()),
+        ModelRouter(OllamaAdapter("http://127.0.0.1:9"), ModelProfileManager("", "")),
+    )
+    response = kernel.handle(KernelRequest(session_id="sess_test", user_message="What is your name?"))
+    assert response.assistant_message == "My name is XV8."
+    assert "grape soda" not in response.assistant_message
+
+
+def test_correction_changes_generate_vs_build_behavior(tmp_path) -> None:
+    correction = "That is wrong. When I say generate a website, I mean preview only. When I say build/write/create, I mean sandbox files."
+    kernel = unavailable_kernel(tmp_path)
+    generate = kernel.handle(KernelRequest(session_id="sess_test", user_message="Generate a website for a shop dashboard.", session_messages=[{"role": "user", "content": correction}]))
+    build = kernel.handle(KernelRequest(session_id="sess_test", user_message="Build the approved version into the sandbox.", session_messages=[{"role": "user", "content": correction}]))
+    assert "generate means preview only" in generate.assistant_message
+    assert "build/write/create means approved sandbox files" in build.assistant_message
+
+
+def test_current_instruction_override_and_safety_boundary_trace() -> None:
+    api = client()
+    override = api.post("/api/chat", json={"message": "Old memory says always preview first. For this one, I approve writing directly to sandbox with Project Builder."}).json()["data"]["decision_trace"]
+    blocked = api.post("/api/chat", json={"message": "Run this shell command and commit and push everything."}).json()["data"]["decision_trace"]
+    assert "current_instruction_overrides_memory" in override["current_instruction_overrides"]
+    assert "explicit_sandbox_approval" in override["current_instruction_overrides"]
+    assert blocked["selected_route"] == "github_push" or blocked["selected_route"] == "operator_blocked"
+    assert blocked["safety_boundary_applied"]["requires_approval"] is True or blocked["safety_boundary_applied"]["allowed"] is False
 
 
 def test_kernel_uses_attachment_text_without_model(tmp_path) -> None:

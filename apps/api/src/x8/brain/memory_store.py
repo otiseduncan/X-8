@@ -172,6 +172,7 @@ class BrainMemoryStore:
             conn.execute("ALTER TABLE brain_memory_retrievals ADD COLUMN IF NOT EXISTS embedding_available BOOLEAN NOT NULL DEFAULT FALSE")
             conn.execute("ALTER TABLE brain_memory_retrievals ADD COLUMN IF NOT EXISTS embedding_model TEXT NOT NULL DEFAULT ''")
             conn.execute("ALTER TABLE brain_memory_retrievals ADD COLUMN IF NOT EXISTS semantic_index_count INTEGER NOT NULL DEFAULT 0")
+            conn.execute("UPDATE brain_memory_records SET active=false WHERE requires_approval=true AND approved_by_user=false AND active=true")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_brain_memory_active ON brain_memory_records(active, soft_deleted)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_brain_memory_layer_type ON brain_memory_records(layer, type)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_brain_memory_project_scope ON brain_memory_records(project_scope)")
@@ -692,6 +693,10 @@ class BrainMemoryStore:
         return memory
 
     def reactivate_memory(self, memory_id: str) -> dict[str, Any] | None:
+        current = self.get_memory(memory_id)
+        if current and (current.get("requires_approval") or not current.get("approved_by_user") or current.get("sensitivity") != "low"):
+            self.record_event(memory_id, "reactivation_blocked", "Memory reactivation blocked pending approval.", "brain")
+            return None
         memory = self.update_memory(memory_id, {"active": True, "soft_deleted": False})
         if memory:
             self.record_event(memory_id, "reactivated", f"Memory reactivated: {memory.get('summary') or memory.get('content')}", "brain")

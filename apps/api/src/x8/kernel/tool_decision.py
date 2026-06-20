@@ -7,6 +7,8 @@ class ToolDecisionEngine:
             return ToolIntent(name="search.searxng"), None
         if lane == "image_generation":
             return ToolIntent(name="image.comfyui"), ArtifactIntent(kind="image", title="Image generation")
+        if lane == "artifact_preview":
+            return ToolIntent(name="artifact.preview", parameters={"mutates_repo": False}), ArtifactIntent(kind="html", title="Website preview")
         if lane == "repo_inspection":
             return ToolIntent(name="workspace.read", parameters={"read_only": True}), None
         if lane == "github_status":
@@ -21,6 +23,8 @@ class ToolDecisionEngine:
             return ToolIntent(name="github.ops.pull", requires_approval=True), ArtifactIntent(kind="approval", title="GitHub pull approval")
         if lane == "self_build":
             return ToolIntent(name="self_build.proposal", requires_approval=True), ArtifactIntent(kind="approval", title="Self-build patch proposal")
+        if lane == "project_builder":
+            return ToolIntent(name="project_builder.write_sandbox", requires_approval=True), ArtifactIntent(kind="project", title="Project Builder result")
         if lane == "approval_required_action":
             return ToolIntent(name="repo.write", requires_approval=True), ArtifactIntent(kind="approval", title="Approval required")
         return None, None

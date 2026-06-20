@@ -76,6 +76,22 @@ class PatchProposalManager:
         if task_type == "docs_only" and lower_path == "readme.md" and "validation smoke note" in lower_prompt and "XV8 validation smoke note" not in before:
             section = "\n\n## XV8 Validation Smoke Note\n\nThis proposed docs-only note validates the self-build approval flow without applying changes automatically.\n"
             return before.rstrip() + section + "\n"
+        if task_type == "ui_feature" and lower_path.startswith("apps/web/src/"):
+            return self._append_release_note(before, "UI feature proposal placeholder for a bounded cockpit improvement.")
+        if task_type == "api_feature" and lower_path.startswith("apps/api/src/"):
+            return self._append_release_note(before, "API feature proposal placeholder for a bounded route or manager improvement.")
+        if task_type == "api_feature" and lower_path.startswith("apps/api/tests/"):
+            return self._append_test_placeholder(before, "api_feature")
+        if task_type == "test_only" and lower_path.startswith("apps/api/tests/"):
+            return self._append_test_placeholder(before, "test_only")
+        if task_type == "config_change" and lower_path == ".env.example" and "X8_RELEASE_SAFE_CONFIG_NOTE" not in before:
+            return before.rstrip() + "\nX8_RELEASE_SAFE_CONFIG_NOTE=proposal_only\n"
+        if task_type == "repair_patch":
+            return self._append_release_note(before, "Repair patch proposal placeholder for a bounded fix.")
+        if task_type == "project_builder_feature":
+            if lower_path.startswith("apps/api/tests/"):
+                return self._append_test_placeholder(before, "project_builder_feature")
+            return self._append_release_note(before, "Project Builder proposal placeholder for a sandboxed build/write feature.")
         return before
 
     def _asks_for_validation_note(self, lower_prompt: str) -> bool:
@@ -89,6 +105,19 @@ class PatchProposalManager:
         stamp = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
         note = f"- {stamp} - {label}."
         return before.rstrip() + "\n" + note + "\n"
+
+    def _append_release_note(self, before: str, label: str) -> str:
+        marker = f"# XV8 self-build proposal: {label}"
+        if marker in before:
+            return before
+        return before.rstrip() + f"\n\n{marker}\n"
+
+    def _append_test_placeholder(self, before: str, label: str) -> str:
+        name = label.replace("-", "_")
+        marker = f"def test_self_build_{name}_proposal_placeholder() -> None:"
+        if marker in before:
+            return before
+        return before.rstrip() + f"\n\n\ndef test_self_build_{name}_proposal_placeholder() -> None:\n    assert True\n"
 
     def _add_trust_status_client(self, before: str) -> str:
         if "loadSelfBuildTrustStatus" in before:

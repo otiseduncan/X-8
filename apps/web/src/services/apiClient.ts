@@ -191,6 +191,26 @@ export async function runSelfBuildPrompt(prompt: string) {
   return response.json();
 }
 
+export async function previewProjectBuild(prompt: string, project_name: string) {
+  const response = await fetch('/api/project-builder/preview', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ prompt, project_name })
+  });
+  if (!response.ok) throw new Error('Project builder preview failed');
+  return response.json() as Promise<ResultEnvelope<Record<string, unknown>>>;
+}
+
+export async function writeProjectBuild(prompt: string, project_name: string, manifest_hash: string) {
+  const response = await fetch('/api/project-builder/write', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ prompt, project_name, manifest_hash, approved: true })
+  });
+  if (!response.ok) throw new Error('Project builder write failed');
+  return response.json() as Promise<ResultEnvelope<Record<string, unknown>>>;
+}
+
 export async function applySelfBuildPatch(task_id: string, patch_id: string, approval_id: string, patch_hash: string) {
   const response = await fetch(`/api/self-build/tasks/${task_id}/apply`, {
     method: 'POST',

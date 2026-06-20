@@ -59,6 +59,7 @@ class ChatResponse(BaseModel):
     assistant_message: ChatRoleMessage
     receipt: PromptReceipt
     attachments: list[AttachmentReference] = Field(default_factory=list)
+    decision_trace: dict[str, object] = Field(default_factory=dict)
 
 
 class SessionSummary(BaseModel):

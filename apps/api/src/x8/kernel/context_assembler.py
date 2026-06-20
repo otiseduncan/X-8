@@ -9,7 +9,7 @@ class KernelContextAssembler:
         self.prompt_builder = prompt_builder
 
     def assemble(self, request: KernelRequest, decision: KernelDecision) -> KernelContext:
-        bundle = self.brain.assemble(request.session_messages, request.attachments)
+        bundle = self.brain.assemble(request.session_messages, request.attachments, request.user_message)
         sources = []
         for name in ("memory", "knowledge", "verified_status", "research", "preferences", "session_context", "attachments"):
             if getattr(bundle, name):

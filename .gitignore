@@ -15,9 +15,15 @@ __pycache__/
 
 # Local runtime / generated data
 runtime/
+runtime/generated-projects/
+runtime/repair-backups/
+runtime/reports/
 attachments/
 logs/
 *.log
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
 
 # Legacy imports are local-only read-only mounts/scans
 imports/
@@ -36,6 +42,8 @@ node_modules/
 dist/
 build/
 coverage/
+.cache/
+.eslintcache
 playwright-report/
 test-results/
 

@@ -156,7 +156,9 @@ def list_events(request: Request, memory_id: str = "", event_type: str = "") -> 
 @router.post("/memories", response_model=ResultEnvelope[dict[str, Any] | None])
 def create_memory(payload: MemoryCreateRequest, request: Request) -> ResultEnvelope[dict[str, Any] | None]:
     result = _manager(request).remember(payload.content, session_id=payload.session_id, project_scope=payload.project_scope, session_scope=payload.session_scope, global_scope=payload.global_scope)
-    return ResultEnvelope(ok=result.status == "passed", status=result.status, data=result.data.get("memory"), message=result.message, receipts=result.receipts, errors=result.limitations)
+    memory = result.data.get("memory")
+    data = (memory | {"memory": memory}) if isinstance(memory, dict) else memory
+    return ResultEnvelope(ok=result.status == "passed", status=result.status, data=data, message=result.message, receipts=result.receipts, errors=result.limitations)
 
 
 @router.patch("/memories/{memory_id}", response_model=ResultEnvelope[dict[str, Any] | None])
@@ -197,7 +199,9 @@ def reactivate_memory(memory_id: str, request: Request) -> ResultEnvelope[dict[s
 @router.post("/remember", response_model=ResultEnvelope[dict[str, Any] | None])
 def remember(payload: MemoryCreateRequest, request: Request) -> ResultEnvelope[dict[str, Any] | None]:
     result = _manager(request).remember(payload.content, session_id=payload.session_id, project_scope=payload.project_scope, session_scope=payload.session_scope, global_scope=payload.global_scope)
-    return ResultEnvelope(ok=result.status == "passed", status=result.status, data=result.data.get("memory"), message=result.message, receipts=result.receipts)
+    memory = result.data.get("memory")
+    data = (memory | {"memory": memory}) if isinstance(memory, dict) else memory
+    return ResultEnvelope(ok=result.status == "passed", status=result.status, data=data, message=result.message, receipts=result.receipts)
 
 
 @router.post("/forget", response_model=ResultEnvelope[dict[str, Any] | None])

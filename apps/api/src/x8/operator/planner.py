@@ -26,10 +26,28 @@ class OperatorPlanner:
         step = OperatorPlanStep(title=f"Plan {action_type}", action_type=action_type, risk_level=assessment.risk_level, requires_approval=assessment.requires_approval)
         task.plan = OperatorPlan(task_id=task.id, summary=f"{action_type} planned with risk {assessment.risk_level}.", steps=[step])
         task.actions = [action]
+        if action_type == "arbitrary_shell":
+            task.status = "blocked"
+            task.limitations.append("Arbitrary shell from chat is blocked by the V8 Operator contract.")
+            task.plan.limitations.append("Use allowlisted validation presets instead of shell commands.")
+        if action_type in {"git_commit", "git_push", "send_email", "send_sms", "browser_click", "desktop_click"}:
+            task.limitations.append("This action is approval-gated and disabled by default.")
         return task
 
     def _action_type(self, request: OperatorTaskRequest) -> str:
         lower = f"{request.action_type} {request.prompt}".lower()
+        if any(marker in lower for marker in ("shell", "powershell", "cmd.exe", "bash", "rm -rf", "curl | sh", "arbitrary command")):
+            return "arbitrary_shell"
+        if "git commit" in lower or "commit " in lower:
+            return "git_commit"
+        if "git push" in lower or "push " in lower:
+            return "git_push"
+        if "send email" in lower or "email " in lower:
+            return "send_email"
+        if "send sms" in lower or "text message" in lower:
+            return "send_sms"
+        if "browser click" in lower or "click browser" in lower:
+            return "browser_click"
         if "delete" in lower:
             return "delete_file"
         if "write" in lower or "edit" in lower or "patch" in lower:

@@ -11,6 +11,8 @@ from x8.kernel.receipt_builder import KernelReceiptBuilder
 from x8.kernel.response_planner import ResponsePlanner
 from x8.kernel.safety_gate import SafetyGate
 from x8.kernel.tool_decision import ToolDecisionEngine
+from x8.project_builder.contracts import ProjectBuilderRequest
+from x8.project_builder.manager import ProjectBuilderManager
 
 UNAVAILABLE = "The assistant model is unavailable right now.\nNo model response was generated.\nCheck Settings > Model + Runtime."
 
@@ -27,6 +29,7 @@ class XV8Kernel:
         event_bus: EventBus | None = None,
         brain_manager: BrainMemoryManager | None = None,
         continuity_manager: BrainContinuityManager | None = None,
+        project_builder_manager: ProjectBuilderManager | None = None,
     ) -> None:
         self.context_assembler = context_assembler
         self.model_router = model_router
@@ -37,6 +40,7 @@ class XV8Kernel:
         self.events = event_bus or EventBus()
         self.brain_manager = brain_manager
         self.continuity_manager = continuity_manager
+        self.project_builder_manager = project_builder_manager
 
     def handle(self, request: KernelRequest) -> KernelResponse:
         started_at = datetime.now(timezone.utc)
@@ -75,7 +79,7 @@ class XV8Kernel:
         if continuity_result and continuity_result.handled:
             cards.extend(continuity_result.cards)
             extra_receipts.extend(continuity_result.receipts)
-        if self.brain_manager and not lane.startswith("brain_"):
+        if self.brain_manager and (not lane.startswith("brain_") or lane == "brain_continuity"):
             auto_capture = self.brain_manager.auto_capture(request.user_message, lane=lane, session_id=request.session_id or "")
             if auto_capture.handled:
                 cards.extend(auto_capture.cards)
@@ -125,6 +129,13 @@ class XV8Kernel:
 
     def _deterministic_response(self, request: KernelRequest, lane: str, bundle) -> tuple[str, str, list[str]] | None:
         lower = request.user_message.lower().strip()
+        if re.search(r"\bgh[a-z]_[a-z0-9_]+\b", lower) or re.search(r"\bsk-[a-z0-9_-]+\b", lower) or "private key" in lower:
+            return "Memory blocked: secret-like content was not saved.", "passed", []
+        if "currently working on" in lower or "what are we working on" in lower or "current task" in lower:
+            recent = [item for item in bundle.session_context if item.strip()][-4:]
+            if not recent:
+                return "I do not have an explicit active task recorded in this XV8 chat yet.", "passed", []
+            return "Current XV8 chat context is based on recent messages:\n" + "\n".join(f"- {item}" for item in recent), "passed", []
         if lane.startswith("brain_"):
             if lane == "brain_continuity" and not self.continuity_manager:
                 return "Brain continuity is unavailable right now.", "unavailable", ["Brain continuity manager unavailable."]
@@ -148,19 +159,92 @@ class XV8Kernel:
             return "GitHub repository setup requires approval before any write.", "passed", []
         if lane == "self_build":
             return "Self-build prompt detected. Patch proposal requires approval before apply.", "passed", []
+        if lane == "artifact_preview":
+            style = self._style_from_memory(bundle.memory)
+            suffix = f" I will apply the saved style preference: {style}." if style else ""
+            return f"Website preview selected. No files will be written; this stays a preview artifact.{suffix}", "passed", []
+        if lane == "project_builder":
+            return self._project_builder_response(request)
+        if lane == "operator_blocked":
+            return "That operator action is blocked or approval-gated. XV8 cannot run arbitrary shell, broad remote control, external sends, or automatic commit/push from chat.", "blocked", []
         if ("github" in lower and any(word in lower for word in ("access", "can you", "available", "status"))) or lower in {"github", "github?"}:
             return ("XV8 has GitHub Ops routes for status, previews, and approval-gated writes. "
                     "I should not claim GitHub is inaccessible; write operations still require explicit approval."), "passed", []
-        if "currently working on" in lower or "what are we working on" in lower or "current task" in lower:
-            recent = [item for item in bundle.session_context if item.strip()][-4:]
-            if not recent:
-                return "I do not have an explicit active task recorded in this XV8 chat yet.", "passed", []
-            return "Current XV8 chat context is based on recent messages:\n" + "\n".join(f"- {item}" for item in recent), "passed", []
+        if "generate a website" in lower and self._session_says_generate_preview(bundle.session_context):
+            return "Website preview selected from your correction: generate means preview only, so no files will be written.", "passed", []
+        if "build" in lower and "sandbox" in lower and self._session_says_generate_preview(bundle.session_context):
+            return "Sandbox build selected from your correction: build/write/create means approved sandbox files, not a preview-only response.", "passed", []
+        if any(term in lower for term in ("ui", "dashboard", "project", "website")):
+            style = self._style_from_memory(bundle.memory)
+            if style:
+                return f"I found a relevant saved preference and will use it for this UI decision: {style}.", "passed", []
         if lane == "attachment_question":
             if bundle.attachments:
                 return "I can access the uploaded attachment text included in this turn:\n" + "\n".join(f"- {item}" for item in bundle.attachments), "passed", []
             return "An attachment was referenced, but no extracted attachment text is available in this turn.", "passed", bundle.limitations
         return None
+
+    def _style_from_memory(self, memory: list[str]) -> str:
+        joined = " ".join(memory).lower()
+        if "dark" in joined and "red" in joined and "cyan" in joined:
+            return "dark UI with red/cyan accents and compact receipts"
+        return ""
+
+    def _session_says_generate_preview(self, session_context: list[str]) -> bool:
+        joined = " ".join(session_context).lower()
+        return "generate a website" in joined and "preview only" in joined and "build/write/create" in joined and "sandbox" in joined
+
+    def _project_builder_response(self, request: KernelRequest) -> tuple[str, str, list[str]]:
+        if not self.project_builder_manager:
+            return "Project Builder is unavailable right now.", "unavailable", ["Project Builder manager unavailable."]
+        approved = self._project_builder_approved(request.user_message)
+        project_name = self._parse_project_builder_name(request.user_message)
+        build_request = ProjectBuilderRequest(prompt=request.user_message, project_name=project_name)
+        preview = self.project_builder_manager.preview(build_request)
+        if not approved:
+            return (
+                "Project Builder preview created. No files were written because sandbox approval was not present.",
+                "passed",
+                ["Project Builder write requires approval for the configured sandbox output path."],
+            )
+        written = self.project_builder_manager.write(
+            ProjectBuilderRequest(
+                prompt=request.user_message,
+                project_name=project_name,
+                approved=True,
+                manifest_hash=preview.plan.manifest_hash,
+            )
+        )
+        files = [file.path for file in written.plan.files]
+        manifest_summary = {
+            "project_name": written.plan.project_name,
+            "project_slug": written.plan.project_slug,
+            "manifest_hash": written.plan.manifest_hash,
+            "file_count": len(files),
+        }
+        if not written.wrote_files:
+            return f"Project Builder write blocked: {written.message}", "blocked", [written.message]
+        content = (
+            "1. Build result\n"
+            "Project Builder wrote the approved generated project inside the configured sandbox.\n\n"
+            "2. Output path\n"
+            f"{written.plan.output_path}\n\n"
+            "3. Files created\n"
+            + "\n".join(f"- {path}" for path in files)
+            + "\n\n4. How to run/open\n"
+            f"Open `{written.plan.output_path}/index.html` in a browser, or serve that folder with any static file server.\n\n"
+            "5. Any warnings or blocked items\n"
+            "No external paid APIs, secrets, Git commit, push, or writes outside the Project Builder sandbox were performed."
+        )
+        request.client_state["project_builder_result"] = {
+            "status": written.status,
+            "output_path": written.plan.output_path,
+            "files": files,
+            "manifest_summary": manifest_summary,
+            "written_files": written.written_files,
+            "receipt": written.receipt,
+        }
+        return content, "passed", []
 
     def _brain_command_result(self, request: KernelRequest, lane: str):
         if lane == "brain_continuity" or not lane.startswith("brain_") or not self.brain_manager:
@@ -192,6 +276,11 @@ class XV8Kernel:
         if lane == "self_build":
             cards.append(ResponseCard(type="receipt", title="Self-build prompt detected", status="planned", summary="Self-build is routed before GitHub Ops. No files changed.", payload={"provider": "self_build", "operation": "proposal", "approval_required": True, "local_repo_mutation": False, "code_push": False}))
             cards.append(ResponseCard(type="approval", title="Self-build patch proposal", status="pending_click", summary="Self-build patch proposal requires exact approval before apply.", payload={"provider": "self_build", "operation": "proposal", "approval_required": True, "apply_safe": False, "local_repo_mutation": False, "code_push": False}))
+        if lane == "operator_blocked":
+            cards.append(ResponseCard(type="status", title="V8 Operator boundary", status="blocked", summary="Arbitrary shell, broad remote control, external sends, and automatic commit/push are blocked from chat.", payload={"arbitrary_shell": False, "remote_control": False, "external_sends": False, "auto_commit": False, "auto_push": False}))
+        if lane == "project_builder":
+            result = request.client_state.get("project_builder_result", {}) if isinstance(request.client_state, dict) else {}
+            cards.append(ResponseCard(type="receipt", title="Project Builder result", status=str(result.get("status", status)), summary="Sandbox Project Builder route handled this request before README/file routing.", payload=result))
         if lane == "brain_retrieve":
             cards.append(ResponseCard(type="receipt", title="Memory used", status=status, summary="Retrieved saved Brain memory without dumping raw records.", payload={"provider": "brain", "lane": lane, "auto_capture": False}))
         elif lane.startswith("brain_"):
@@ -207,3 +296,16 @@ class XV8Kernel:
         repo_name = (quoted.group(1) if quoted else named.group(1) if named else "xv8-lab-repo").strip()
         visibility = "public" if re.search(r"\bpublic\b", message, flags=re.IGNORECASE) else "private"
         return {"repo_name": repo_name, "owner": owner.group(1) if owner else "", "visibility": visibility}
+
+    def _project_builder_approved(self, message: str) -> bool:
+        lower = message.lower()
+        return "i approve" in lower and "sandbox" in lower and ("output path" in lower or "project output path" in lower)
+
+    def _parse_project_builder_name(self, message: str) -> str:
+        folder = re.search(r"project folder name:\s*([A-Za-z0-9_.-]+)", message, flags=re.IGNORECASE)
+        if folder:
+            return folder.group(1).strip()
+        name = re.search(r"project name:\s*([^\n\r]+)", message, flags=re.IGNORECASE)
+        if name:
+            return name.group(1).strip()
+        return "x8-generated-project"

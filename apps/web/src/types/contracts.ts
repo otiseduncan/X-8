@@ -1,4 +1,4 @@
-export type CapabilityStatus = 'implemented' | 'disabled' | 'stubbed' | 'unavailable' | 'blocked';
+export type CapabilityStatus = 'implemented' | 'available' | 'disabled' | 'not_configured' | 'stubbed' | 'unavailable' | 'blocked';
 
 export interface Capability {
   name: string;
@@ -10,6 +10,13 @@ export interface Capability {
 export interface IntegrationStatus {
   name: string;
   status: CapabilityStatus;
+  live?: boolean;
+  reason?: string;
+  required_config?: string[];
+  safe_actions?: string[];
+  blocked_actions?: string[];
+  last_checked?: string;
+  receipt?: Record<string, unknown>;
   summary: string;
 }
 

@@ -86,6 +86,18 @@ def test_manual_remember_saves_low_risk_preference() -> None:
     assert payload["data"]["soft_deleted"] is False
 
 
+def test_repeated_manual_remember_does_not_duplicate_record() -> None:
+    api = client()
+    phrase = unique_phrase()
+    first = api.post("/api/brain/remember", json={"content": f"I prefer {phrase}"}).json()
+    duplicate = api.post("/api/brain/remember", json={"content": f"I prefer {phrase}"}).json()
+    records = api.get(f"/api/brain/memories?q={phrase}&include_deleted=true").json()["data"]
+    assert duplicate["status"] == "passed"
+    assert duplicate["data"]["id"] == first["data"]["id"]
+    assert duplicate["message"] == f"Already remembered: you prefer {phrase}."
+    assert len([item for item in records if phrase in item["summary"]]) == 1
+
+
 def test_remember_response_includes_compact_receipt() -> None:
     api = client()
     phrase = unique_phrase()
@@ -146,6 +158,36 @@ def test_forgotten_memory_is_not_retrieved() -> None:
     api.post("/api/brain/forget", json={"query": phrase})
     retrieved = api.post("/api/brain/retrieve", json={"query": phrase, "limit": 3}).json()
     assert retrieved["message"] == MISS
+
+
+def test_forget_soft_deletes_all_matching_duplicates() -> None:
+    api = client()
+    phrase = unique_phrase()
+    brain_store = store()
+    for _index in range(2):
+        brain_store.create_memory(
+            f"you prefer {phrase}",
+            layer="preferences",
+            memory_type="communication_preference",
+            title=f"you prefer {phrase}",
+            summary=f"you prefer {phrase}",
+            tags=["manual", "answers", "preference"],
+        )
+    survivor = brain_store.create_memory(
+        "you prefer full detailed answers when building",
+        layer="preferences",
+        memory_type="communication_preference",
+        title="you prefer full detailed answers when building",
+        summary="you prefer full detailed answers when building",
+        tags=["manual", "answers", "preference"],
+    )
+    forgotten = api.post("/api/brain/forget", json={"query": phrase}).json()
+    retrieved = api.post("/api/brain/retrieve", json={"query": phrase, "limit": 3}).json()
+    survivor_after = brain_store.get_memory(survivor["id"])
+    assert forgotten["status"] == "passed"
+    assert len(forgotten["data"]["memories"]) >= 2
+    assert retrieved["message"] == MISS
+    assert survivor_after and survivor_after["active"] is True
 
 
 def test_active_focus_can_be_set() -> None:
@@ -274,6 +316,17 @@ def test_reject_pending_memory_keeps_it_out_of_retrieval() -> None:
     assert api.post("/api/brain/retrieve", json={"query": phrase}).json()["message"] == MISS
 
 
+def test_reactivate_blocks_unapproved_sensitive_memory() -> None:
+    api = client()
+    phrase = f"my family history includes reactivation {uuid4().hex[:8]}"
+    pending = api.post("/api/brain/remember", json={"content": phrase}).json()["data"]
+    api.post(f"/api/brain/memories/{pending['id']}/reject")
+    reactivated = api.post(f"/api/brain/memories/{pending['id']}/reactivate").json()
+    retrieved = api.post("/api/brain/retrieve", json={"query": phrase}).json()
+    assert reactivated["status"] == "blocked"
+    assert retrieved["message"] == MISS
+
+
 def test_policy_safe_update_blocks_secret_content() -> None:
     api = client()
     record = api.post("/api/brain/remember", json={"content": f"I prefer {unique_phrase()}"}).json()["data"]
@@ -336,6 +389,12 @@ def test_github_prompt_still_routes_to_github() -> None:
     payload = client().post("/api/chat", json={"message": "check github status"}).json()
     assert payload["data"]["assistant_message"]["content"] == "GitHub status loaded without mutation."
     assert payload["receipts"][0]["metadata"]["kernel_lane"] == "github_status"
+
+
+def test_github_repo_proposal_prompt_routes_to_github_create_repo() -> None:
+    payload = client().post("/api/chat", json={"message": "create a GitHub repo proposal named xv8-rc1-test"}).json()
+    assert payload["data"]["assistant_message"]["content"] == "GitHub repo creation requires approval before any write."
+    assert payload["receipts"][0]["metadata"]["kernel_lane"] == "github_create_repo"
 
 
 def test_self_build_prompt_still_routes_to_self_build() -> None:
@@ -562,6 +621,13 @@ def test_semantic_retrieval_finds_paraphrased_memory_examples() -> None:
     assert "runtime/self_build_smoke/approved_apply_proof.md" in proof.message
 
 
+def test_semantic_retrieval_respects_marker_terms_for_misses() -> None:
+    manager = semantic_manager()
+    manager.remember("Project fact: RC1 semantic neighbor without requested marker")
+    missing = manager.retrieve(f"not present marker {uuid4().hex[:8]}")
+    assert missing.message == MISS
+
+
 def test_semantic_retrieval_excludes_pending_rejected_deleted_and_secret_records() -> None:
     manager = semantic_manager()
     pending = manager.remember(f"my family history includes phase4 semantic pending {uuid4().hex[:8]}")
@@ -620,6 +686,7 @@ def test_phase5_continuity_project_next_blocker_validation_and_decision() -> Non
     assert api.post("/api/chat", json={"session_id": marker, "message": "what is blocked?"}).json()["data"]["assistant_message"]["content"] == f"Current blocker: Docker Desktop is offline {marker}."
     assert api.post("/api/chat", json={"session_id": marker, "message": "what did we validate last?"}).json()["data"]["assistant_message"]["content"] == f"Last validation checkpoint: Phase 4 with 139 API tests passing {marker}."
     assert marker in api.post("/api/chat", json={"session_id": marker, "message": "what did we decide about the brain?"}).json()["data"]["assistant_message"]["content"]
+    assert marker in api.post("/api/chat", json={"session_id": marker, "message": "what did we decide about RC1?"}).json()["data"]["assistant_message"]["content"]
 
 
 def test_phase5_continuity_tasks_handoff_and_routes_are_stable() -> None:
@@ -635,12 +702,15 @@ def test_phase5_continuity_tasks_handoff_and_routes_are_stable() -> None:
     api.post("/api/chat", json={"session_id": marker, "message": f"we validated API tests {marker}"})
     api.post("/api/chat", json={"session_id": marker, "message": f"decision: brain continuity stays structured {marker}"})
     handoff = api.post("/api/brain/continuity/handoff", json={"session_scope": marker}).json()
+    status = api.get(f"/api/brain/continuity/status?session_scope={marker}").json()
     assert patched["data"]["status"] == "done"
     assert archived["data"]["soft_deleted"] is True
     assert "Handoff note:" in handoff["data"]["handoff"]
     assert f"Brain V1 Phase 5 {marker}" in handoff["data"]["handoff"]
     assert f"validation {marker}" in handoff["data"]["handoff"]
     assert f"no live browser connector {marker}" in handoff["data"]["handoff"]
+    assert status["data"]["storage_backend"] == "postgres"
+    assert status["data"]["record_count"] >= 1
 
 
 def test_phase5_next_step_updates_without_duplicates_and_blocker_clears() -> None:

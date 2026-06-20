@@ -1,6 +1,7 @@
 # Avatar Assets
 
-XV8 uses three shipped avatar video clips from `apps/web/public/avatar`.
+XV8 keeps project-root avatar source assets under `assets/avatar`. The web app serves
+runtime copies from `apps/web/public/avatar`.
 
 | State | File | Size | Notes |
 | --- | --- | ---: | --- |
@@ -8,7 +9,7 @@ XV8 uses three shipped avatar video clips from `apps/web/public/avatar`.
 | thinking/listening | `xoduz-thinking.mp4` | 2,368,060 bytes | Used for thinking and as the listening clip because no separate listening file exists. |
 | speaking | `xoduz-speaking.mp4` | 3,404,043 bytes | Used while browser TTS is speaking. |
 
-The clips were moved from `assets/avatar` into the web public avatar folder so Docker/Vite can serve them at `/avatar/...` without referencing files outside the web app.
+The clips are served from the web public avatar folder so Docker/Vite can expose them at `/avatar/...` without referencing files outside the web app. Keep source asset notes and drop-zone guidance in the project-root `assets/avatar` folder.
 
 Total video payload is about 11.6 MB. That is acceptable for local XV8 development, but if the repository later gains many more generated clips or higher-resolution video, move avatar videos to Git LFS or a documented local asset package.
 

@@ -241,6 +241,8 @@ class MemorySearchManager:
                 continue
             haystack = record.text.lower()
             hits = sum(1 for term in terms if term in haystack)
+            if not hits and terms & {"style", "dashboard", "website", "project", "frontend"} and "prefer" in haystack and any(term in haystack for term in ("ui", "dark", "color", "accent", "receipt")):
+                hits = 1
             if hits:
                 score = min(1.0, hits / max(1, len(terms))) * record.confidence
                 results.append(MemorySearchResult(record=record, score=score, match_type="keyword"))

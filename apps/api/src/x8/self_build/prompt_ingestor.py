@@ -128,7 +128,7 @@ class BuildPromptIngestor:
         tests = [name for name in ("architecture_guard", "api_tests", "web_tests", "e2e_tests", "web_build", "compose_config") if name.replace("_", " ") in lower or name in lower]
         if not tests and ("architecture guard" in lower or "validation" in lower):
             tests = ["architecture_guard"]
-        if task_type == "ui_feature":
+        if task_type in {"ui_feature", "project_builder_feature"}:
             tests = self._dedupe([*tests, "architecture_guard", "web_tests", "web_build"])
         return {
             "goal": text.strip().splitlines()[0][:240] if text.strip() else "Self-build task",
@@ -153,12 +153,18 @@ class BuildPromptIngestor:
             return "docs_only"
         if any(word in lower for word in ("test only", "tests only", "add test", "unit test", "api test", "web test")):
             return "test_only"
+        if any(word in lower for word in ("repair patch", "bug fix", "fix bug", "repair ", "hotfix")):
+            return "repair_patch"
         if any(word in lower for word in ("compose", ".env", "config", "configuration")):
             return "config_change"
-        if any(word in lower for word in ("ui", "frontend", "web", "dashboard", "card", "label", "screen", "panel")):
+        if any(word in lower for word in ("project builder", "generated project", "build/write a project", "scaffold project")):
+            return "project_builder_feature"
+        if "trust status" in lower and any(word in lower for word in ("ui", "frontend", "web", "dashboard", "card", "label", "screen", "panel")):
             return "ui_feature"
         if any(word in lower for word in ("api", "endpoint", "route", "manager", "backend")):
             return "api_feature"
+        if any(word in lower for word in ("ui", "frontend", "web", "dashboard", "card", "label", "screen", "panel")):
+            return "ui_feature"
         return "unknown_safe"
 
     def _mentions_smoke_proof(self, lower: str) -> bool:
@@ -169,12 +175,16 @@ class BuildPromptIngestor:
             return ["apps/web/src/app/App.tsx", "apps/web/src/services/apiClient.ts"]
         if task_type == "api_feature":
             return ["apps/api/src/x8/api/routes/self_build.py", "apps/api/src/x8/self_build/manager.py", "apps/api/tests/test_api_contracts.py"]
+        if task_type == "project_builder_feature":
+            return ["apps/api/src/x8/project_builder/manager.py", "apps/api/src/x8/api/routes/project_builder.py", "apps/api/tests/test_project_builder_contracts.py"]
         if task_type == "test_only":
             return ["apps/api/tests/test_api_contracts.py"]
         if task_type == "docs_only":
             return ["README.md"]
         if task_type == "config_change":
             return [".env.example"]
+        if task_type == "repair_patch":
+            return ["apps/api/tests/test_api_contracts.py"]
         return []
 
     def _dedupe(self, values: list[str]) -> list[str]:

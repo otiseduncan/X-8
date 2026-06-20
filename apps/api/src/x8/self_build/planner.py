@@ -31,6 +31,6 @@ class BuildTaskPlanner:
 
     def _targets(self, task_type: str, task: SelfBuildTask) -> list[str]:
         read_files = task.context.files_read if task.context else []
-        if task_type in {"ui_feature", "api_feature", "test_only", "docs_only", "config_change", "smoke_proof"}:
+        if task_type in {"ui_feature", "api_feature", "test_only", "docs_only", "config_change", "repair_patch", "project_builder_feature", "smoke_proof"}:
             return read_files
         return []

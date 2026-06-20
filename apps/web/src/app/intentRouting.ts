@@ -1,5 +1,6 @@
 export function classifyRequest(text: string) {
   const lower = text.toLowerCase();
+  if (isProjectBuilderRequest(lower)) return 'project_builder';
   if (isSelfBuildRequest(lower)) return 'self_build';
   if (lower.includes('open') && lower.includes('readme')) return 'file';
   if (lower.includes('propose') && (lower.includes('edit') || lower.includes('diff'))) return 'diff';
@@ -9,6 +10,20 @@ export function classifyRequest(text: string) {
   if (isGitHubRequest(lower)) return 'github';
   if (/\btests?\b|\btesting\b/.test(lower)) return 'test';
   return 'chat';
+}
+
+export function isProjectBuilderRequest(lower: string) {
+  if (lower.includes('self-build') || lower.includes('self build')) return false;
+  const buildMarkers = ['build', 'create', 'generate', 'scaffold', 'write'];
+  const projectMarkers = ['v8 project builder', 'project builder', 'real project', 'generated project', 'project output path', 'project folder name'];
+  return buildMarkers.some((marker) => lower.includes(marker)) && projectMarkers.some((marker) => lower.includes(marker));
+}
+
+export function parseProjectBuilderName(text: string) {
+  const folder = text.match(/project folder name:\s*([A-Za-z0-9_.-]+)/i);
+  if (folder?.[1]) return folder[1].trim();
+  const name = text.match(/project name:\s*([^\n\r]+)/i);
+  return (name?.[1] || 'x8-generated-project').trim();
 }
 
 export function isSelfBuildRequest(lower: string) {

@@ -134,6 +134,12 @@ class BrainMemoryManager:
             return BrainCommandResult(True, "I can’t save secrets or credentials in memory.", "blocked", [receipt], [brain_card("Memory blocked", "blocked", "Secret-like content was not saved.")])
         if decision.requires_approval:
             summary = self._summary(decision.redacted_content or content)
+            duplicate = self.store.find_duplicate_memory(summary, layer="pending", memory_type="approval_required", project_scope=project_scope, session_scope=session_scope)
+            if duplicate:
+                self.store.touch_memory(duplicate["id"], "duplicate_detected", f"Already pending approval: {duplicate.get('summary') or duplicate.get('content')}")
+                message = "That memory is already pending approval."
+                receipt = brain_receipt("brain.memory_duplicate", "duplicate", message, {"memory_id": duplicate["id"]})
+                return BrainCommandResult(True, message, "passed", [receipt], [brain_card("Already pending approval", "duplicate", message, {"memory_id": duplicate["id"]})], {"memory": duplicate})
             record = self.store.create_memory(
                 summary,
                 layer="pending",
@@ -153,6 +159,12 @@ class BrainMemoryManager:
             receipt = brain_receipt("brain.memory_approval_required", "approval_required", "Sensitive memory requires approval before save.", {"sensitivity": decision.sensitivity, "memory_id": record.get("id")})
             return BrainCommandResult(True, "That memory needs approval before I save it.", "approval_required", [receipt], [brain_card("Memory needs approval", "approval_required", "That memory needs approval before I save it.", {"memory_id": record.get("id")})], {"memory": record})
         summary = self._summary(content)
+        duplicate = self.store.find_duplicate_memory(summary, layer=self._layer(summary), memory_type=self._type(summary), project_scope=project_scope, session_scope=session_scope)
+        if duplicate:
+            self.store.touch_memory(duplicate["id"], "duplicate_detected", f"Already remembered: {duplicate.get('summary') or duplicate.get('content')}")
+            message = f"Already remembered: {duplicate.get('summary') or duplicate.get('content')}."
+            receipt = brain_receipt("brain.memory_duplicate", "duplicate", message, {"memory_id": duplicate["id"]})
+            return BrainCommandResult(True, message, "passed", [receipt], [brain_card("Already remembered", "duplicate", message, {"memory_id": duplicate["id"]})], {"memory": duplicate})
         record = self.store.create_memory(
             summary,
             layer=self._layer(summary),
@@ -317,16 +329,23 @@ class BrainMemoryManager:
         return BrainCommandResult(True, "", "passed", visible_receipts, visible_cards, {"candidates": processed, "saved": saved, "pending": pending})
 
     def forget(self, query: str, project_scope: str = "", session_scope: str = "") -> BrainCommandResult:
-        target = self.store.search(query, limit=1, project_scope=project_scope, session_scope=session_scope)
-        target = target[0] if target else None
-        if not target:
+        targets = self.store.search(query, limit=200, project_scope=project_scope, session_scope=session_scope)
+        distinctive_terms = self.store._terms(query) - {"prefer", "answer", "answers", "preference"}
+        if distinctive_terms:
+            targets = [
+                item
+                for item in targets
+                if distinctive_terms <= self.store._terms(f"{item.get('title', '')} {item.get('summary', '')} {item.get('content', '')} {' '.join(item.get('tags', []))}")
+            ]
+        if not targets:
             receipt = brain_receipt("brain.memory_forget", "no_matches", MISS_PHRASE, {"query": query})
             return BrainCommandResult(True, MISS_PHRASE, "passed", [receipt], [brain_card("Memory forget", "no_matches", MISS_PHRASE)])
-        forgotten = self.store.soft_delete_memory(target["id"])
-        summary = str((forgotten or target).get("summary") or (forgotten or target).get("content"))
+        forgotten = [self.store.soft_delete_memory(target["id"]) or target for target in targets]
+        summary = str(forgotten[0].get("summary") or forgotten[0].get("content"))
         message = f"Forgotten: {summary}."
-        receipt = brain_receipt("brain.memory_forgotten", "passed", message, {"memory_id": target["id"]})
-        return BrainCommandResult(True, message, "passed", [receipt], [brain_card("Memory forgotten", "passed", message)], {"memory": forgotten or target})
+        receipt = brain_receipt("brain.memory_forgotten", "passed", message, {"memory_ids": [item["id"] for item in forgotten], "count": len(forgotten)})
+        primary = forgotten[0] | {"memories": forgotten}
+        return BrainCommandResult(True, message, "passed", [receipt], [brain_card("Memory forgotten", "passed", message)], {"memory": primary, "memories": forgotten})
 
     def set_focus(self, focus: str, session_id: str = "", project_scope: str = "") -> BrainCommandResult:
         data = self.focus.set_focus(focus, session_id=session_id, project_scope=project_scope)
@@ -371,6 +390,10 @@ class BrainMemoryManager:
         return BrainCommandResult(True, "Brain memory rejected.", "rejected", [receipt], [brain_card("Memory rejected", "rejected", "Brain memory rejected.")], {"memory": memory})
 
     def reactivate(self, memory_id: str) -> BrainCommandResult:
+        current = self.store.get_memory(memory_id)
+        if current and (current.get("requires_approval") or not current.get("approved_by_user") or current.get("sensitivity") != "low"):
+            receipt = brain_receipt("brain.memory_reactivate_blocked", "blocked", "Memory reactivation requires approval before it can become active.", {"memory_id": memory_id})
+            return BrainCommandResult(True, "Memory reactivation requires approval before it can become active.", "blocked", [receipt], [brain_card("Memory reactivation blocked", "blocked", "Memory reactivation requires approval before it can become active.")])
         memory = self.store.reactivate_memory(memory_id)
         if not memory:
             receipt = brain_receipt("brain.memory_reactivate", "missing", "Brain memory not found.", {"memory_id": memory_id})
@@ -403,6 +426,7 @@ class BrainMemoryManager:
             embedded = self.embedding_client.embed(query)
             if embedded.ok:
                 selected, scores, candidate_count = self.store.semantic_search(embedded.vector, limit=effective_limit, min_score=self.retrieval_min_score, project_scope=project_scope, session_scope=session_scope)
+                selected, scores = self._semantic_sanity_filter(query, selected, scores)
                 if selected:
                     proof = self.store.retrieval_proof(retrieval_mode="semantic", selected=selected, scores=scores, embedding_available=True, embedding_model=embedded.model, candidate_count=candidate_count)
                     self.store.record_retrieval(query, selected, proof)
@@ -432,6 +456,18 @@ class BrainMemoryManager:
             return False
         self.store.upsert_embedding(memory, result.vector, result.model)
         return True
+
+    def _semantic_sanity_filter(self, query: str, selected: list[dict[str, Any]], scores: list[float]) -> tuple[list[dict[str, Any]], list[float]]:
+        query_terms = self.store._terms(query)
+        required_terms = {term for term in query_terms if any(char.isdigit() for char in term)}
+        filtered: list[tuple[dict[str, Any], float]] = []
+        for item, score in zip(selected, scores, strict=False):
+            memory_terms = self.store._terms(f"{item.get('title', '')} {item.get('summary', '')} {item.get('content', '')} {' '.join(item.get('tags', []))}")
+            if required_terms and not required_terms <= memory_terms:
+                continue
+            if score >= 0.85 or query_terms & memory_terms:
+                filtered.append((item, score))
+        return [item for item, _score in filtered], [score for _item, score in filtered]
 
     def _summary(self, content: str) -> str:
         cleaned = content.strip().rstrip(".")
@@ -474,6 +510,8 @@ class BrainMemoryManager:
         return ""
 
     def _auto_capture_lane_allowed(self, lane: str) -> bool:
+        if lane == "brain_continuity":
+            return True
         if lane.startswith("brain_"):
             return False
         if lane.startswith("github_") or lane == "self_build":

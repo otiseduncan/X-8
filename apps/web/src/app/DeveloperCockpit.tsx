@@ -2,7 +2,7 @@ import { Activity, Boxes, Code2, FileText, GitBranch, Image, Search, Server, Shi
 import { useEffect, useMemo, useState } from 'react';
 import { CodeEditor } from '../components/cockpit/CodeEditor';
 import { StatusPill } from '../components/ui/StatusPill';
-import { approveBrainMemory, createContinuityHandoff, createContinuityTask, deleteBrainMemory, loadBrainCandidates, loadBrainEmbeddingStatus, loadBrainEvents, loadBrainMemories, loadContinuityRecords, loadContinuityStatus, reactivateBrainMemory, rejectBrainMemory, reindexBrainMemories, retrieveBrainMemory, toggleBrainAutoCapture, updateBrainFocus, updateBrainMemory, updateContinuityRecord } from '../services/apiClient';
+import { approveBrainMemory, createContinuityHandoff, createContinuityTask, deleteBrainMemory, loadBrainCandidates, loadBrainEmbeddingStatus, loadBrainEvents, loadBrainMemories, loadContinuityRecords, loadContinuityStatus, previewProjectBuild, reactivateBrainMemory, rejectBrainMemory, reindexBrainMemories, retrieveBrainMemory, toggleBrainAutoCapture, updateBrainFocus, updateBrainMemory, updateContinuityRecord, writeProjectBuild } from '../services/apiClient';
 import type { ChatCard, ChatMessage } from './AssistantComponents';
 import { Panel } from './AssistantComponents';
 
@@ -56,6 +56,31 @@ type DeveloperCockpitProps = {
 
 export function DeveloperCockpit(props: DeveloperCockpitProps) {
   const { files, selectedPath, setSelectedPath, proposal, code, setCode, proposeDiffCard, requestApply, searchStatus, imageStatus, selfBuildTrustSummary, selfBuildTrustStatus, modelDetails, memoryStatus, memoryDetails, brainDetails, team, capabilities, integrations, githubStatus, dockerPresets, githubAuth, githubOps, githubOpsResult, refreshGitHubOps, previewGitHubOp, appendMessage, githubApprovalCard, nowId, bridgeStatus, x7ImportStatus, x6ImportStatus, legacySignals, importStatus, submitConfigScan, muted, micStatus, voiceStatus, voiceName, volume, changeVolume, toggleMute, readAloud, startMicrophone, audioReceipts } = props;
+  const [projectPrompt, setProjectPrompt] = useState('Build a small local web app scaffold');
+  const [projectName, setProjectName] = useState('v8-release-proof-project');
+  const [projectStatus, setProjectStatus] = useState('no_preview');
+  const [projectPlan, setProjectPlan] = useState<Record<string, unknown> | null>(null);
+  const [projectFiles, setProjectFiles] = useState<Array<Record<string, unknown>>>([]);
+
+  async function previewProject() {
+    const response = await previewProjectBuild(projectPrompt, projectName);
+    const result = response.data || {};
+    const plan = (result.plan as Record<string, unknown>) || {};
+    setProjectPlan(plan);
+    setProjectFiles(Array.isArray(plan.files) ? plan.files as Array<Record<string, unknown>> : []);
+    setProjectStatus(String(result.status || response.status));
+  }
+
+  async function writeProject() {
+    if (!projectPlan?.manifest_hash) return;
+    const response = await writeProjectBuild(projectPrompt, projectName, String(projectPlan.manifest_hash));
+    const result = response.data || {};
+    const plan = (result.plan as Record<string, unknown>) || {};
+    setProjectPlan(plan);
+    setProjectFiles(Array.isArray(plan.files) ? plan.files as Array<Record<string, unknown>> : projectFiles);
+    setProjectStatus(String(result.status || response.status));
+  }
+
   return (
     <section className="developerCockpit" aria-label="Developer Cockpit Mode">
       <Panel icon={<FileText />} title="Project File Tree">
@@ -81,6 +106,20 @@ export function DeveloperCockpit(props: DeveloperCockpitProps) {
           <div className="row"><strong>Validation presets</strong><span>{Array.isArray(selfBuildTrustStatus.validation_presets) ? selfBuildTrustStatus.validation_presets.join(', ') : 'unknown'}</span></div>
           <div className="row split"><strong>Allowed paths</strong><span>{Array.isArray(selfBuildTrustStatus.allowed_paths) ? selfBuildTrustStatus.allowed_paths.length : 'unknown'}</span></div>
           <div className="row split"><strong>Blocked paths</strong><span>{Array.isArray(selfBuildTrustStatus.blocked_paths) ? selfBuildTrustStatus.blocked_paths.length : 'unknown'}</span></div>
+        </div>
+      </Panel>
+      <Panel icon={<Boxes />} title="Project Builder">
+        <div className="list dense projectBuilderPanel">
+          <div className="row split"><strong>Status</strong><StatusPill label={projectStatus} status={projectStatus} /></div>
+          <label className="fieldStack"><span>Project name</span><input value={projectName} onChange={(event) => setProjectName(event.target.value)} /></label>
+          <label className="fieldStack"><span>Build prompt</span><textarea rows={3} value={projectPrompt} onChange={(event) => setProjectPrompt(event.target.value)} /></label>
+          <div className="inlineActions">
+            <button className="chipButton" onClick={() => void previewProject()}>Preview manifest</button>
+            <button className="chipButton" disabled={!projectPlan?.manifest_hash} onClick={() => void writeProject()}>Write approved sandbox</button>
+          </div>
+          <div className="row"><strong>Output path</strong><span>{String(projectPlan?.output_path || 'preview required')}</span></div>
+          <div className="row"><strong>Manifest hash</strong><span>{String(projectPlan?.manifest_hash || 'none')}</span></div>
+          <div className="row"><strong>Files</strong><span>{projectFiles.map((file) => String(file.path)).join(', ') || 'none'}</span></div>
         </div>
       </Panel>
       <Panel icon={<Activity />} title="Model + Runtime">

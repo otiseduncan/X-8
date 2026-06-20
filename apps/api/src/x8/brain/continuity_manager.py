@@ -41,6 +41,8 @@ class BrainContinuityManager:
         decisions = self.records(record_type="decision", status="active", project_scope=project_scope, session_scope=session_scope, limit=5)
         return {
             "continuity_ready": True,
+            "storage_backend": "postgres",
+            "record_count": len(self.records(project_scope=project_scope, session_scope=session_scope, limit=500)),
             "current_project": project,
             "next_step": next_step,
             "active_blockers": blockers,
@@ -144,12 +146,16 @@ class BrainContinuityManager:
     def answer(self, question: str, project_scope: str = "", session_scope: str = "") -> ContinuityResult:
         lower = question.lower().strip(" ?")
         if "currently working on" in lower or "current project state" in lower or "status of x-8" in lower or "show me the current project state" in lower:
-            project = self.current_project(project_scope, session_scope)
+            scoped_project = self.records(record_type="project_state", status="active", project_scope=project_scope, session_scope=session_scope, limit=1) if session_scope or project_scope else []
+            project = scoped_project[0] if scoped_project else None
             if project:
                 return self._answer(f"Current project state: {project['summary']}.", "brain.continuity_project_retrieved", project)
             focus = self.focus.current_work_answer(session_id=session_scope, project_scope=project_scope)
             if "No active focus" not in focus:
                 return ContinuityResult(True, focus, "passed", [brain_receipt("brain.continuity_focus_fallback", "passed", "Active focus fallback retrieved.")])
+            project = self.current_project(project_scope, session_scope)
+            if project:
+                return self._answer(f"Current project state: {project['summary']}.", "brain.continuity_project_retrieved", project)
             return self._miss(PROJECT_MISS, "brain.continuity_project_missing")
         if "next step" in lower or "before continuing" in lower:
             return self._latest_answer("next_step", "Next step", NEXT_MISS, "brain.continuity_next_step_retrieved", project_scope, session_scope)
@@ -163,7 +169,7 @@ class BrainContinuityManager:
         if "last checkpoint" in lower or "changed in the last checkpoint" in lower:
             return self._latest_answer("commit_checkpoint", "Last checkpoint", "I don’t have a checkpoint saved yet.", "brain.continuity_checkpoint_retrieved", project_scope, session_scope, ("active", "done"))
         if "decide" in lower or "decision" in lower:
-            decisions = self.records(record_type="decision", status="active", project_scope=project_scope, session_scope=session_scope, query="brain" if "brain" in lower else "", limit=3)
+            decisions = self.records(record_type="decision", status="active", project_scope=project_scope, session_scope=session_scope, limit=3)
             if decisions:
                 return self._answer("Recent decision: " + "; ".join(item["summary"] for item in decisions) + ".", "brain.continuity_decision_retrieved", decisions[0])
             return self._miss("I don’t have a decision saved yet.", "brain.continuity_decision_missing")
@@ -207,6 +213,8 @@ class BrainContinuityManager:
         if blocked:
             return blocked
         record = self.store.upsert_singleton(record_type, redact_secret(summary), title=summary[:120], **scope)
+        if record_type == "project_state":
+            self.focus.set_focus(record["summary"], session_id=str(scope.get("session_scope") or ""), project_scope=str(scope.get("project_scope") or ""))
         return self._result(f"{label}: {record['summary']}.", f"brain.continuity_{record_type}_saved", record)
 
     def _create_checkpoint(self, record_type: str, summary: str, label: str, **scope: Any) -> ContinuityResult:
@@ -224,14 +232,14 @@ class BrainContinuityManager:
 
     def _answer(self, message: str, action: str, record: dict[str, Any]) -> ContinuityResult:
         receipt = brain_receipt(action, "passed", message, {"record_id": record.get("id"), "record_type": record.get("record_type")})
-        return ContinuityResult(True, message, "passed", [receipt], [brain_card("Continuity", "passed", message)], {"record": record})
+        return ContinuityResult(True, message, "passed", [receipt], [brain_card("Continuity", "passed", "Continuity record retrieved.", {"record_id": record.get("id")})], {"record": record})
 
     def _miss(self, message: str, action: str) -> ContinuityResult:
         return ContinuityResult(True, message, "passed", [brain_receipt(action, "no_matches", message)], [brain_card("Continuity", "no_matches", message)])
 
     def _result(self, message: str, action: str, record: dict[str, Any]) -> ContinuityResult:
         receipt = brain_receipt(action, "passed", message, {"record_id": record.get("id"), "record_type": record.get("record_type")})
-        return ContinuityResult(True, message, "passed", [receipt], [brain_card("Continuity saved", "passed", message, {"record_id": record.get("id")})], {"record": record})
+        return ContinuityResult(True, message, "passed", [receipt], [brain_card("Continuity saved", "passed", "Continuity record saved.", {"record_id": record.get("id")})], {"record": record})
 
     def _blocked(self, content: str) -> ContinuityResult | None:
         decision = self.policy.decide(content)

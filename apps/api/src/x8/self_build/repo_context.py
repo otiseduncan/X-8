@@ -27,7 +27,7 @@ class RepoContextReader:
             return True
         path = Path(relative_path)
         parts = set(path.parts)
-        if relative_path == ".env" or relative_path.startswith(".env."):
+        if relative_path == ".env" or (relative_path.startswith(".env.") and relative_path != ".env.example"):
             return False
         if parts & BLOCKED_PARTS or path.suffix in BLOCKED_SUFFIXES:
             return False

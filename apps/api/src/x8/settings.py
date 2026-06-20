@@ -51,6 +51,7 @@ class Settings(BaseSettings):
     local_bridge_url: str = "http://x8-local-bridge:5788"
     local_bridge_token: str = ""
     approved_project_roots: str = ""
+    project_builder_sandbox_path: str = "/workspace/runtime/generated-projects"
     x7_import_root: str = "/imports/x7"
     x6_import_root: str = "/imports/x6"
     web_search_provider: str = "searxng_local"

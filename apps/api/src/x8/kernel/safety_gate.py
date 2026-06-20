@@ -2,7 +2,7 @@ from x8.kernel.contracts import SafetyDecision
 
 
 class SafetyGate:
-    MUTATING_LANES = {"approval_required_action", "github_create_repo", "github_connect_init", "github_push", "github_pull", "self_build"}
+    MUTATING_LANES = {"approval_required_action", "operator_blocked", "github_create_repo", "github_connect_init", "github_push", "github_pull", "self_build", "project_builder"}
 
     def decide(self, lane: str) -> SafetyDecision:
         if lane in self.MUTATING_LANES:

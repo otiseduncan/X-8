@@ -358,6 +358,7 @@ test('Brain memory panel searches filters opens detail and runs actions', async 
   expect(document.body).not.toHaveTextContent(/ghp_/i);
   expect(document.body).not.toHaveTextContent(/embedding_json/i);
 });
+
 test('Brain auto-capture receipts render compactly and redact blocked secrets', async () => {
   render(<App />);
   await send('I prefer direct senior-engineer answers.');

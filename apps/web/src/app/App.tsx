@@ -201,6 +201,7 @@ export function App() {
   function redactSecretDisplay(value: string) {
     return value
       .replace(/\bgh[pousr]_[A-Za-z0-9_]+/gi, '[redacted-token]')
+      .replace(/\bgh[a-z]_[A-Za-z0-9_]+/gi, '[redacted-token]')
       .replace(/\bsk-[A-Za-z0-9_-]+/gi, '[redacted-api-key]')
       .replace(/(password|passcode|token|api[_ -]?key|secret|one[- ]?time code|otp)\s*(is|=|:)?\s*\S+/gi, '$1 [redacted]');
   }
