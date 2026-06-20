@@ -1,0 +1,82 @@
+/* Compact Artifact Workbench layout overrides.
+   Keeps package file selection inside the Code panel without stealing editor width. */
+.artifactWorkbench .artifactCodeLayout {
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+
+.artifactWorkbench .artifactFileTree {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  border-color: rgba(34, 211, 238, 0.18);
+  border-radius: 8px;
+  background: rgba(8, 14, 28, 0.62);
+  padding: 7px 8px;
+}
+
+.artifactWorkbench .artifactFileTree h4 {
+  flex: 0 0 auto;
+  margin: 0;
+  color: rgba(186, 230, 253, 0.72);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.artifactWorkbench .artifactFileTreeList {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.artifactWorkbench .artifactFileTreeList .tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 1 auto;
+  max-width: 180px;
+  min-height: 28px;
+  border-radius: 999px;
+  padding: 0 10px;
+  overflow: hidden;
+  color: rgba(219, 234, 254, 0.9);
+  font-size: 0.76rem;
+  font-weight: 750;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.artifactWorkbench .artifactFileTreeList .tab.active {
+  color: #ecfeff;
+}
+
+.artifactWorkbench .artifactDirtyDot {
+  flex: 0 0 auto;
+  margin-left: 4px;
+}
+
+.artifactWorkbench .artifactEditorPanel {
+  min-width: 0;
+}
+
+.artifactWorkbench [data-testid="artifact-code-editor"] {
+  min-width: 0;
+}
+
+@media (max-width: 620px) {
+  .artifactWorkbench .artifactFileTree {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .artifactWorkbench .artifactFileTreeList {
+    width: 100%;
+  }
+}
