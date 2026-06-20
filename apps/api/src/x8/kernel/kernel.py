@@ -125,6 +125,11 @@ class XV8Kernel:
 
     def _deterministic_response(self, request: KernelRequest, lane: str, bundle) -> tuple[str, str, list[str]] | None:
         lower = request.user_message.lower().strip()
+        if "currently working on" in lower or "what are we working on" in lower or "current task" in lower:
+            recent = [item for item in bundle.session_context if item.strip()][-4:]
+            if not recent:
+                return "I do not have an explicit active task recorded in this XV8 chat yet.", "passed", []
+            return "Current XV8 chat context is based on recent messages:\n" + "\n".join(f"- {item}" for item in recent), "passed", []
         if lane.startswith("brain_"):
             if lane == "brain_continuity" and not self.continuity_manager:
                 return "Brain continuity is unavailable right now.", "unavailable", ["Brain continuity manager unavailable."]
@@ -151,11 +156,6 @@ class XV8Kernel:
         if ("github" in lower and any(word in lower for word in ("access", "can you", "available", "status"))) or lower in {"github", "github?"}:
             return ("XV8 has GitHub Ops routes for status, previews, and approval-gated writes. "
                     "I should not claim GitHub is inaccessible; write operations still require explicit approval."), "passed", []
-        if "currently working on" in lower or "what are we working on" in lower or "current task" in lower:
-            recent = [item for item in bundle.session_context if item.strip()][-4:]
-            if not recent:
-                return "I do not have an explicit active task recorded in this XV8 chat yet.", "passed", []
-            return "Current XV8 chat context is based on recent messages:\n" + "\n".join(f"- {item}" for item in recent), "passed", []
         if lane == "attachment_question":
             if bundle.attachments:
                 return "I can access the uploaded attachment text included in this turn:\n" + "\n".join(f"- {item}" for item in bundle.attachments), "passed", []

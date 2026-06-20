@@ -54,7 +54,14 @@ class BrainContinuityManager:
     def records(self, **kwargs: Any) -> list[dict[str, Any]]:
         return self.store.list_records(**kwargs)
 
-    def latest(self, record_type: str, *, project_scope: str = "", session_scope: str = "", statuses: tuple[str, ...] = ("active",)) -> dict[str, Any] | None:
+    def latest(
+        self,
+        record_type: str,
+        *,
+        project_scope: str = "",
+        session_scope: str = "",
+        statuses: tuple[str, ...] = ("active",),
+    ) -> dict[str, Any] | None:
         return self.store.latest(record_type, statuses=statuses, project_scope=project_scope, session_scope=session_scope)
 
     def current_project(self, project_scope: str = "", session_scope: str = "") -> dict[str, Any] | None:
@@ -75,7 +82,12 @@ class BrainContinuityManager:
             return blocked
         record = self.store.update_record(record_id, patch)
         if not record:
-            return ContinuityResult(True, "Continuity record not found.", "missing", [brain_receipt("brain.continuity_missing", "missing", "Continuity record not found.", {"record_id": record_id})])
+            return ContinuityResult(
+                True,
+                "Continuity record not found.",
+                "missing",
+                [brain_receipt("brain.continuity_missing", "missing", "Continuity record not found.", {"record_id": record_id})],
+            )
         return self._result("Continuity record updated.", "brain.continuity_updated", record)
 
     def archive_record(self, record_id: str) -> ContinuityResult:
@@ -85,7 +97,16 @@ class BrainContinuityManager:
         return self._result("Continuity record archived.", "brain.continuity_archived", record)
 
     def set_project_state(self, summary: str, **scope: Any) -> ContinuityResult:
-        return self._set_singleton("project_state", summary, "Saved current project state", **scope)
+        result = self._set_singleton("project_state", summary, "Saved current project state", **scope)
+        if result.status == "passed" and result.data.get("record"):
+            record = result.data["record"]
+            self.focus.set_focus(
+                str(record.get("summary") or summary),
+                project_scope=str(scope.get("project_scope") or ""),
+                session_scope=str(scope.get("session_scope") or ""),
+                source="continuity_project_state",
+            )
+        return result
 
     def set_next_step(self, summary: str, **scope: Any) -> ContinuityResult:
         return self._set_singleton("next_step", summary, "Saved next step", **scope)
@@ -148,7 +169,7 @@ class BrainContinuityManager:
             if project:
                 return self._answer(f"Current project state: {project['summary']}.", "brain.continuity_project_retrieved", project)
             focus = self.focus.current_work_answer(session_id=session_scope, project_scope=project_scope)
-            if "No active focus" not in focus:
+            if "No active focus" not in focus and "do not have an active focus" not in focus:
                 return ContinuityResult(True, focus, "passed", [brain_receipt("brain.continuity_focus_fallback", "passed", "Active focus fallback retrieved.")])
             return self._miss(PROJECT_MISS, "brain.continuity_project_missing")
         if "next step" in lower or "before continuing" in lower:
@@ -158,12 +179,14 @@ class BrainContinuityManager:
             if blockers:
                 return self._answer(f"Current blocker: {blockers[0]['summary']}.", "brain.continuity_blocker_retrieved", blockers[0])
             return self._miss(BLOCKER_MISS, "brain.continuity_blocker_missing")
-        if "validate" in lower:
+        if "validate" in lower or "validated" in lower:
             return self._latest_answer("validation_checkpoint", "Last validation checkpoint", VALIDATION_MISS, "brain.continuity_validation_retrieved", project_scope, session_scope, ("active", "done"))
         if "last checkpoint" in lower or "changed in the last checkpoint" in lower:
             return self._latest_answer("commit_checkpoint", "Last checkpoint", "I don’t have a checkpoint saved yet.", "brain.continuity_checkpoint_retrieved", project_scope, session_scope, ("active", "done"))
         if "decide" in lower or "decision" in lower:
             decisions = self.records(record_type="decision", status="active", project_scope=project_scope, session_scope=session_scope, query="brain" if "brain" in lower else "", limit=3)
+            if not decisions and "brain" in lower:
+                decisions = self.records(record_type="decision", status="active", project_scope=project_scope, session_scope=session_scope, limit=3)
             if decisions:
                 return self._answer("Recent decision: " + "; ".join(item["summary"] for item in decisions) + ".", "brain.continuity_decision_retrieved", decisions[0])
             return self._miss("I don’t have a decision saved yet.", "brain.continuity_decision_missing")
@@ -174,7 +197,7 @@ class BrainContinuityManager:
     def handle_chat_command(self, message: str, session_id: str = "", project_scope: str = "") -> ContinuityResult:
         text = message.strip()
         lowered = text.lower()
-        scope = {"session_scope": session_id, "project_scope": project_scope, "global_scope": True}
+        scope = {"session_scope": session_id, "project_scope": project_scope, "global_scope": not bool(session_id or project_scope)}
         patterns = [
             (r"(?i)^we are working on\s+(.+)$", self.set_project_state),
             (r"(?i)^the current project is\s+(.+)$", self.set_project_state),

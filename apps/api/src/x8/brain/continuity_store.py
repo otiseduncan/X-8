@@ -156,12 +156,12 @@ class BrainContinuityStore:
         if status:
             clauses.append("status=%s")
             params.append(status)
-        if project_scope:
-            clauses.append("project_scope=%s")
-            params.append(project_scope)
         if session_scope:
             clauses.append("session_scope=%s")
             params.append(session_scope)
+        elif project_scope:
+            clauses.append("(project_scope=%s OR global_scope=true)")
+            params.append(project_scope)
         if not include_deleted:
             clauses.append("soft_deleted=false")
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
@@ -180,12 +180,12 @@ class BrainContinuityStore:
         if statuses:
             clauses.append("status = ANY(%s)")
             params.append(list(statuses))
-        if project_scope:
+        if session_scope:
+            clauses.append("session_scope=%s")
+            params.append(session_scope)
+        elif project_scope:
             clauses.append("(project_scope=%s OR global_scope=true)")
             params.append(project_scope)
-        if session_scope:
-            clauses.append("(session_scope=%s OR global_scope=true)")
-            params.append(session_scope)
         with self.connect() as conn:
             row = conn.execute(f"SELECT * FROM brain_continuity_records WHERE {' AND '.join(clauses)} ORDER BY updated_at DESC LIMIT 1", params).fetchone()
             if row:

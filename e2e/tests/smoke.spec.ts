@@ -250,17 +250,17 @@ test('Brain continuity saves next step blocker validation and handoff', async ({
   const stamp = Date.now().toString();
   await page.goto('/');
   await ask(page, `we are working on Brain V1 Phase 5 ${stamp}`);
-  await expect(page.getByText(`Saved current project state: Brain V1 Phase 5 ${stamp}.`)).toBeVisible({ timeout: 30000 });
+  await expect(page.getByText(`Saved current project state: Brain V1 Phase 5 ${stamp}.`).first()).toBeVisible({ timeout: 30000 });
   await ask(page, `the next step is Phase 5 validation ${stamp}`);
-  await expect(page.getByText(`Saved next step: Phase 5 validation ${stamp}.`)).toBeVisible();
+  await expect(page.getByText(`Saved next step: Phase 5 validation ${stamp}.`).first()).toBeVisible();
   await ask(page, `the blocker is no live browser connector ${stamp}`);
-  await expect(page.getByText(`Saved blocker: no live browser connector ${stamp}.`)).toBeVisible();
+  await expect(page.getByText(`Saved blocker: no live browser connector ${stamp}.`).first()).toBeVisible();
   await ask(page, `we validated Phase 4 with 139 API tests passing ${stamp}`);
-  await expect(page.getByText(`Saved validation checkpoint: Phase 4 with 139 API tests passing ${stamp}.`)).toBeVisible();
+  await expect(page.getByText(`Saved validation checkpoint: Phase 4 with 139 API tests passing ${stamp}.`).first()).toBeVisible();
   await ask(page, 'what is the next step?');
-  await expect(page.getByText(`Next step: Phase 5 validation ${stamp}.`)).toBeVisible();
+  await expect(page.getByText(`Next step: Phase 5 validation ${stamp}.`).first()).toBeVisible();
   await ask(page, 'what is blocked?');
-  await expect(page.getByText(`Current blocker: no live browser connector ${stamp}.`)).toBeVisible();
+  await expect(page.getByText(`Current blocker: no live browser connector ${stamp}.`).first()).toBeVisible();
   const handoff = await (await request.post('/api/brain/continuity/handoff', { data: {} })).json();
   expect(handoff.data.handoff).toContain('Handoff note:');
   await page.getByRole('button', { name: /^Info/ }).click();
@@ -279,31 +279,31 @@ test('Brain semantic retrieval indexes approved memory and excludes inactive rec
 
   const preferenceRecall = await (await request.post('/api/brain/retrieve', { data: { query: `how should you respond to me phase4e2e ${stamp}` } })).json();
   expect(preferenceRecall.data.retrieval_proof.retrieval_mode).toBe('semantic');
-  expect(preferenceRecall.data.retrieval_proof.memory_ids_used).toContain(preference.data.memory.id);
+  expect(preferenceRecall.data.retrieval_proof.memory_ids_used).toContain(preference.data.id);
   expect(preferenceRecall.message).toContain('direct senior-engineer answers');
 
   const routingRecall = await (await request.post('/api/brain/retrieve', { data: { query: `what was the routing issue we fixed phase4e2e ${stamp}` } })).json();
   expect(routingRecall.data.retrieval_proof.retrieval_mode).toBe('semantic');
-  expect(routingRecall.data.retrieval_proof.memory_ids_used).toContain(routing.data.memory.id);
+  expect(routingRecall.data.retrieval_proof.memory_ids_used).toContain(routing.data.id);
   expect(routingRecall.message).toContain('self-build routing');
 
   const proofRecall = await (await request.post('/api/brain/retrieve', { data: { query: `how do we prove self-build apply works phase4e2e ${stamp}` } })).json();
   expect(proofRecall.data.retrieval_proof.retrieval_mode).toBe('semantic');
-  expect(proofRecall.data.retrieval_proof.memory_ids_used).toContain(proof.data.memory.id);
+  expect(proofRecall.data.retrieval_proof.memory_ids_used).toContain(proof.data.id);
   expect(proofRecall.message).toContain('approved_apply_proof.md');
 
   const pending = await (await request.post('/api/brain/remember', { data: { content: `my family history includes phase4 pending ${stamp}` } })).json();
   const pendingMiss = await (await request.post('/api/brain/retrieve', { data: { query: `phase4 pending ${stamp}` } })).json();
-  expect(pendingMiss.data.retrieval_proof.memory_ids_used || []).not.toContain(pending.data.memory.id);
+  expect(pendingMiss.data.retrieval_proof.memory_ids_used || []).not.toContain(pending.data.id);
 
   const rejected = await (await request.post('/api/brain/remember', { data: { content: `my family history includes phase4 rejected ${stamp}` } })).json();
-  await request.post(`/api/brain/memories/${rejected.data.memory.id}/reject`, { data: {} });
+  await request.post(`/api/brain/memories/${rejected.data.id}/reject`, { data: {} });
   const rejectedMiss = await (await request.post('/api/brain/retrieve', { data: { query: `phase4 rejected ${stamp}` } })).json();
-  expect(rejectedMiss.data.retrieval_proof.memory_ids_used || []).not.toContain(rejected.data.memory.id);
+  expect(rejectedMiss.data.retrieval_proof.memory_ids_used || []).not.toContain(rejected.data.id);
 
-  await request.delete(`/api/brain/memories/${routing.data.memory.id}`);
+  await request.delete(`/api/brain/memories/${routing.data.id}`);
   const deletedMiss = await (await request.post('/api/brain/retrieve', { data: { query: `routing issue phase4e2e ${stamp}` } })).json();
-  expect(deletedMiss.data.retrieval_proof.memory_ids_used || []).not.toContain(routing.data.memory.id);
+  expect(deletedMiss.data.retrieval_proof.memory_ids_used || []).not.toContain(routing.data.id);
 
   const reindex = await (await request.post('/api/brain/reindex')).json();
   expect(reindex.status).toBe('passed');
