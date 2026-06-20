@@ -30,3 +30,11 @@
 .inlineCard.approval .x8RealApplyButton { border-color: rgba(34, 211, 238, 0.75) !important; background: linear-gradient(180deg, rgba(34, 211, 238, 0.95), rgba(8, 145, 178, 0.95)) !important; color: #00141a !important; font-weight: 900; }
 .inlineCard.approval:not(.x8Approved) .x8RealApplyButton { display: none !important; }
 .x8ApprovalNote { display: inline-flex; align-items: center; min-height: 36px; border: 1px solid rgba(148, 163, 184, 0.24); border-radius: 8px; color: #cbd5e1; padding: 0 11px; }
+.x8ArtifactPackage { border-color: rgba(34, 211, 238, 0.62) !important; }
+.x8PackageBadge { justify-self: end; align-self: center; border: 1px solid rgba(34, 211, 238, 0.42); border-radius: 999px; background: rgba(34, 211, 238, 0.1); color: #a5f3fc; font-size: 0.72rem; font-weight: 900; padding: 5px 9px; text-transform: uppercase; letter-spacing: 0.04em; }
+.x8ArtifactEditor { width: 100%; min-height: 320px; margin: 10px 0; border: 1px solid rgba(34, 211, 238, 0.38); border-radius: 8px; background: #05070d; color: #e2e8f0; padding: 12px; font-family: "Cascadia Code", "Fira Code", Consolas, monospace; font-size: 0.84rem; line-height: 1.5; resize: vertical; }
+.x8EditArtifactButton { border-color: rgba(250, 204, 21, 0.65) !important; color: #fef08a !important; }
+.x8RefreshPreviewButton { border-color: rgba(34, 211, 238, 0.72) !important; color: #a5f3fc !important; }
+.x8ProposeArtifactButton { border-color: rgba(34, 197, 94, 0.68) !important; color: #bbf7d0 !important; }
+.x8PackageNote { display: inline-flex; align-items: center; min-height: 36px; border: 1px solid rgba(34, 197, 94, 0.42); border-radius: 8px; color: #bbf7d0; padding: 0 11px; }
+.inlineCard.artifact .inlineActions .chipButton:empty { display: none; }
