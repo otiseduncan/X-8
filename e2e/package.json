@@ -1,6 +1,9 @@
 {
   "scripts": {
-    "test": "playwright test"
+    "test": "playwright test",
+    "test:fast": "playwright test tests/smoke.spec.ts --grep-invert \"chat loop returns honest model status|self-build smoke proof applies|Brain auto-capture|Brain semantic retrieval\"",
+    "test:brain": "playwright test tests/continuity-proof.spec.ts tests/smoke.spec.ts --grep \"Brain continuity proof|Brain auto-capture|Brain semantic retrieval\"",
+    "test:self-build": "playwright test tests/smoke.spec.ts --grep \"self-build\""
   },
   "dependencies": {
     "@playwright/test": "1.44.1"
