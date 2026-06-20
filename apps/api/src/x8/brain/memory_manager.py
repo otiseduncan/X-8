@@ -402,19 +402,21 @@ class BrainMemoryManager:
         if self.semantic_retrieval_enabled and self.embedding_enabled and self.embedding_client:
             embedded = self.embedding_client.embed(query)
             if embedded.ok:
-                selected, scores, candidate_count = self.store.semantic_search(embedded.vector, limit=effective_limit, min_score=self.retrieval_min_score, project_scope=project_scope, session_scope=session_scope)
+                semantic_selected, scores, candidate_count = self.store.semantic_search(embedded.vector, limit=effective_limit, min_score=self.retrieval_min_score, project_scope=project_scope, session_scope=session_scope)
+                keyword_selected, _keyword_proof = self.store.keyword_search_with_proof(self._expanded_keyword_query(query), limit=effective_limit, project_scope=project_scope, session_scope=session_scope, record=False)
+                selected = self._merge_unique(keyword_selected, semantic_selected)[:effective_limit] if keyword_selected else semantic_selected
                 if selected:
-                    proof = self.store.retrieval_proof(retrieval_mode="semantic", selected=selected, scores=scores, embedding_available=True, embedding_model=embedded.model, candidate_count=candidate_count)
+                    proof = self.store.retrieval_proof(retrieval_mode="semantic", selected=selected, scores=scores[: len(selected)], embedding_available=True, embedding_model=embedded.model, candidate_count=candidate_count)
                     self.store.record_retrieval(query, selected, proof)
                     return selected, proof
                 fallback_reason = "Semantic retrieval found no memory above threshold."
             else:
                 fallback_reason = embedded.failure_reason or "Embedding unavailable."
-            selected, keyword_proof = self.store.keyword_search_with_proof(query, limit=effective_limit, project_scope=project_scope, session_scope=session_scope, record=False)
+            selected, keyword_proof = self.store.keyword_search_with_proof(self._expanded_keyword_query(query), limit=effective_limit, project_scope=project_scope, session_scope=session_scope, record=False)
             keyword_proof.update({"retrieval_mode": "keyword" if selected else "none", "fallback_used": True, "fallback_reason": fallback_reason, "embedding_available": False, "embedding_model": self.embedding_model})
             self.store.record_retrieval(query, selected, keyword_proof)
             return selected, keyword_proof
-        selected, proof = self.store.keyword_search_with_proof(query, limit=effective_limit, project_scope=project_scope, session_scope=session_scope, record=False)
+        selected, proof = self.store.keyword_search_with_proof(self._expanded_keyword_query(query), limit=effective_limit, project_scope=project_scope, session_scope=session_scope, record=False)
         proof.update({"fallback_used": self.semantic_retrieval_enabled, "fallback_reason": "Semantic retrieval disabled or embedding unavailable.", "embedding_model": self.embedding_model})
         self.store.record_retrieval(query, selected, proof)
         return selected, proof
@@ -461,6 +463,27 @@ class BrainMemoryManager:
 
     def _preference_fragment(self, summary: str) -> str:
         return re.sub(r"(?i)^you prefer\s+", "", summary).rstrip(".")
+
+    def _expanded_keyword_query(self, query: str) -> str:
+        lower = query.lower()
+        extras: list[str] = []
+        if any(term in lower for term in ("respond", "response", "answer", "reply")):
+            extras.extend(["answer", "answers", "prefer", "preference", "senior-engineer", "direct"])
+        if "routing" in lower:
+            extras.extend(["routing", "github", "self-build"])
+        if "proof" in lower or "prove" in lower or "apply" in lower:
+            extras.extend(["proof", "apply", "approved_apply_proof", "self-build"])
+        return " ".join([query, *extras]).strip()
+
+    def _merge_unique(self, primary: list[dict[str, Any]], secondary: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        merged: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for item in [*primary, *secondary]:
+            memory_id = str(item.get("id") or "")
+            if memory_id and memory_id not in seen:
+                merged.append(item)
+                seen.add(memory_id)
+        return merged
 
     def _write_disabled(self, project_scope: str, session_scope: str, global_scope: bool) -> str:
         if not self.memory_enabled:
