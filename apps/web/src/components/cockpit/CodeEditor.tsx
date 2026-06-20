@@ -19,58 +19,63 @@ function languageFor(path: string) {
 
 const artifactEditorTheme = EditorView.theme({
   '&': {
-    color: '#e5f4ff',
+    color: '#e6edf7',
     backgroundColor: '#05070d',
     fontSize: '0.84rem'
   },
+  '.cm-scroller': {
+    backgroundColor: '#05070d'
+  },
   '.cm-content': {
     caretColor: '#67e8f9',
-    fontFamily: '"Cascadia Code", "Fira Code", Consolas, "SFMono-Regular", monospace'
+    fontFamily: '"Cascadia Code", "Fira Code", Consolas, "SFMono-Regular", monospace',
+    backgroundColor: '#05070d'
   },
   '.cm-cursor, .cm-dropCursor': {
     borderLeftColor: '#67e8f9'
   },
   '.cm-activeLine': {
-    backgroundColor: 'rgba(34, 211, 238, 0.10)'
+    backgroundColor: '#142033'
   },
   '.cm-activeLineGutter': {
-    backgroundColor: 'rgba(34, 211, 238, 0.14)',
+    backgroundColor: '#101a2a',
     color: '#e0f2fe'
   },
   '.cm-gutters': {
     backgroundColor: '#030712',
     color: '#7891aa',
-    borderRight: '1px solid rgba(34, 211, 238, 0.22)'
+    borderRight: '1px solid #123244'
   },
   '.cm-line:nth-child(odd)': {
-    backgroundColor: 'rgba(5, 7, 13, 0.76)'
+    backgroundColor: '#05070d'
   },
   '.cm-line:nth-child(even)': {
-    backgroundColor: 'rgba(13, 20, 35, 0.76)'
+    backgroundColor: '#0d1423'
   },
   '.cm-selectionBackground, &.cm-focused .cm-selectionBackground': {
-    backgroundColor: 'rgba(34, 211, 238, 0.28)'
+    backgroundColor: '#164e63'
   },
   '&.cm-focused': {
-    outline: '1px solid rgba(34, 211, 238, 0.55)'
+    outline: '1px solid #22d3ee'
   }
 }, { dark: true });
 
 const artifactHighlighting = syntaxHighlighting(HighlightStyle.define([
   { tag: tags.comment, color: '#64748b', fontStyle: 'italic' },
   { tag: [tags.tagName, tags.className, tags.definition(tags.className)], color: '#22d3ee', fontWeight: '700' },
-  { tag: tags.angleBracket, color: '#7dd3fc' },
-  { tag: [tags.attributeName, tags.propertyName, tags.definition(tags.propertyName)], color: '#67e8f9' },
-  { tag: [tags.attributeValue, tags.string, tags.special(tags.string)], color: '#dbeafe' },
-  { tag: [tags.keyword, tags.operatorKeyword, tags.controlKeyword], color: '#7dd3fc', fontWeight: '700' },
-  { tag: [tags.variableName, tags.definition(tags.variableName)], color: '#e5f4ff' },
-  { tag: [tags.function(tags.variableName), tags.function(tags.propertyName)], color: '#67e8f9' },
-  { tag: [tags.number, tags.integer, tags.float, tags.unit], color: '#bfdbfe' },
-  { tag: tags.color, color: '#67e8f9', fontWeight: '700' },
-  { tag: [tags.atom, tags.bool, tags.null], color: '#dbeafe' },
+  { tag: tags.angleBracket, color: '#38bdf8' },
+  { tag: [tags.attributeName, tags.propertyName, tags.definition(tags.propertyName)], color: '#60a5fa' },
+  { tag: [tags.attributeValue, tags.string, tags.special(tags.string)], color: '#f8fafc' },
+  { tag: [tags.keyword, tags.operatorKeyword, tags.controlKeyword], color: '#a78bfa', fontWeight: '700' },
+  { tag: [tags.variableName, tags.definition(tags.variableName)], color: '#e6edf7' },
+  { tag: [tags.function(tags.variableName), tags.function(tags.propertyName)], color: '#38bdf8' },
+  { tag: [tags.number, tags.integer, tags.float, tags.unit], color: '#fbbf24' },
+  { tag: tags.color, color: '#fb7185', fontWeight: '700' },
+  { tag: [tags.atom, tags.bool, tags.null], color: '#c084fc' },
   { tag: [tags.punctuation, tags.separator], color: '#94a3b8' },
-  { tag: [tags.bracket, tags.squareBracket, tags.paren], color: '#7dd3fc' },
-  { tag: tags.invalid, color: '#fecdd3', backgroundColor: 'rgba(244, 63, 94, 0.24)' }
+  { tag: [tags.bracket, tags.squareBracket, tags.paren], color: '#93c5fd' },
+  { tag: [tags.operator, tags.derefOperator, tags.compareOperator, tags.logicOperator, tags.arithmeticOperator], color: '#f472b6' },
+  { tag: tags.invalid, color: '#fecdd3', backgroundColor: '#7f1d1d' }
 ]));
 
 export function CodeEditor({ path, value, onChange }: { path: string; value: string; onChange: (value: string) => void }) {
