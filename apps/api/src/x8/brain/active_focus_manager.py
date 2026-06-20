@@ -25,6 +25,28 @@ class ActiveFocusManager:
             )
             conn.commit()
         self.store.record_event("", "focus_updated", f"Active focus updated: {focus}", "brain")
+        if source == "continuity_project_state":
+            self.store.record_candidate(
+                {
+                    "source_text_redacted": focus,
+                    "suggested_title": focus[:80],
+                    "suggested_content": focus,
+                    "summary": focus,
+                    "layer": "active_work",
+                    "type": "active_work_context",
+                    "confidence": 0.82,
+                    "sensitivity": "low",
+                    "scope": "project" if project_scope else "session" if effective_session_scope else "global",
+                    "reason": "Continuity project state updated active focus.",
+                    "source_turn_id": session_id,
+                    "source_tool": "chat",
+                    "project_scope": project_scope,
+                    "session_scope": effective_session_scope,
+                    "global_scope": not bool(project_scope or effective_session_scope),
+                },
+                decision="auto_save",
+                reason="Continuity project state updated active focus.",
+            )
         return {"id": focus_id, "focus": focus, "summary": focus, "source": source, "project_scope": project_scope, "session_scope": effective_session_scope, "session_id": session_id, "active": True, "updated_at": now}
 
     def get_focus(self, session_id: str = "", project_scope: str = "", session_scope: str = "") -> dict[str, Any] | None:
