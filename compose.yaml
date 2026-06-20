@@ -149,6 +149,52 @@ services:
       - x8-api
       - x8-web
 
+  e2e-fast-tests:
+    build:
+      context: .
+      dockerfile: docker/e2e/Dockerfile
+    command:
+      - "npx"
+      - "playwright"
+      - "test"
+      - "tests/smoke.spec.ts"
+      - "--grep-invert"
+      - "chat loop returns honest model status|self-build smoke proof applies|Brain auto-capture|Brain semantic retrieval"
+    depends_on:
+      - x8-api
+      - x8-web
+
+  e2e-brain-tests:
+    build:
+      context: .
+      dockerfile: docker/e2e/Dockerfile
+    command:
+      - "npx"
+      - "playwright"
+      - "test"
+      - "tests/continuity-proof.spec.ts"
+      - "tests/smoke.spec.ts"
+      - "--grep"
+      - "Brain continuity proof|Brain auto-capture|Brain semantic retrieval"
+    depends_on:
+      - x8-api
+      - x8-web
+
+  e2e-self-build-tests:
+    build:
+      context: .
+      dockerfile: docker/e2e/Dockerfile
+    command:
+      - "npx"
+      - "playwright"
+      - "test"
+      - "tests/smoke.spec.ts"
+      - "--grep"
+      - "self-build"
+    depends_on:
+      - x8-api
+      - x8-web
+
   architecture-guard:
     build:
       context: .
