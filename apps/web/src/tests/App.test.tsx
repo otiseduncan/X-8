@@ -59,7 +59,27 @@ function mockRuntime() {
                   receipt: { id: 'receipt-1', action: 'patch_proposal', status: 'pending approval', summary: 'Patch requires approval.' }
                 }
               : String(path).includes('artifacts/preview')
-                ? { title: 'Inline website preview', html: '<main><h1>Hello</h1></main>', css: 'body{color:#111}' }
+                ? String(text.prompt || '').toLowerCase().includes('multi-page')
+                  ? {
+                      title: 'Inline website preview',
+                      html: '<main><h1>Home</h1></main>',
+                      css: 'body{color:#111}',
+                      pages: [
+                        { id: 'home', label: 'Home', path: 'index.html', content: '<main><h1>Home</h1></main>' },
+                        { id: 'about', label: 'About', path: 'about.html', content: '<main><h1>About</h1></main>' },
+                        { id: 'services', label: 'Services', path: 'services.html', content: '<main><h1>Services</h1></main>' },
+                        { id: 'contact', label: 'Contact', path: 'contact.html', content: '<main><h1>Contact</h1></main>' }
+                      ],
+                      files: [
+                        { path: 'index.html', content: '<main><h1>Home</h1></main>' },
+                        { path: 'about.html', content: '<main><h1>About</h1></main>' },
+                        { path: 'services.html', content: '<main><h1>Services</h1></main>' },
+                        { path: 'contact.html', content: '<main><h1>Contact</h1></main>' },
+                        { path: 'styles.css', content: 'body{color:#111}' }
+                      ],
+                      assets: [{ id: 'hero', label: 'Hero Image', path: 'assets/hero.png' }]
+                    }
+                  : { title: 'Inline website preview', html: '<main><h1>Hello</h1></main>', css: 'body{color:#111}' }
                 : String(path).includes('search/query')
                   ? { provider: 'SearXNG', results: [{ title: 'Source A', url: 'https://example.test', snippet: 'Fresh source snippet.' }] }
                   : String(path).includes('images/generate')
@@ -684,12 +704,53 @@ test('renders generated artifacts and file viewers inline', async () => {
   render(<App />);
   await send('make a simple HTML website preview');
   expect(await screen.findByTestId('inline-artifact-card')).toBeInTheDocument();
+  expect(screen.getByTestId('artifact-package-header')).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: /^Approve$/ })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: /^Deny$/ })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: /^Apply$/ })).toBeDisabled();
   expect(screen.getByRole('button', { name: 'Preview' })).toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Code' })).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Pages' })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: /^Approve$/ }));
+  expect(screen.getByRole('button', { name: /^Apply$/ })).toBeEnabled();
+  fireEvent.click(screen.getByRole('button', { name: 'Code' }));
+  expect(screen.getByRole('button', { name: /^Apply$/ })).toBeEnabled();
+  fireEvent.change(screen.getByLabelText('Artifact page code editor'), { target: { value: '<main><h1>Hello updated</h1></main>' } });
+  fireEvent.click(screen.getByRole('button', { name: /Save draft/i }));
+  expect(screen.getByRole('button', { name: /^Apply$/ })).toBeDisabled();
+  expect(screen.getByText(/Re-approve to enable Apply/i)).toBeInTheDocument();
   expect(screen.queryByText('Artifact + Website Preview')).not.toBeInTheDocument();
   await send('open README.md');
   expect(await screen.findByTestId('inline-file-card')).toBeInTheDocument();
   expect(screen.queryByText('Project File Tree')).not.toBeInTheDocument();
+});
+
+test('supports package top tabs and page tabs for multi-page artifacts', async () => {
+  render(<App />);
+  await send('make a multi-page HTML website preview');
+  expect(await screen.findByTestId('inline-artifact-card')).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Preview' })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Pages' })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Code' })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Files' })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Assets' })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Metadata' })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'History/Log' })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Pages' }));
+  expect(screen.getByRole('button', { name: 'Home' })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'About' })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Services' })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Contact' })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'About' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+  const frame = screen.getByTitle('Inline website preview') as HTMLIFrameElement;
+  expect(frame.getAttribute('srcdoc') || '').toContain('About');
+  fireEvent.click(screen.getByRole('button', { name: 'Code' }));
+  expect(screen.getByLabelText('Artifact page code editor')).toHaveValue('<main><h1>About</h1></main>');
+  expect(screen.getByTestId('artifact-package-header')).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: /^Approve$/ })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: /^Deny$/ })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: /^Apply$/ })).toBeInTheDocument();
 });
 test('renders inline diff approval without mutating before approval', async () => {
   render(<App />);

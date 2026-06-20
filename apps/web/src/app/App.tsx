@@ -421,6 +421,10 @@ export function App() {
             payload: {
               html: response.data.html,
               css: response.data.css,
+              pages: response.data.pages,
+              files: response.data.files,
+              assets: response.data.assets,
+              package_type: 'website_package',
               metadata: { title: response.data.title, exportable: true }
             }
           }

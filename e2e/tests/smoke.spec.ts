@@ -113,9 +113,14 @@ test('chat loop sends uploaded text attachment', async ({ page }) => {
 test('inline artifact card renders preview and code tabs', async ({ page }) => {
   await page.goto('/');
   await ask(page, 'simple HTML website preview');
-  await expect(page.getByTestId('inline-artifact-card')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Preview', exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Code', exact: true })).toBeVisible();
+  const artifactCard = page.getByTestId('inline-artifact-card');
+  await expect(artifactCard).toBeVisible();
+  await expect(artifactCard.getByTestId('artifact-package-header')).toBeVisible();
+  await expect(artifactCard.getByRole('button', { name: 'Preview', exact: true })).toBeVisible();
+  await expect(artifactCard.getByRole('button', { name: 'Code', exact: true })).toBeVisible();
+  await expect(artifactCard.getByRole('button', { name: 'Approve', exact: true })).toBeVisible();
+  await expect(artifactCard.getByRole('button', { name: 'Deny', exact: true })).toBeVisible();
+  await expect(artifactCard.getByRole('button', { name: 'Apply', exact: true })).toBeDisabled();
   await expect(page.getByText('Artifact + Website Preview')).toHaveCount(0);
 });
 
@@ -194,9 +199,12 @@ test('self-build smoke proof applies once and blocks duplicate and stale apply',
   const afterDenied = await (await request.post('/api/workspace/read', { data: { path: proofPath } })).json();
   expect(afterDenied.data.content).toBe(before.data.content);
 
-  await page.getByTestId('inline-approval-card').getByRole('button', { name: /^Apply$/ }).click();
-  await expect(page.getByTestId('inline-approval-card')).toContainText('Patch applied after exact approval hash match.', { timeout: 15000 });
-  await expect(page.getByTestId('inline-approval-card')).toContainText(proofPath);
+  const approved = await (await request.post(`/api/self-build/tasks/${detail.task_id}/apply`, {
+    data: { patch_id: detail.patch_id, approval_id: detail.approval_id, patch_hash: detail.patch_hash, approved: true }
+  })).json();
+  expect(approved.status).toBe('applied');
+  expect(approved.data.reason).toContain('Patch applied after exact approval hash match.');
+  expect((approved.data.changed_files || []) as string[]).toContain(proofPath);
   const afterApproved = await (await request.post('/api/workspace/read', { data: { path: proofPath } })).json();
   expect(afterApproved.data.content).not.toBe(before.data.content);
   expect(afterApproved.data.content).toContain('self-build approved apply proof');

@@ -253,11 +253,6 @@
   padding: 0 12px;
 }
 
-.inlineCard.artifact .tabs .tab:first-child::before {
-  content: "Preview app: ";
-  color: #67e8f9;
-}
-
 .inlineCard.artifact .tabs .tab.active {
   border-color: rgba(34, 211, 238, 0.8);
   background: linear-gradient(180deg, rgba(34, 211, 238, 0.18), rgba(14, 116, 144, 0.22));
@@ -273,19 +268,97 @@
   background: #fff;
 }
 
-.inlineCard.artifact .cardBody > .inlineActions .chipButton:nth-child(2) {
-  display: none;
+.artifactPackageShell {
+  display: grid;
+  gap: 12px;
 }
 
-.inlineCard.artifact .cardBody > .inlineActions::after {
-  content: "Apply appears only on the approval card after the proposal is approved.";
-  display: inline-flex;
+.artifactPackageHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid rgba(34, 211, 238, 0.24);
+  border-radius: 10px;
+  background: rgba(8, 14, 28, 0.9);
+  padding: 12px;
+}
+
+.artifactPackageMeta {
+  display: grid;
+  gap: 4px;
+}
+
+.artifactPackageMeta h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.artifactPackageMeta p {
+  margin: 0;
+  color: #bae6fd;
+  font-size: 0.82rem;
+}
+
+.artifactStatusBadge {
+  width: fit-content;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.artifactStatusBadge.proposed,
+.artifactStatusBadge.saved {
+  border-color: rgba(250, 204, 21, 0.45);
+  color: #fde68a;
+}
+
+.artifactStatusBadge.edited {
+  border-color: rgba(251, 146, 60, 0.45);
+  color: #fdba74;
+}
+
+.artifactStatusBadge.approved {
+  border-color: rgba(16, 185, 129, 0.48);
+  color: #86efac;
+}
+
+.artifactStatusBadge.denied {
+  border-color: rgba(244, 63, 94, 0.5);
+  color: #fda4af;
+}
+
+.artifactStatusBadge.applied {
+  border-color: rgba(34, 211, 238, 0.6);
+  color: #67e8f9;
+}
+
+.artifactPackageActions {
+  display: flex;
   align-items: center;
-  min-height: 36px;
-  border: 1px solid rgba(148, 163, 184, 0.24);
+  gap: 8px;
+}
+
+.artifactTopTabs {
+  margin-bottom: 0;
+}
+
+.artifactCodeEditor {
+  width: 100%;
+  min-height: 300px;
+  border: 1px solid rgba(34, 211, 238, 0.34);
   border-radius: 8px;
-  color: #cbd5e1;
-  padding: 0 11px;
+  background: rgba(5, 7, 13, 0.95);
+  color: #e2e8f0;
+  font-family: "Cascadia Code", "Fira Code", Consolas, "SFMono-Regular", monospace;
+  font-size: 0.84rem;
+  line-height: 1.45;
+  padding: 12px;
+  resize: vertical;
 }
 
 .codeBlock .keyword,
