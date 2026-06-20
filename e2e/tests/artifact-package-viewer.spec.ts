@@ -39,13 +39,15 @@ test.describe('artifact package viewer workflow', () => {
     await codeTab.click();
 
     // Step 5: Edit code in place
-    const codeEditor = artifactCard.getByLabel('Artifact page code editor');
+    const codeEditor = artifactCard.getByTestId('artifact-code-editor').locator('.cm-content').first();
     await expect(codeEditor).toBeVisible({ timeout: 5000 });
-    const originalValue = await codeEditor.inputValue();
+    const originalValue = await artifactCard.getByTestId('artifact-code-editor').locator('.cm-content').first().innerText();
     const editedValue = originalValue.replace('</h1>', ' - EDITED</h1>');
 
-    await codeEditor.fill(editedValue);
-    await expect(codeEditor).toHaveValue(editedValue);
+    await codeEditor.click();
+    await page.keyboard.press('Control+A');
+    await page.keyboard.type(editedValue);
+    await expect(artifactCard.getByTestId('artifact-code-editor').locator('.cm-content').first()).toContainText('EDITED');
 
     // Step 6: Save draft
     const saveDraftBtn = artifactCard.getByRole('button', { name: /save draft/i });
@@ -71,8 +73,10 @@ test.describe('artifact package viewer workflow', () => {
     // Step 10: Edit again and save, verify Apply disables until re-approved
     await codeTab.click();
     const updatedValue = editedValue.replace('EDITED', 'EDITED AGAIN');
-    await codeEditor.fill(updatedValue);
-    await expect(codeEditor).toHaveValue(updatedValue);
+    await codeEditor.click();
+    await page.keyboard.press('Control+A');
+    await page.keyboard.type(updatedValue);
+    await expect(artifactCard.getByTestId('artifact-code-editor').locator('.cm-content').first()).toContainText('EDITED AGAIN');
 
     if (await saveDraftBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
       await saveDraftBtn.click();

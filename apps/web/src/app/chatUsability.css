@@ -347,6 +347,107 @@
   margin-bottom: 0;
 }
 
+.artifactWorkbench {
+  display: grid;
+  gap: 12px;
+}
+
+.artifactPreviewPanel {
+  display: grid;
+  gap: 10px;
+}
+
+.artifactCodeLayout {
+  display: grid;
+  grid-template-columns: minmax(180px, 260px) minmax(0, 1fr);
+  gap: 12px;
+}
+
+.artifactFileTree {
+  display: grid;
+  gap: 8px;
+  border: 1px solid rgba(34, 211, 238, 0.24);
+  border-radius: 10px;
+  background: rgba(8, 14, 28, 0.84);
+  padding: 10px;
+}
+
+.artifactFileTree h4 {
+  margin: 0;
+  font-size: 0.84rem;
+  color: #bae6fd;
+}
+
+.artifactFileTreeList {
+  display: grid;
+  gap: 7px;
+}
+
+.artifactFileTreeList .tab {
+  justify-content: space-between;
+}
+
+.artifactEditorPanel {
+  display: grid;
+  gap: 10px;
+}
+
+.artifactDirtyDot {
+  display: inline-flex;
+  margin-left: 6px;
+  color: #fb923c;
+}
+
+.artifactNavigator {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  align-items: end;
+}
+
+.fieldStack {
+  display: grid;
+  gap: 4px;
+  font-size: 0.78rem;
+  color: #94a3b8;
+}
+
+.fieldStack input {
+  min-height: 34px;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.84);
+  color: #e2e8f0;
+  padding: 0 10px;
+}
+
+.artifactConsoleEntry {
+  display: grid;
+  gap: 3px;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 8px;
+  background: rgba(8, 14, 28, 0.84);
+  padding: 8px 10px;
+}
+
+.artifactConsoleEntry.warn {
+  border-color: rgba(245, 158, 11, 0.45);
+}
+
+.artifactConsoleEntry.error {
+  border-color: rgba(244, 63, 94, 0.46);
+}
+
+@media (max-width: 880px) {
+  .artifactCodeLayout {
+    grid-template-columns: 1fr;
+  }
+
+  .artifactNavigator {
+    grid-template-columns: 1fr;
+  }
+}
+
 .artifactCodeEditor {
   width: 100%;
   min-height: 300px;
