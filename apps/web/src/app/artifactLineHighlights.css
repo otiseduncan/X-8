@@ -1,0 +1,27 @@
+.codeMirrorShell .cm-line.artifactLineLocate,
+.codeMirrorShell .cm-line[data-artifact-line-kind="artifactLineLocate"] {
+  background: rgba(250, 204, 21, 0.30) !important;
+  box-shadow: inset 4px 0 0 #facc15 !important;
+}
+
+.codeMirrorShell .cm-line.artifactLineAdded,
+.codeMirrorShell .cm-line.artifactLineModifiedNew,
+.codeMirrorShell .cm-line[data-artifact-line-kind="artifactLineAdded"],
+.codeMirrorShell .cm-line[data-artifact-line-kind="artifactLineModifiedNew"] {
+  background: rgba(16, 185, 129, 0.30) !important;
+  box-shadow: inset 4px 0 0 #10b981 !important;
+}
+
+.codeMirrorShell .cm-line.artifactLineDeleted,
+.codeMirrorShell .cm-line.artifactLineModifiedOld,
+.codeMirrorShell .cm-line[data-artifact-line-kind="artifactLineDeleted"],
+.codeMirrorShell .cm-line[data-artifact-line-kind="artifactLineModifiedOld"] {
+  background: rgba(244, 63, 94, 0.28) !important;
+  box-shadow: inset 4px 0 0 #f43f5e !important;
+}
+
+.codeMirrorShell .cm-line.artifactLineReplaced,
+.codeMirrorShell .cm-line[data-artifact-line-kind="artifactLineReplaced"] {
+  background: linear-gradient(90deg, rgba(244, 63, 94, 0.24) 0%, rgba(244, 63, 94, 0.24) 46%, rgba(16, 185, 129, 0.30) 54%, rgba(16, 185, 129, 0.30) 100%) !important;
+  box-shadow: inset 4px 0 0 #10b981 !important;
+}
