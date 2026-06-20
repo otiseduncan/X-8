@@ -1,0 +1,14 @@
+import { expect, test } from 'vitest';
+import { classifyRequest, parseGitHubCreateRepo } from '../app/intentRouting';
+
+test('routes GitHub publish language before artifact preview language', () => {
+  expect(classifyRequest('publish this website to GitHub')).toBe('github');
+});
+
+test('keeps self-build ahead of GitHub routing', () => {
+  expect(classifyRequest('create a self-build proposal to fix GitHub routing')).toBe('self_build');
+});
+
+test('parses quoted GitHub repository names', () => {
+  expect(parseGitHubCreateRepo('create GitHub repo named "x8-demo"', 'otiseduncan').repo_name).toBe('x8-demo');
+});
