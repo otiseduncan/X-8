@@ -1,5 +1,6 @@
 const CODE_SELECTOR = 'pre.codeBlock:not([data-x8-enhanced="true"]), pre.diff:not([data-x8-enhanced="true"])';
 const APPROVAL_SELECTOR = '.inlineCard.approval:not([data-x8-approval-enhanced="true"])';
+const ARTIFACT_SELECTOR = '.inlineCard.artifact:not([data-x8-artifact-enhanced="true"])';
 
 function appendToken(parent: HTMLElement, text: string, className = '') {
   if (!text) return;
@@ -33,10 +34,10 @@ function renderTokens(parent: HTMLElement, line: string) {
   appendToken(parent, line.slice(index));
 }
 
-function enhanceCodeBlock(pre: HTMLPreElement) {
-  const source = pre.textContent || '';
+function renderCodeLines(pre: HTMLPreElement, source: string) {
   const isDiff = pre.classList.contains('diff');
   pre.dataset.x8Enhanced = 'true';
+  pre.dataset.x8Source = source;
   pre.textContent = '';
   const lines = source.split(/\r?\n/);
   lines.forEach((line, lineIndex) => {
@@ -62,6 +63,122 @@ function enhanceCodeBlock(pre: HTMLPreElement) {
     row.append(gutter, content);
     pre.appendChild(row);
   });
+}
+
+function enhanceCodeBlock(pre: HTMLPreElement) {
+  const source = pre.dataset.x8Source || pre.textContent || '';
+  renderCodeLines(pre, source);
+}
+
+function downloadText(filename: string, content: string, type = 'text/html') {
+  const blob = new Blob([content], { type });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function artifactSource(card: HTMLElement) {
+  const iframe = card.querySelector<HTMLIFrameElement>('iframe');
+  const code = card.querySelector<HTMLPreElement>('pre.codeBlock');
+  const source = code?.dataset.x8Source || iframe?.getAttribute('srcdoc') || code?.textContent || '';
+  return source.trim();
+}
+
+function setArtifactSource(card: HTMLElement, source: string) {
+  card.dataset.x8ArtifactSource = source;
+  const iframe = card.querySelector<HTMLIFrameElement>('iframe');
+  if (iframe) iframe.srcdoc = source;
+  const code = card.querySelector<HTMLPreElement>('pre.codeBlock');
+  if (code) renderCodeLines(code, source);
+}
+
+function enhanceArtifactCard(card: HTMLElement) {
+  card.dataset.x8ArtifactEnhanced = 'true';
+  card.classList.add('x8ArtifactPackage');
+
+  const header = card.querySelector<HTMLElement>('.inlineCardHeader');
+  if (header && !card.querySelector('.x8PackageBadge')) {
+    const badge = document.createElement('span');
+    badge.className = 'x8PackageBadge';
+    badge.textContent = 'Package viewer';
+    header.appendChild(badge);
+  }
+
+  const actions = card.querySelector<HTMLElement>(':scope > .cardBody .inlineActions');
+  if (!actions) return;
+
+  const sourceForExport = () => card.dataset.x8ArtifactSource || artifactSource(card);
+  const existingButtons = Array.from(actions.querySelectorAll<HTMLButtonElement>('button'));
+  existingButtons.forEach((button) => {
+    const label = button.textContent?.trim().toLowerCase() || '';
+    if (label === 'apply') {
+      button.remove();
+      return;
+    }
+    if (label === 'export') {
+      button.addEventListener('click', () => {
+        const source = sourceForExport();
+        if (!source) return;
+        downloadText('xv8-artifact-preview.html', source, 'text/html');
+      });
+    }
+  });
+
+  if (!actions.querySelector('.x8EditArtifactButton')) {
+    const edit = document.createElement('button');
+    edit.type = 'button';
+    edit.className = 'chipButton x8EditArtifactButton';
+    edit.textContent = 'Edit';
+    edit.addEventListener('click', () => {
+      let editor = card.querySelector<HTMLTextAreaElement>('textarea.x8ArtifactEditor');
+      if (!editor) {
+        editor = document.createElement('textarea');
+        editor.className = 'x8ArtifactEditor';
+        editor.spellcheck = false;
+        editor.value = sourceForExport();
+        actions.parentElement?.insertBefore(editor, actions);
+      }
+      editor.hidden = !editor.hidden;
+      if (!editor.hidden) editor.focus();
+    });
+    actions.prepend(edit);
+  }
+
+  if (!actions.querySelector('.x8RefreshPreviewButton')) {
+    const refresh = document.createElement('button');
+    refresh.type = 'button';
+    refresh.className = 'chipButton x8RefreshPreviewButton';
+    refresh.textContent = 'Refresh preview';
+    refresh.addEventListener('click', () => {
+      const editor = card.querySelector<HTMLTextAreaElement>('textarea.x8ArtifactEditor');
+      if (!editor) return;
+      setArtifactSource(card, editor.value);
+    });
+    actions.insertBefore(refresh, actions.children[1] || null);
+  }
+
+  if (!actions.querySelector('.x8ProposeArtifactButton')) {
+    const propose = document.createElement('button');
+    propose.type = 'button';
+    propose.className = 'chipButton x8ProposeArtifactButton';
+    propose.textContent = 'Propose apply';
+    propose.addEventListener('click', () => {
+      card.classList.add('x8ProposalRequested');
+      let note = card.querySelector<HTMLElement>('.x8PackageNote');
+      if (!note) {
+        note = document.createElement('span');
+        note.className = 'x8PackageNote';
+        actions.appendChild(note);
+      }
+      note.textContent = 'Proposal requested. Apply still requires an approval card.';
+    });
+    actions.appendChild(propose);
+  }
 }
 
 function enhanceApprovalCard(card: HTMLElement) {
@@ -114,6 +231,7 @@ function enhanceApprovalCard(card: HTMLElement) {
 
 function enhanceDom() {
   document.querySelectorAll<HTMLPreElement>(CODE_SELECTOR).forEach(enhanceCodeBlock);
+  document.querySelectorAll<HTMLElement>(ARTIFACT_SELECTOR).forEach(enhanceArtifactCard);
   document.querySelectorAll<HTMLElement>(APPROVAL_SELECTOR).forEach(enhanceApprovalCard);
 }
 
