@@ -54,6 +54,9 @@ def test_test_command_proposal_and_readonly_run_allowed(tmp_path) -> None:
     proposed = api.post("/api/ide/command/propose", json={"command": "docker compose -f compose.yaml run --rm --build web-tests"}).json()
     assert proposed["data"]["category"] == "validation/test"
     assert proposed["data"]["allowed"] is True
+    assert proposed["data"]["approval_required"] is True
+    not_run = api.post("/api/ide/command/run", json={"command": "docker compose -f compose.yaml run --rm --build web-tests"}).json()
+    assert not_run["status"] == "approval_required"
     ran = api.post("/api/ide/command/run", json={"command": "git status --short"}).json()
     assert ran["status"] == "passed"
     assert ran["data"]["category"] == "read-only safe"
@@ -65,11 +68,26 @@ def test_git_status_and_rollback_are_read_only_or_approval_required(tmp_path) ->
     git_status = api.get("/api/ide/git/status").json()
     assert git_status["status"] == "ready"
     assert "recent_commits" in git_status["data"]
+    assert "overall_recommendation" in git_status["data"]
     rollback = api.post("/api/ide/rollback/propose", json={"action": "reset_to_origin_main"}).json()
     assert rollback["status"] == "approval_required"
     assert rollback["data"]["approval_required"] is True
     preview = api.post("/api/ide/rollback/propose", json={"action": "preview_untracked_cleanup"}).json()
     assert preview["data"]["command"] == "git clean -fdn"
+
+
+def test_git_status_classifies_dirty_files_for_commit_review(tmp_path) -> None:
+    make_repo(tmp_path)
+    (tmp_path / "apps" / "App.tsx").write_text("export const App = () => 'changed';\n", encoding="utf-8")
+    (tmp_path / "test-results").mkdir()
+    (tmp_path / "test-results" / "run.json").write_text("{}", encoding="utf-8")
+    (tmp_path / ".env.local").write_text("TOKEN=redacted\n", encoding="utf-8")
+    payload = client(tmp_path).get("/api/ide/git/status").json()
+    recommendations = {item["path"]: item["recommendation"] for item in payload["data"]["file_recommendations"]}
+    assert recommendations["apps/App.tsx"] == "include in commit"
+    assert recommendations["test-results/"] == "do not commit"
+    assert recommendations[".env.local"] == "possible secret/risk"
+    assert payload["data"]["overall_recommendation"] == "Risk detected - stop and inspect before commit."
 
 
 def test_no_ci_files_created() -> None:

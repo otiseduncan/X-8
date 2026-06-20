@@ -25,14 +25,14 @@ beforeEach(() => {
         : String(path).includes('/git/status')
           ? summary.git_status
           : String(path).includes('/rollback/propose')
-            ? { action: body.action, command: 'git clean -fdn', allowed: true, approval_required: false, reason: 'Preview only; no files deleted.' }
+            ? { action: body.action, command: 'git restore .', allowed: true, approval_required: true, reason: 'Rollback is destructive and requires explicit approval.' }
             : {
                 command: body.command,
                 category: body.command === 'docker compose config' ? 'destructive/protected' : 'validation/test',
                 allowed: body.command !== 'docker compose config',
                 blocked: body.command === 'docker compose config',
-                approval_required: body.command === 'docker compose config',
-                reason: body.command === 'docker compose config' ? 'Protected or secret-revealing command is blocked by default.' : 'Known local validation command is allowed.'
+                approval_required: true,
+                reason: body.command === 'docker compose config' ? 'Protected or secret-revealing command is blocked by default.' : 'Known local validation command is prepared. Approval is required before Docker starts.'
               };
     return Promise.resolve({ ok: true, json: () => Promise.resolve({ ok: true, status: data.blocked ? 'blocked' : 'ready', message: data.reason || 'ok', data, receipts: [] }) } as Response);
   }));
@@ -48,12 +48,25 @@ test('renders workspace summary and opens files read-only', async () => {
   expect(await screen.findByText('Chat IDE Core v1')).toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'apps/web/src/app/App.tsx' }));
   await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/ide/open-file', expect.objectContaining({ method: 'POST' })));
-  expect(await screen.findByText('export function App() {}')).toBeInTheDocument();
+  expect(await screen.findByText('Source is hidden by default. Use Show code when you explicitly want to inspect it.')).toBeInTheDocument();
+  expect(screen.queryByText('export function App() {}')).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Show code' }));
+  await waitFor(() => expect(screen.getByLabelText('Source code for apps/web/src/app/App.tsx')).toHaveTextContent('export function App() {}'));
 });
 
 test('surfaces blocked command proposals without running them', async () => {
   render(<ChatIDESurface />);
-  fireEvent.change(await screen.findByLabelText('IDE command selector'), { target: { value: 'docker compose config' } });
+  const selector = await screen.findByLabelText('IDE command selector');
+  fireEvent.change(selector, { target: { value: 'docker compose config' } });
+  await waitFor(() => expect(selector).toHaveValue('docker compose config'));
   fireEvent.click(screen.getByRole('button', { name: 'Propose' }));
-  expect(await screen.findByText(/Protected or secret-revealing command is blocked by default/i)).toBeInTheDocument();
+  expect((await screen.findAllByText(/Protected or secret-revealing command is blocked by default/i))[0]).toBeInTheDocument();
+  expect(screen.getAllByText('Details').length).toBeGreaterThan(0);
+});
+
+test('shows rollback as approval-required proposal, not a failure', async () => {
+  render(<ChatIDESurface />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Discard proposal' }));
+  expect(await screen.findByText('Rollback is destructive and requires explicit approval.')).toBeInTheDocument();
+  expect(screen.getByText('No rollback has run. Destructive rollback actions require explicit approval.')).toBeInTheDocument();
 });

@@ -36,6 +36,7 @@ class IDECommandProposal(BaseModel):
     approval_required: bool
     reason: str
     scope: str = "workspace"
+    mutation: bool = False
 
 
 class IDECommandResult(BaseModel):
@@ -83,6 +84,7 @@ READONLY_COMMANDS = {
     "git branch --show-current",
     "git log --oneline -5",
     "git clean -fdn",
+    "git diff --stat",
 }
 
 PROTECTED_PATTERNS = [
@@ -112,8 +114,10 @@ class ChatIDEManager:
         self.root = Path(workspace_root).resolve()
 
     def permission(self, action: str, scope: str = "workspace") -> IDEPermission:
-        if action in {"read_workspace", "open_file", "propose_file_edit", "run_readonly_command", "run_test_command", "git_status"}:
+        if action in {"read_workspace", "open_file", "show_code", "propose_file_edit", "run_readonly_command", "git_status", "git_diff"}:
             return IDEPermission(action=action, allowed=True, reason="Read/proposal action is allowed without mutation.", scope=scope)
+        if action == "run_test_command":
+            return IDEPermission(action=action, allowed=True, approval_required=True, reason="Local test execution requires explicit approval before Docker starts.", scope=scope)
         if action in {"apply_file_edit", "run_mutating_command", "git_commit", "git_push", "rollback"}:
             return IDEPermission(action=action, allowed=True, approval_required=True, reason="Mutation requires explicit approval.", scope=scope)
         return IDEPermission(action=action, allowed=False, blocked=True, reason="Unknown IDE action.", scope=scope)
@@ -127,7 +131,7 @@ class ChatIDEManager:
             selected_file = None
         git_status = self.git.local_status(".")
         checkpoint = self.checkpoint()
-        permissions = [self.permission(action) for action in ["read_workspace", "open_file", "propose_file_edit", "apply_file_edit", "run_test_command", "git_status", "git_commit", "git_push", "rollback"]]
+        permissions = [self.permission(action) for action in ["read_workspace", "open_file", "show_code", "propose_file_edit", "apply_file_edit", "run_readonly_command", "run_test_command", "run_mutating_command", "git_status", "git_diff", "git_commit", "git_push", "rollback"]]
         activity = [
             IDEActivity(action_type="read_workspace", scope="workspace", approval_required=False, status="allowed", proof=f"{len(files)} file entries loaded."),
             IDEActivity(action_type="git_status", scope="repository", approval_required=False, status="allowed", proof=f"Branch {git_status.get('branch', '')} inspected."),
@@ -140,14 +144,14 @@ class ChatIDEManager:
     def propose_command(self, command: str) -> IDECommandProposal:
         clean = " ".join(command.strip().split())
         if self._is_protected(clean):
-            return IDECommandProposal(command=clean, category="destructive/protected", allowed=False, blocked=True, approval_required=True, reason="Protected or secret-revealing command is blocked by default.")
+            return IDECommandProposal(command=clean, category="destructive/protected", allowed=False, blocked=True, approval_required=True, reason="Protected or secret-revealing command is blocked by default.", mutation=True)
         if clean in TEST_COMMANDS:
-            return IDECommandProposal(command=clean, category="validation/test", allowed=True, blocked=False, approval_required=False, reason="Known local validation command is allowed.")
+            return IDECommandProposal(command=clean, category="validation/test", allowed=True, blocked=False, approval_required=True, reason="Known local validation command is prepared. Approval is required before Docker starts.")
         if clean in READONLY_COMMANDS:
             return IDECommandProposal(command=clean, category="read-only safe", allowed=True, blocked=False, approval_required=False, reason="Known read-only command is allowed.")
         if clean.startswith("git commit"):
-            return IDECommandProposal(command=clean, category="write/mutation", allowed=True, blocked=False, approval_required=True, reason="Commit requires explicit approval and local review.")
-        return IDECommandProposal(command=clean, category="write/mutation", allowed=False, blocked=True, approval_required=True, reason="Command is not on the Chat IDE allowlist.")
+            return IDECommandProposal(command=clean, category="write/mutation", allowed=True, blocked=False, approval_required=True, reason="Commit requires explicit approval and local review.", mutation=True)
+        return IDECommandProposal(command=clean, category="write/mutation", allowed=False, blocked=True, approval_required=True, reason="Command is not on the Chat IDE allowlist.", mutation=True)
 
     def run_command(self, command: str, approved: bool = False) -> IDECommandResult:
         proposal = self.propose_command(command)
@@ -162,6 +166,8 @@ class ChatIDEManager:
     def git_status(self) -> dict[str, object]:
         status = self.git.local_status(".")
         status["recent_commits"] = self._git_lines(["log", "--oneline", "-5"])
+        status["file_recommendations"] = [self._recommend_changed_file(line) for line in status.get("changed_files", [])]
+        status["overall_recommendation"] = self._overall_recommendation(status)
         return status
 
     def checkpoint(self) -> dict[str, object]:
@@ -186,6 +192,37 @@ class ChatIDEManager:
         if not command:
             return IDERollbackProposal(action=action, command="", allowed=False, approval_required=True, reason="Unknown rollback action.")
         return IDERollbackProposal(action=action, command=command, allowed=True, approval_required=True, reason="Rollback is destructive and requires explicit approval.")
+
+    def _recommend_changed_file(self, status_line: object) -> dict[str, str]:
+        raw = str(status_line)
+        code = raw[:2].strip() or "?"
+        path = raw[2:].strip() if len(raw) > 2 else raw.strip()
+        lower = path.lower()
+        generated_markers = ("test-results/", "playwright-report/", "dist/", "build/", ".cache/", ".pytest_cache/", "node_modules/", ".venv/", "coverage/")
+        secret_markers = (".env", "secret", "token", "password", "private", "key", "credential", ".pem", ".p12", ".crt")
+        source_roots = ("apps/", "packages/", "server/", "scripts/", "docs/", "e2e/")
+        repo_files = {"compose.yaml", "package.json", "package-lock.json", "pyproject.toml", "README.md"}
+        if any(marker in lower for marker in secret_markers):
+            recommendation, reason = "possible secret/risk", "Local config or credential-like path."
+        elif lower.startswith(generated_markers):
+            recommendation, reason = "do not commit", "Generated or runtime output."
+        elif lower.endswith((".png", ".jpg", ".jpeg", ".gif", ".mp4", ".mov", ".zip", ".tar", ".gz")):
+            recommendation, reason = "review first", "Binary or media asset should be intentional."
+        elif path in repo_files or lower.startswith(source_roots):
+            recommendation, reason = "include in commit", "Source, docs, script, test, or repo configuration change."
+        else:
+            recommendation, reason = "review first", "Unknown path; inspect before staging."
+        return {"status": code, "path": path, "recommendation": recommendation, "reason": reason}
+
+    def _overall_recommendation(self, status: dict[str, object]) -> str:
+        if not status.get("dirty"):
+            return "Working tree clean - nothing to commit."
+        recommendations = status.get("file_recommendations", [])
+        if any(item.get("recommendation") == "possible secret/risk" for item in recommendations if isinstance(item, dict)):
+            return "Risk detected - stop and inspect before commit."
+        if any(item.get("recommendation") in {"do not commit", "should be ignored"} for item in recommendations if isinstance(item, dict)):
+            return "Dirty with generated/local files - do not commit those files."
+        return "Dirty but safe - review and commit the recommended source files after tests pass."
 
     def _git_lines(self, args: list[str]) -> list[str]:
         result = subprocess.run(["git", *args], cwd=self.root, capture_output=True, text=True, timeout=30, check=False)

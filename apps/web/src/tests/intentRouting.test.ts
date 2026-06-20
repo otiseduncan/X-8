@@ -12,6 +12,9 @@ test('keeps self-build ahead of GitHub routing', () => {
 test('routes explicit Chat IDE requests without stealing artifact previews', () => {
   expect(classifyRequest('show git status')).toBe('ide');
   expect(classifyRequest('show architecture guard')).toBe('ide');
+  expect(classifyRequest('prepare a web test command')).toBe('ide');
+  expect(classifyRequest('prepare rollback')).toBe('ide');
+  expect(classifyRequest('show code for App.tsx')).toBe('ide');
   expect(classifyRequest('show me a website preview')).toBe('artifact');
 });
 

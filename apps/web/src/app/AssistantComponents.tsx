@@ -5,6 +5,7 @@ import type { SpeechReceipt, SttStatus, TtsStatus } from '../audio/speechManager
 import type { VoiceOption } from '../audio/speechManagers';
 import { CodeEditor } from '../components/cockpit/CodeEditor';
 import type { AttachmentReference, PromptReceipt, Receipt } from '../types/contracts';
+import { HumanFirstDetails, IDECodeViewer } from './idePresentation';
 
 export type CardKind = 'artifact' | 'file' | 'editor' | 'diff' | 'image' | 'research' | 'test' | 'receipt' | 'approval' | 'error';
 
@@ -368,7 +369,7 @@ function ArtifactBody({ card, tab, setTab }: { card: ChatCard; tab: string; setT
 }
 
 function FileBody({ card }: { card: ChatCard }) {
-  return <pre className="codeBlock">{String(card.payload?.content || '')}</pre>;
+  return <IDECodeViewer path={String(card.payload?.path || card.title)} content={String(card.payload?.content || '')} />;
 }
 
 function EditorBody({ card }: { card: ChatCard }) {
@@ -426,7 +427,16 @@ function TestBody({ card }: { card: ChatCard }) {
 
 function ReceiptBody({ card }: { card: ChatCard }) {
   const content = card.payload && Object.keys(card.payload).length ? card.payload : card.receipt || {};
-  return <pre className="codeBlock">{JSON.stringify(content, null, 2)}</pre>;
+  const rows = Array.isArray(card.payload?.rows) ? card.payload.rows as Array<{ label: string; value: string }> : [];
+  if (rows.length) {
+    return <HumanFirstDetails rows={rows} recommendation={String(card.payload?.recommendation || '')} safety={String(card.payload?.safety || '')} raw={card.payload?.raw || content} />;
+  }
+  return (
+    <details>
+      <summary>Details</summary>
+      <pre className="codeBlock smallBlock">{JSON.stringify(content, null, 2)}</pre>
+    </details>
+  );
 }
 
 function ApprovalBody({ card }: { card: ChatCard }) {

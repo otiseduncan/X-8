@@ -22,15 +22,26 @@ export function isIDERequest(lower: string) {
     'current branch',
     'show me the diff',
     'show diff',
+    'what changed',
+    'what is dirty',
+    'what should be committed',
     'run web tests',
+    'prepare a web test command',
+    'prepare web test command',
     'run api tests',
     'run architecture guard',
     'show architecture guard',
     'prepare a commit',
     'commit proposal',
+    'prepare rollback',
     'rollback this change',
     'rollback proposal',
-    'open app.tsx'
+    'open app.tsx',
+    'show code for app.tsx',
+    'show workspace summary',
+    'show checkpoint',
+    'show activity log',
+    'hide raw details'
   ];
   return markers.some((marker) => lower.includes(marker));
 }

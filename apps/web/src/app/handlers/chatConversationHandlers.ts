@@ -1,9 +1,10 @@
 import type React from 'react';
-import { CHAT_TIMEOUT_MS, createArtifactPreview, loadIDEGitStatus, loadIDESummary, openIDEFile, proposeIDECommand, proposeIDERollback, proposeUpdate, readFile, requestImage, runSearch, runSelfBuildPrompt, scanX7Configs, sendChat, uploadAttachment } from '../../services/apiClient';
-import type { AttachmentReference, FileEntry, PatchProposal } from '../../types/contracts';
+import { CHAT_TIMEOUT_MS, createArtifactPreview, proposeUpdate, readFile, requestImage, runSearch, runSelfBuildPrompt, scanX7Configs, sendChat, uploadAttachment } from '../../services/apiClient';
+import type { AttachmentReference, PatchProposal } from '../../types/contracts';
 import type { AvatarRuntimeState, ChatCard, ChatMessage, InfoReceipt } from '../AssistantComponents';
 import { errorCard, mapKernelCard } from '../cardHelpers';
 import { classifyRequest } from '../intentRouting';
+import { createChatIDEHandlers } from './chatIDEHandlers';
 
 type Setter<T> = (value: T | ((current: T) => T)) => void;
 
@@ -75,6 +76,7 @@ export function createChatConversationHandlers(deps: ChatConversationHandlersDep
     stickToLatestRef,
     userInteracted
   } = deps;
+  const { createIDECard } = createChatIDEHandlers({ appendMessage, muted, nowId, setCode, setLatestReceipt, setLatestResult, setSelectedPath, setStage });
 
   async function submitMessage(event?: React.FormEvent) {
     event?.preventDefault();
@@ -122,38 +124,6 @@ export function createChatConversationHandlers(deps: ChatConversationHandlersDep
     return createAssistantReply(text, outgoingAttachments);
   }
 
-  async function createIDECard(text: string) {
-    const lower = text.toLowerCase();
-    try {
-      if (lower.includes('rollback')) return appendIDEReceipt('Rollback proposal loaded. No rollback has run.', 'Chat IDE rollback proposal', await proposeIDERollback('discard_working_tree'));
-      if (lower.includes('prepare a commit') || lower.includes('commit proposal')) return appendIDEReceipt('Commit proposal loaded. No commit has run.', 'Chat IDE command proposal', await proposeIDECommand('git commit -m "checkpoint"'));
-      if (lower.includes('run web tests')) return appendIDEReceipt('Web test proposal loaded. No command has run.', 'Chat IDE command proposal', await proposeIDECommand('docker compose -f compose.yaml run --rm --build web-tests'));
-      if (lower.includes('run api tests')) return appendIDEReceipt('API test proposal loaded. No command has run.', 'Chat IDE command proposal', await proposeIDECommand('docker compose -f compose.yaml run --rm --build api-tests'));
-      if (lower.includes('architecture guard')) return appendIDEReceipt('Architecture guard proposal loaded. No command has run.', 'Chat IDE command proposal', await proposeIDECommand('docker compose -f compose.yaml run --rm --build architecture-guard'));
-      if (lower.includes('diff')) return appendIDEReceipt('Diff status proposal loaded. No command has run.', 'Chat IDE command proposal', await proposeIDECommand('git diff --stat'));
-      if (lower.includes('open app.tsx')) return openIDEPath('apps/web/src/app/App.tsx');
-      if (lower.includes('branch') || lower.includes('git status')) return appendIDEReceipt('IDE Git status loaded without mutation.', 'Chat IDE Git status', await loadIDEGitStatus());
-      const summary = await loadIDESummary('README.md');
-      appendIDEReceipt('Workspace tree loaded without mutation.', 'Chat IDE workspace tree', summary, { files: (summary.data.files as FileEntry[] | undefined)?.slice(0, 40) || [] });
-    } catch {
-      setStage('error');
-      appendMessage({ id: nowId(), role: 'assistant', text: 'Chat IDE request could not complete.', cards: [errorCard('Chat IDE unavailable', 'No workspace mutation was attempted.')] });
-    }
-  }
-
-  async function openIDEPath(path: string) {
-    const response = await openIDEFile(path);
-    setSelectedPath(path);
-    setCode(response.data.content);
-    appendIDEReceipt(`Opened ${path}.`, 'Chat IDE read-only file', response);
-  }
-
-  function appendIDEReceipt(text: string, title: string, response: { status: string; message: string; data: Record<string, unknown> | unknown; receipts?: unknown[] }, payload?: Record<string, unknown>) {
-    setLatestReceipt(response.receipts?.[0] as InfoReceipt || null);
-    setLatestResult(text);
-    appendMessage({ id: nowId(), role: 'assistant', text, cards: [{ id: nowId(), type: 'receipt', title, status: response.status, summary: response.message, payload: payload || response.data as Record<string, unknown>, collapsed: false }] });
-    setStage(muted ? 'muted' : 'idle');
-  }
   async function createAssistantReply(text: string, outgoingAttachments: AttachmentReference[] = []) {
     try {
       setLatestResult('Model warming/responding...');
