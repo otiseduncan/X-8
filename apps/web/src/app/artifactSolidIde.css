@@ -1,0 +1,40 @@
+/* Solid Artifact IDE surface overrides. Keep the workbench editor looking like an IDE, not frosted glass. */
+.artifactWorkbench .artifactFileTree {
+  border-color: #123244;
+  background: #060b16;
+}
+
+.artifactWorkbench .artifactFileTree h4 {
+  color: #bae6fd;
+}
+
+.artifactWorkbench .artifactFileTreeList .tab {
+  border-color: #123244;
+  background: #0d1423;
+  color: #dbeafe;
+}
+
+.artifactWorkbench .artifactFileTreeList .tab.active {
+  border-color: #22d3ee;
+  background: #082f49;
+  color: #ecfeff;
+}
+
+.artifactWorkbench .artifactEditorPanel,
+.artifactWorkbench [data-testid="artifact-code-editor"],
+.artifactWorkbench .codeMirrorShell,
+.artifactWorkbench .cm-editor,
+.artifactWorkbench .cm-scroller,
+.artifactWorkbench .cm-content {
+  min-width: 0;
+  background-color: #05070d !important;
+  background-image: none !important;
+}
+
+.artifactWorkbench .cm-line:nth-child(odd) {
+  background-color: #05070d !important;
+}
+
+.artifactWorkbench .cm-line:nth-child(even) {
+  background-color: #0d1423 !important;
+}
