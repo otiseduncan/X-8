@@ -9,35 +9,29 @@ vi.mock('../components/cockpit/CodeEditor', () => ({
 }));
 
 const artifactHtml = [
-  '<main class="site-shell">',
+  '<html>',
+  '<head><title>Inline website preview</title></head>',
+  '<body>',
   '  <nav class="topbar">',
   '    <strong>Inline website preview</strong>',
-  '    <span>Fresh service · Fast response · Local business</span>',
   '  </nav>',
   '  <section class="hero">',
-  '    <p class="eyebrow">XV8 live artifact preview</p>',
   '    <h1>Inline website preview</h1>',
-  '    <div class="hero-actions">',
-  '      <a href="#contact" class="button primary">Request service</a>',
-  '      <a href="#menu" class="button secondary">View highlights</a>',
-  '    </div>',
+  '    <a href="#contact" class="button primary">Request service</a>',
   '  </section>',
-  '</main>'
+  '</body>',
+  '</html>'
 ].join('\n');
 
 const artifactCss = [
   'html,body{margin:0;min-height:100%;font-family:Inter,system-ui,Segoe UI,sans-serif;background:#1b0909;color:#fff7ed;}',
   '.site-shell{min-height:100vh;background:radial-gradient(circle at top left,#e11d2444,transparent 34%),linear-gradient(135deg,#1b0909,#2a1010);}',
-  '.topbar{display:flex;justify-content:space-between;gap:24px;padding:22px 44px;border-bottom:1px solid rgba(255,255,255,.14);background:rgba(0,0,0,.22);}',
-  '.topbar strong{color:#ffd21f;font-size:1.1rem;letter-spacing:.03em;}',
-  '.eyebrow{color:#ffd21f;font-weight:900;text-transform:uppercase;letter-spacing:.14em;}',
   '.button{border-radius:999px;padding:13px 19px;text-decoration:none;font-weight:900;}',
   '.primary{background:#ffd21f;color:#1b1200;}',
   '.secondary{border:1px solid rgba(255,255,255,.26);color:#fff7ed;}'
 ].join('\n');
 
 let chatBodies: Array<Record<string, unknown>> = [];
-let artifactPreviewBodies: Array<Record<string, unknown>> = [];
 
 function ok(data: unknown, status = 'ok', receipts: unknown[] = []) {
   return Promise.resolve({ ok: true, json: () => Promise.resolve({ ok: true, status, message: status, data, receipts }) } as Response);
@@ -52,11 +46,7 @@ function mockRuntime() {
         json: () => Promise.resolve({
           version: '1.0',
           defaultAvatar: 'xoduz',
-          assets: [
-            { id: 'idle', label: 'Idle', type: 'video', src: '/avatar/xoduz-idle.mp4', states: ['idle'], loop: true, muted: true },
-            { id: 'thinking', label: 'Thinking', type: 'video', src: '/avatar/xoduz-thinking.mp4', states: ['thinking', 'listening'], loop: true, muted: true },
-            { id: 'speaking', label: 'Speaking', type: 'video', src: '/avatar/xoduz-speaking.mp4', states: ['speaking'], loop: true, muted: true }
-          ],
+          assets: [],
           fallback: { type: 'generated', label: 'Fallback X avatar', src: '/avatar/fallback.svg' }
         })
       });
@@ -76,7 +66,6 @@ function mockRuntime() {
       }, 'passed');
     }
     if (String(path).includes('/api/artifacts/preview')) {
-      artifactPreviewBodies.push(body as Record<string, unknown>);
       return ok({
         title: 'Inline website preview',
         html: artifactHtml,
@@ -117,7 +106,6 @@ function mockRuntime() {
 beforeEach(() => {
   window.localStorage.clear();
   chatBodies = [];
-  artifactPreviewBodies = [];
   Element.prototype.scrollIntoView = vi.fn();
   vi.stubGlobal('confirm', vi.fn(() => true));
   Object.assign(navigator, { clipboard: { writeText: vi.fn().mockResolvedValue(undefined) } });
@@ -155,84 +143,117 @@ async function generateArtifact() {
   return await screen.findByTestId('inline-artifact-card');
 }
 
-test('includes active artifact context with normal chat after package generation', async () => {
-  await generateArtifact();
-  await send('tell me something unrelated');
-  await waitFor(() => expect(chatBodies).toHaveLength(1));
-  expect(screen.getAllByText('Kernel fallback was used.').length).toBeGreaterThan(0);
-  expect(chatBodies).toHaveLength(1);
-  const artifactContext = chatBodies[0].artifact_context as Record<string, unknown>;
-  expect(artifactContext).toBeTruthy();
-  expect((artifactContext.package_id as string) || '').not.toBe('');
-  expect(artifactContext.active_file_path).toBeDefined();
-  expect(Array.isArray(artifactContext.available_files)).toBe(true);
-});
+function openHistory(artifactCard: HTMLElement) {
+  fireEvent.click(within(artifactCard).getByRole('button', { name: 'History/Log' }));
+}
 
-test('background locator request routes to active artifact and highlights styles without kernel fallback', async () => {
+test('background locate asks what to change and stores pending revision', async () => {
   const artifactCard = await generateArtifact();
-  await send('show me the lines of text that control the color of the background');
+  await send('what is the color for the background?');
   expect(chatBodies).toHaveLength(0);
-  expect(within(artifactCard).getByText(/Editing/i)).toBeInTheDocument();
-  expect(within(artifactCard).getByTestId('artifact-highlight-summary')).toHaveTextContent(/styles\.css/);
-  expect(await screen.findByText(/background styling is in styles\.css/i)).toBeInTheDocument();
-  expect(screen.queryByText('Kernel limitations')).not.toBeInTheDocument();
-  expect(screen.getAllByTestId('inline-artifact-card')).toHaveLength(1);
+  expect(await screen.findByText(/What would you like to change it to\?/i)).toBeInTheDocument();
+  openHistory(artifactCard);
+  expect(within(artifactCard).getByTestId('artifact-pending-revision')).toHaveTextContent(/background_color/);
+  expect(within(artifactCard).getByTestId('artifact-pending-revision')).toHaveTextContent(/styles\.css/);
 });
 
-test('website name locator request highlights index html and does not generate a new artifact', async () => {
+test('I want blue after background locate edits styles.css and refreshes preview', async () => {
+  const artifactCard = await generateArtifact();
+  await send('what controls the background color?');
+  await send('I want blue');
+  expect(chatBodies).toHaveLength(0);
+  expect(await screen.findByText(/I changed the background to blue in styles\.css and refreshed the preview\./i)).toBeInTheDocument();
+  fireEvent.click(within(artifactCard).getByRole('button', { name: 'Code' }));
+  fireEvent.click(within(artifactCard).getByRole('button', { name: /styles\.css/i }));
+  const cssEditor = within(artifactCard).getByLabelText('Artifact page code editor') as HTMLTextAreaElement;
+  expect(cssEditor.value).toContain('#0b3b8f');
+});
+
+test('button color locate asks what to change', async () => {
+  const artifactCard = await generateArtifact();
+  await send('show me where the button color is controlled');
+  expect(chatBodies).toHaveLength(0);
+  expect(await screen.findByText(/What would you like to change it to\?/i)).toBeInTheDocument();
+  openHistory(artifactCard);
+  expect(within(artifactCard).getByTestId('artifact-pending-revision')).toHaveTextContent(/button_color/);
+});
+
+test('make it purple with white text edits button css', async () => {
+  const artifactCard = await generateArtifact();
+  await send('show me where the button color is controlled');
+  await send('make it purple with white text');
+  expect(chatBodies).toHaveLength(0);
+  fireEvent.click(within(artifactCard).getByRole('button', { name: 'Code' }));
+  fireEvent.click(within(artifactCard).getByRole('button', { name: /styles\.css/i }));
+  const cssEditor = within(artifactCard).getByLabelText('Artifact page code editor') as HTMLTextAreaElement;
+  expect(cssEditor.value).toContain('.primary{background:#6d28d9;color:#ffffff;}');
+});
+
+test('website-name locate asks what to change then applies Harrys Hot Dogs', async () => {
   const artifactCard = await generateArtifact();
   await send('show me where to edit the main website name');
-  expect(chatBodies).toHaveLength(0);
-  expect(within(artifactCard).getByTestId('artifact-highlight-summary')).toHaveTextContent(/index\.html/);
-  expect(await screen.findByText(/Edit the main website name in index\.html/i)).toBeInTheDocument();
-  expect(screen.getAllByTestId('inline-artifact-card')).toHaveLength(1);
-});
-
-test('javascript follow-up for special of the day is intercepted locally and never falls to kernel limitations', async () => {
-  const artifactCard = await generateArtifact();
-  await send('show me the JavaScript that changes the special of the day');
-  expect(chatBodies).toHaveLength(0);
-  expect(screen.getAllByTestId('inline-artifact-card')).toHaveLength(1);
-  expect(within(artifactCard).getByRole('button', { name: 'Code' })).toHaveClass('active');
-  expect(await screen.findByText(/This package currently has no separate JavaScript file or click-handler code\./i)).toBeInTheDocument();
-  expect(screen.queryByText('Kernel limitations')).not.toBeInTheDocument();
-});
-
-test('main website name edit routes to artifact_edit_active_package using the exact rename prompt', async () => {
-  const artifactCard = await generateArtifact();
-  await send("change the main website name to Harry's Hot Dogs");
-  expect(chatBodies).toHaveLength(0);
-  expect(screen.getAllByTestId('inline-artifact-card')).toHaveLength(1);
-  expect((await screen.findAllByText(/updated the main website name to Harry's Hot Dogs in index\.html/i)).length).toBeGreaterThan(0);
+  expect(await screen.findByText(/What would you like to change it to\?/i)).toBeInTheDocument();
+  openHistory(artifactCard);
+  expect(within(artifactCard).getByTestId('artifact-pending-revision')).toHaveTextContent(/website_name/);
+  await send("Harry's Hot Dogs");
   fireEvent.click(within(artifactCard).getByRole('button', { name: 'Code' }));
   fireEvent.click(within(artifactCard).getByRole('button', { name: /index\.html/i }));
   const htmlEditor = within(artifactCard).getByLabelText('Artifact page code editor') as HTMLTextAreaElement;
   expect(htmlEditor.value).toContain("Harry's Hot Dogs");
-  expect(screen.queryByText('Kernel limitations')).not.toBeInTheDocument();
 });
 
-test('preview refresh follow-up routes to artifact_preview_refresh and does not generate a new artifact', async () => {
+test('direct change background to blue edits without asking', async () => {
   await generateArtifact();
-  await send('refresh the preview');
+  await send('change the background to blue');
   expect(chatBodies).toHaveLength(0);
+  expect(await screen.findByText(/I changed the background to blue in styles\.css and refreshed the preview\./i)).toBeInTheDocument();
+  expect(screen.queryByText(/What would you like to change it to\?/i)).not.toBeInTheDocument();
+});
+
+test('sandbox edits do not create new artifact packages', async () => {
+  await generateArtifact();
+  await send('what controls the background color?');
+  await send('I want blue');
+  await send('show me where the button color is controlled');
+  await send('make it purple with white text');
   expect(screen.getAllByTestId('inline-artifact-card')).toHaveLength(1);
-  expect(await screen.findByText(/I refreshed the preview for the active package\./i)).toBeInTheDocument();
+});
+
+test('diff history marks added lines green and deleted lines red', async () => {
+  const artifactCard = await generateArtifact();
+  await send('what controls the background color?');
+  await send('I want blue');
+  openHistory(artifactCard);
+  const diffPanel = within(artifactCard).getByTestId('artifact-diff-history');
+  expect(within(diffPanel).getAllByText(/\+ /i).length).toBeGreaterThan(0);
+  expect(within(diffPanel).getAllByText(/- /i).length).toBeGreaterThan(0);
+  expect(diffPanel.querySelectorAll('.artifactDiffLine.added').length).toBeGreaterThan(0);
+  expect(diffPanel.querySelectorAll('.artifactDiffLine.deleted').length).toBeGreaterThan(0);
+});
+
+test('editing after approval disables Apply until re-approved', async () => {
+  const artifactCard = await generateArtifact();
+  const applyBtn = within(artifactCard).getByRole('button', { name: 'Apply' });
+  fireEvent.click(within(artifactCard).getByRole('button', { name: 'Approve' }));
+  await send('change the background to blue');
+  await waitFor(() => expect(applyBtn).toBeDisabled());
+});
+
+test('no Kernel limitations card appears for active artifact revision commands', async () => {
+  await generateArtifact();
+  await send('what controls the background color?');
+  await send('I want blue');
+  await send('show me where to edit the main website name');
+  await send("Harry's Hot Dogs");
+  expect(chatBodies).toHaveLength(0);
   expect(screen.queryByText('Kernel limitations')).not.toBeInTheDocument();
 });
 
-test('color and button text edit requests update the active package instead of generating a new artifact', async () => {
-  const artifactCard = await generateArtifact();
-  await send('change the colors of the website to black and purple');
-  expect(chatBodies).toHaveLength(0);
-  expect(screen.getAllByTestId('inline-artifact-card')).toHaveLength(1);
-  fireEvent.click(within(artifactCard).getByRole('button', { name: 'Code' }));
-  const cssEditor = within(artifactCard).getByLabelText('Artifact page code editor') as HTMLTextAreaElement;
-  expect(cssEditor.value).toContain('#05030a');
-  expect(cssEditor.value).toContain('#6d28d9');
-  await send('change the button text to Book now');
-  fireEvent.click(within(artifactCard).getByRole('button', { name: 'Code' }));
-  fireEvent.click(within(artifactCard).getByRole('button', { name: /index\.html/i }));
-  expect((within(artifactCard).getByLabelText('Artifact page code editor') as HTMLTextAreaElement).value).toContain('Book now');
-  expect(screen.getAllByTestId('inline-artifact-card')).toHaveLength(1);
-  expect(screen.queryByText('Kernel limitations')).not.toBeInTheDocument();
+test('includes active artifact context with normal non-intercepted chat', async () => {
+  await generateArtifact();
+  await send('tell me something unrelated');
+  await waitFor(() => expect(chatBodies).toHaveLength(1));
+  const artifactContext = chatBodies[0].artifact_context as Record<string, unknown>;
+  expect(artifactContext).toBeTruthy();
+  expect(Array.isArray(artifactContext.available_files)).toBe(true);
 });

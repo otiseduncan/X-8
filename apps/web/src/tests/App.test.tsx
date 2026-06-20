@@ -674,7 +674,7 @@ test('renders generated artifacts and file viewers inline', async () => {
   expect(apply).toBeDisabled();
   expect(within(artifactCard).queryByRole('button', { name: 'Pages' })).not.toBeInTheDocument();
   fireEvent.click(approve);
-  expect(apply).toBeEnabled();
+  await waitFor(() => expect(within(artifactCard).getByRole('button', { name: /^Apply$/ })).toBeEnabled());
   fireEvent.click(within(artifactCard).getByRole('button', { name: 'Code' }));
   fireEvent.change(within(artifactCard).getByLabelText('Artifact page code editor'), { target: { value: '<main><h1>Hello updated</h1></main>' } });
   fireEvent.click(within(artifactCard).getByRole('button', { name: /Save current file/i }));

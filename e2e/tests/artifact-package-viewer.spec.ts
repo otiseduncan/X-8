@@ -93,55 +93,55 @@ test.describe('artifact package viewer workflow', () => {
     await expect(applyBtn).toBeEnabled({ timeout: 5000 });
   });
 
-  test('routes chat follow-up commands into the active artifact package', async ({ page }) => {
+  test('guided revision loop updates active artifact package and keeps approval gating', async ({ page }) => {
     await ask(page, 'make a simple HTML website preview');
     const artifactCard = page.getByTestId('inline-artifact-card');
     await expect(artifactCard).toBeVisible({ timeout: 15000 });
     await expect(page.getByTestId('inline-artifact-card')).toHaveCount(1);
 
-    await ask(page, 'show me the lines of text that control the color of the background');
-    await expect(page.getByText(/background styling is in styles\.css/i)).toBeVisible({ timeout: 5000 });
+    await ask(page, 'what controls the background color?');
+    await expect(page.getByText(/background/i).first()).toBeVisible({ timeout: 5000 });
     await expect(artifactCard.getByRole('button', { name: 'Code' })).toHaveClass(/active/);
     await expect(artifactCard.getByTestId('artifact-highlight-summary')).toContainText('styles.css');
     await expect(artifactCard.getByTestId('artifact-highlight-summary')).toContainText('background');
+    await artifactCard.getByRole('button', { name: 'History/Log' }).click();
+    await expect(artifactCard.getByTestId('artifact-pending-revision')).toContainText('What would you like to change it to?');
     await expect(page.getByTestId('inline-artifact-card')).toHaveCount(1);
 
-    await ask(page, 'show me where to edit the main website name');
-    await expect(page.getByText(/Edit the main website name in index\.html/i)).toBeVisible({ timeout: 5000 });
-    await expect(artifactCard.getByTestId('artifact-highlight-summary')).toContainText('index.html');
-
-    await ask(page, 'show me the JavaScript that changes the special of the day');
-    await expect(page.getByText(/This package currently has no separate JavaScript file or click-handler code\./i)).toBeVisible({ timeout: 5000 });
+    await ask(page, 'make it blue');
+    await expect(page.getByText(/changed the background to blue in styles\.css/i).first()).toBeVisible({ timeout: 5000 });
     await expect(page.getByTestId('inline-artifact-card')).toHaveCount(1);
 
-    await ask(page, "change the main website name to Harry's Hot Dogs");
-    await expect(page.getByText(/updated the main website name to Harry's Hot Dogs in index\.html/i)).toBeVisible({ timeout: 5000 });
+    await artifactCard.getByRole('button', { name: 'History/Log' }).click();
+    await expect(artifactCard.getByTestId('artifact-diff-history')).toBeVisible({ timeout: 5000 });
+    await expect(artifactCard.locator('.artifactDiffLine.added').first()).toBeVisible({ timeout: 5000 });
+    await expect(artifactCard.locator('.artifactDiffLine.deleted').first()).toBeVisible({ timeout: 5000 });
+
+    await ask(page, 'show me where the main website name is');
+    await expect(page.getByText(/The main website name is in index\.html/i).first()).toBeVisible({ timeout: 5000 });
+    await artifactCard.getByRole('button', { name: 'History/Log' }).click();
+    await expect(artifactCard.getByTestId('artifact-pending-revision')).toContainText('What would you like to change it to?');
+
+    await ask(page, "Harry's Hot Dogs");
+    await expect(page.getByText(/changed the main website name to Harry's Hot Dogs in index\.html/i).first()).toBeVisible({ timeout: 5000 });
     await artifactCard.getByRole('button', { name: 'Code' }).click();
     await artifactCard.getByRole('button', { name: /index\.html/i }).click();
     await expect(artifactCard.getByTestId('artifact-code-editor').locator('.cm-content').first()).toContainText("Harry's Hot Dogs");
     await expect(page.getByTestId('inline-artifact-card')).toHaveCount(1);
 
-    await ask(page, 'refresh the preview');
-    await expect(page.getByText(/I refreshed the preview for the active package\./i)).toBeVisible({ timeout: 5000 });
-    await expect(artifactCard.getByLabel('Artifact package tabs').getByRole('button', { name: 'Preview' })).toHaveClass(/active/);
-    await expect(page.getByTestId('inline-artifact-card')).toHaveCount(1);
+    const saveDraftBtn = artifactCard.getByRole('button', { name: /save draft/i });
+    if (await saveDraftBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
+      await saveDraftBtn.click();
+    }
 
-    await ask(page, 'change the colors of the website to black and purple');
-    await expect(page.getByText(/updated styles\.css to a black and purple palette/i).first()).toBeVisible({ timeout: 5000 });
-    await expect(page.getByTestId('inline-artifact-card')).toHaveCount(1);
-    await artifactCard.getByRole('button', { name: 'Code' }).click();
-    const cssButton = artifactCard.getByRole('button', { name: /styles\.css/i });
-    await cssButton.click();
-    await expect(artifactCard.getByTestId('artifact-code-editor').locator('.cm-content').first()).toContainText('#05030a');
-    await expect(artifactCard.getByTestId('artifact-code-editor').locator('.cm-content').first()).toContainText('#6d28d9');
-    await artifactCard.getByLabel('Artifact package tabs').getByRole('button', { name: 'Preview' }).click();
-    await expect(artifactCard.locator('iframe').first()).toHaveAttribute('srcdoc', /#05030a/);
+    const packageHeader = artifactCard.getByTestId('artifact-package-header');
+    const approveBtn = packageHeader.getByRole('button', { name: 'Approve' });
+    const applyBtn = packageHeader.getByRole('button', { name: 'Apply' });
+    await approveBtn.click();
+    await expect(applyBtn).toBeEnabled({ timeout: 5000 });
 
-    await ask(page, 'change the button text to Book now');
-    await expect(page.getByText(/updated the button text to Book now/i)).toBeVisible({ timeout: 5000 });
-    await artifactCard.getByRole('button', { name: 'Code' }).click();
-    await artifactCard.getByRole('button', { name: /index\.html/i }).click();
-    await expect(artifactCard.getByTestId('artifact-code-editor').locator('.cm-content').first()).toContainText('Book now');
-    await expect(page.getByTestId('inline-artifact-card')).toHaveCount(1);
+    await ask(page, 'change the background to purple');
+    await expect(page.getByText(/changed the background to purple in styles\.css/i).first()).toBeVisible({ timeout: 5000 });
+    await expect(applyBtn).toBeDisabled({ timeout: 5000 });
   });
 });

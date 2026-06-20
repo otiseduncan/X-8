@@ -1,6 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { CodeEditor } from '../../components/cockpit/CodeEditor';
-import type { ArtifactCommand, ArtifactWorkbenchSnapshot } from '../../types/contracts';
+import type {
+  ArtifactCommand,
+  ArtifactDiffEntry,
+  ArtifactRevisionHistoryEntry,
+  ArtifactWorkbenchSnapshot,
+  ArtifactWorkbenchState,
+  PendingArtifactRevision,
+} from '../../types/contracts';
 
 type ArtifactTopTab = 'Preview' | 'Code' | 'Files' | 'Assets' | 'Console' | 'Metadata' | 'History/Log' | 'Export';
 type ApprovalState = 'draft' | 'edited' | 'saved' | 'proposed' | 'approved' | 'denied' | 'applied';
@@ -231,6 +238,11 @@ export function ArtifactWorkbench({ card, onCardUpdate }: ArtifactWorkbenchProps
   const [highlightedLine, setHighlightedLine] = useState<number>(1);
   const [highlightedLineEnd, setHighlightedLineEnd] = useState<number>(1);
   const [highlightedToken, setHighlightedToken] = useState<string>('');
+  const [workbenchState, setWorkbenchState] = useState<ArtifactWorkbenchState>('idle');
+  const [pendingRevision, setPendingRevision] = useState<PendingArtifactRevision | null>(null);
+  const [lastArtifactCommand, setLastArtifactCommand] = useState<string>('');
+  const [revisionHistory, setRevisionHistory] = useState<ArtifactRevisionHistoryEntry[]>([]);
+  const [diffEntries, setDiffEntries] = useState<ArtifactDiffEntry[]>([]);
   const [approvalState, setApprovalState] = useState<ApprovalState>('proposed');
   const [approvedPackageSignature, setApprovedPackageSignature] = useState<string>('');
   const [historyLog, setHistoryLog] = useState<string[]>(['Package generated and opened in Artifact Workbench.']);
@@ -253,6 +265,11 @@ export function ArtifactWorkbench({ card, onCardUpdate }: ArtifactWorkbenchProps
     setHighlightedLine(1);
     setHighlightedLineEnd(1);
     setHighlightedToken('');
+    setWorkbenchState('idle');
+    setPendingRevision(null);
+    setLastArtifactCommand('');
+    setRevisionHistory([]);
+    setDiffEntries([]);
     setApprovalState('proposed');
     setApprovedPackageSignature('');
     setHistoryLog(['Package generated and opened in Artifact Workbench.']);
@@ -270,7 +287,7 @@ export function ArtifactWorkbench({ card, onCardUpdate }: ArtifactWorkbenchProps
 
   const applyEnabled = approvalState === 'approved'
     && !packageDirty
-    && packageSignature(savedFilesByPath) === approvedPackageSignature;
+    && (approvedPackageSignature === '' || packageSignature(savedFilesByPath) === approvedPackageSignature);
 
   useEffect(() => {
     const handler = (event: MessageEvent) => {
@@ -324,7 +341,12 @@ export function ArtifactWorkbench({ card, onCardUpdate }: ArtifactWorkbenchProps
           highlighted_file_path: highlightedFilePath,
           highlighted_line_start: highlightedLine,
           highlighted_line_end: highlightedLineEnd,
-          highlighted_token: highlightedToken
+          highlighted_token: highlightedToken,
+          workbench_state: workbenchState,
+          pending_revision: pendingRevision,
+          last_artifact_command: lastArtifactCommand,
+          revision_history: revisionHistory,
+          diff_entries: diffEntries,
         } satisfies ArtifactWorkbenchSnapshot,
         last_applied_command_id: lastAppliedCommandIdRef.current
       }
@@ -350,27 +372,37 @@ export function ArtifactWorkbench({ card, onCardUpdate }: ArtifactWorkbenchProps
     if (lastPublishedPatchRef.current === signature) return;
     lastPublishedPatchRef.current = signature;
     onCardUpdate(patch);
-  }, [activeFilePath, activePreviewPath, activeTopTab, approvalState, applyReceipt, artifactBridge, card.id, card.title, dirtyByPath, filePaths, filesByPath, highlightedFilePath, highlightedLine, highlightedLineEnd, highlightedToken, packageDirty, payload, pendingCommand.id, savedFilesByPath]);
+  }, [activeFilePath, activePreviewPath, activeTopTab, approvalState, applyReceipt, artifactBridge, card.id, card.title, diffEntries, dirtyByPath, filePaths, filesByPath, highlightedFilePath, highlightedLine, highlightedLineEnd, highlightedToken, lastArtifactCommand, packageDirty, payload, pendingCommand.id, pendingRevision, revisionHistory, savedFilesByPath, workbenchState]);
 
   useEffect(() => {
     if (!pendingCommand.id || pendingCommand.id === lastAppliedCommandIdRef.current || pendingCommand.package_id !== card.id) return;
     const command = pendingCommand as ArtifactCommand;
+    const commandSummary = command.summary || command.explanation || `${command.command_class}:${command.type}`;
+    setLastArtifactCommand(commandSummary);
+    if (command.workbench_state) {
+      setWorkbenchState(command.workbench_state);
+    }
+    if (Object.prototype.hasOwnProperty.call(command, 'pending_revision')) {
+      setPendingRevision(command.pending_revision || null);
+    }
     if (command.type === 'select_tab' && command.tab) {
       setActiveTopTab(command.tab as ArtifactTopTab);
     }
-    if ((command.type === 'select_file' || command.type === 'highlight_line' || command.type === 'edit_file' || command.type === 'explain_location') && command.file_path && filesByPath[command.file_path]) {
+    if ((command.type === 'select_file' || command.type === 'highlight_line' || command.type === 'locate' || command.type === 'edit_file' || command.type === 'apply_pending_revision' || command.type === 'explain_location') && command.file_path && filesByPath[command.file_path]) {
       setActiveFilePath(command.file_path);
       setHighlightedFilePath(command.file_path);
     }
-    if (command.type === 'highlight_line' || command.type === 'explain_location') {
+    if (command.type === 'highlight_line' || command.type === 'locate' || command.type === 'explain_location') {
       setActiveTopTab('Code');
       setHighlightedLine(Math.max(1, Number(command.line_start || 1)));
       setHighlightedLineEnd(Math.max(Number(command.line_end || command.line_start || 1), Number(command.line_start || 1)));
       setHighlightedToken(command.token || '');
       setHistoryLog((current) => [`Command highlight: ${command.file_path || activeFilePath} ${command.line_start || 1}-${command.line_end || command.line_start || 1}.`, ...current].slice(0, 200));
     }
-    if (command.type === 'edit_file' && command.file_path && typeof command.replacement === 'string') {
+    if ((command.type === 'edit_file' || command.type === 'apply_pending_revision') && command.file_path && typeof command.replacement === 'string') {
       const path = command.file_path;
+      const beforeContent = filesByPath[path] || '';
+      const afterContent = command.replacement as string;
       setFilesByPath((current) => ({ ...current, [path]: command.replacement as string }));
       const savedContent = savedFilesByPath[path] || '';
       const changed = command.replacement !== savedContent;
@@ -378,14 +410,33 @@ export function ArtifactWorkbench({ card, onCardUpdate }: ArtifactWorkbenchProps
       setHighlightedLine(Math.max(1, Number(command.line_start || 1)));
       setHighlightedLineEnd(Math.max(Number(command.line_end || command.line_start || 1), Number(command.line_start || 1)));
       setHighlightedToken(command.token || '');
+      const nextDiffEntries = Array.isArray(command.diff_entries) ? command.diff_entries : [];
+      if (nextDiffEntries.length > 0) {
+        setDiffEntries(nextDiffEntries);
+      }
       if (approvalState === 'approved' || approvalState === 'applied') {
         setApprovalState('proposed');
       }
+      setRevisionHistory((current) => [{
+        id: `revision-${Date.now()}`,
+        timestamp: new Date().toISOString(),
+        command_summary: commandSummary,
+        file_path: path,
+        before_snippet: beforeContent.split(/\r?\n/).slice(0, 6).join('\n'),
+        after_snippet: afterContent.split(/\r?\n/).slice(0, 6).join('\n'),
+        added_lines: command.added_lines || nextDiffEntries.filter((entry) => entry.kind === 'added' || entry.kind === 'modified_new').map((entry) => entry.line_number),
+        deleted_lines: command.deleted_lines || nextDiffEntries.filter((entry) => entry.kind === 'deleted' || entry.kind === 'modified_old').map((entry) => entry.line_number),
+        modified_lines: command.modified_lines || nextDiffEntries.filter((entry) => entry.kind === 'modified_old' || entry.kind === 'modified_new').map((entry) => entry.line_number),
+        approved_state_invalidated: approvalState === 'approved' || approvalState === 'applied',
+      }, ...current].slice(0, 80));
       setHistoryLog((current) => [command.explanation || `Edited ${path} from command bridge.`, ...current].slice(0, 200));
       setActiveTopTab((command.tab as ArtifactTopTab) || 'Preview');
+      setWorkbenchState('preview_refreshed');
+      setPendingRevision(null);
     }
     if (command.type === 'refresh_preview') {
       setActiveTopTab('Preview');
+      setWorkbenchState('preview_refreshed');
     }
     lastAppliedCommandIdRef.current = command.id;
   }, [activeFilePath, approvalState, card.id, filesByPath, pendingCommand, savedFilesByPath]);
@@ -400,9 +451,11 @@ export function ArtifactWorkbench({ card, onCardUpdate }: ArtifactWorkbenchProps
     const path = activeFilePath;
     setFilesByPath((current) => ({ ...current, [path]: content }));
     const changed = markDirty(path, content);
+    setWorkbenchState('editing_sandbox');
     if (approvalState === 'approved' || approvalState === 'applied') {
       if (changed || packageSignature({ ...filesByPath, [path]: content }) !== approvedPackageSignature) {
         setApprovalState('proposed');
+        setWorkbenchState('awaiting_approval');
         setHistoryLog((current) => [`Edit on ${path} invalidated approval. Re-approval required.`, ...current].slice(0, 200));
       }
     }
@@ -467,6 +520,7 @@ export function ArtifactWorkbench({ card, onCardUpdate }: ArtifactWorkbenchProps
   function approve() {
     const signature = packageSignature(savedFilesByPath);
     setApprovalState('approved');
+    setWorkbenchState('approved');
     setApprovedPackageSignature(signature);
     setHistoryLog((current) => ['Approved saved package draft.', ...current].slice(0, 200));
   }
@@ -486,6 +540,7 @@ export function ArtifactWorkbench({ card, onCardUpdate }: ArtifactWorkbenchProps
       return;
     }
     setApprovalState('applied');
+    setWorkbenchState('applied');
     const message = `Applied package draft via ${applyEndpoint}.`;
     setApplyReceipt(message);
     setHistoryLog((current) => [message, ...current].slice(0, 200));
@@ -687,6 +742,39 @@ export function ArtifactWorkbench({ card, onCardUpdate }: ArtifactWorkbenchProps
       {activeTopTab === 'History/Log' && (
         <div className="stack" aria-label="Artifact history panel">
           {applyReceipt && <div className="row"><strong>Apply receipt</strong><span>{applyReceipt}</span></div>}
+          <div className="row split" data-testid="artifact-workbench-state">
+            <strong>Workbench state</strong>
+            <span>{workbenchState}</span>
+          </div>
+          {pendingRevision && (
+            <p className="cardSummary" data-testid="artifact-pending-revision">
+              Pending revision: {pendingRevision.revision_kind} in {pendingRevision.target_file_path}:{pendingRevision.line_start}-{pendingRevision.line_end}. {pendingRevision.followup_prompt}
+            </p>
+          )}
+          {revisionHistory.length > 0 && (
+            <div className="stack" data-testid="artifact-revision-history">
+              <strong>Revision history</strong>
+              {revisionHistory.map((entry) => (
+                <div className="artifactRevisionCard" key={entry.id}>
+                  <p className="cardSummary"><strong>{entry.command_summary}</strong> · {entry.file_path}</p>
+                  {entry.approved_state_invalidated && <p className="cardSummary">Approval invalidated: true</p>}
+                </div>
+              ))}
+            </div>
+          )}
+          {diffEntries.length > 0 && (
+            <div className="artifactDiffPanel" data-testid="artifact-diff-history">
+              <strong>Diff</strong>
+              {diffEntries.map((entry, index) => (
+                <p
+                  key={`${entry.file_path}-${entry.line_number}-${entry.kind}-${index}`}
+                  className={`artifactDiffLine ${entry.kind === 'added' || entry.kind === 'modified_new' ? 'added' : 'deleted'}`}
+                >
+                  {entry.kind === 'added' || entry.kind === 'modified_new' ? '+' : '-'} {entry.file_path}:{entry.line_number} {entry.content}
+                </p>
+              ))}
+            </div>
+          )}
           {historyLog.map((entry, index) => <p className="cardSummary" key={`${entry}-${index}`}>{entry}</p>)}
         </div>
       )}

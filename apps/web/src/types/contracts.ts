@@ -100,16 +100,87 @@ export interface ChatResponse {
   attachments: AttachmentReference[];
 }
 
-export type ArtifactCommandType = 'select_file' | 'highlight_line' | 'edit_file' | 'refresh_preview' | 'select_tab' | 'explain_location';
+export type ArtifactCommandType =
+  | 'locate'
+  | 'ask_followup'
+  | 'apply_pending_revision'
+  | 'select_file'
+  | 'highlight_line'
+  | 'edit_file'
+  | 'refresh_preview'
+  | 'show_diff'
+  | 'highlight_added_lines'
+  | 'highlight_deleted_lines'
+  | 'select_tab'
+  | 'explain_location';
+
+export type ArtifactRevisionKind =
+  | 'background_color'
+  | 'button_color'
+  | 'button_text'
+  | 'website_name'
+  | 'hero_title'
+  | 'hero_subtitle'
+  | 'font_size'
+  | 'layout_spacing'
+  | 'section_text'
+  | 'javascript_behavior'
+  | 'generic_code';
+
+export type ArtifactWorkbenchState =
+  | 'idle'
+  | 'locating'
+  | 'awaiting_revision_instruction'
+  | 'editing_sandbox'
+  | 'preview_refreshed'
+  | 'awaiting_approval'
+  | 'approved'
+  | 'applied';
+
+export interface PendingArtifactRevision {
+  activeArtifactPackageId: string;
+  target_file_path: string;
+  line_start: number;
+  line_end: number;
+  token_or_selector: string;
+  current_value: string;
+  revision_kind: ArtifactRevisionKind;
+  followup_prompt: string;
+}
+
+export interface ArtifactDiffEntry {
+  file_path: string;
+  line_number: number;
+  kind: 'added' | 'deleted' | 'modified_old' | 'modified_new';
+  content: string;
+}
+
+export interface ArtifactRevisionHistoryEntry {
+  id: string;
+  timestamp: string;
+  command_summary: string;
+  file_path: string;
+  before_snippet: string;
+  after_snippet: string;
+  added_lines: number[];
+  deleted_lines: number[];
+  modified_lines: number[];
+  approved_state_invalidated: boolean;
+}
 
 export interface ArtifactCommand {
   id: string;
   command_class:
     | 'artifact_locate_code'
+    | 'artifact_ask_followup'
+    | 'artifact_apply_pending_revision'
     | 'artifact_explain_code'
     | 'artifact_highlight_line'
     | 'artifact_edit_active_package'
     | 'artifact_preview_refresh'
+    | 'artifact_show_diff'
+    | 'artifact_highlight_added_lines'
+    | 'artifact_highlight_deleted_lines'
     | 'artifact_select_file'
     | 'artifact_select_tab';
   type: ArtifactCommandType;
@@ -122,6 +193,13 @@ export interface ArtifactCommand {
   explanation?: string;
   changed_files?: string[];
   tab?: string;
+  workbench_state?: ArtifactWorkbenchState;
+  pending_revision?: PendingArtifactRevision;
+  diff_entries?: ArtifactDiffEntry[];
+  added_lines?: number[];
+  deleted_lines?: number[];
+  modified_lines?: number[];
+  summary?: string;
 }
 
 export interface ArtifactSearchEntry {
@@ -149,6 +227,11 @@ export interface ArtifactWorkbenchSnapshot {
   highlighted_line_start: number;
   highlighted_line_end: number;
   highlighted_token: string;
+  workbench_state?: ArtifactWorkbenchState;
+  pending_revision?: PendingArtifactRevision | null;
+  last_artifact_command?: string;
+  revision_history?: ArtifactRevisionHistoryEntry[];
+  diff_entries?: ArtifactDiffEntry[];
 }
 
 export interface ActiveArtifactContext {
