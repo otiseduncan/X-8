@@ -1,7 +1,20 @@
-﻿class ResponsePlanner:
+class ResponsePlanner:
     LANES = {
         "project_builder": ("v8 project builder", "project builder", "build a real project", "generated project", "project output path"),
         "self_build": ("self-build", "self build", "self-build proposal", "repair loop"),
+        "local_system_body": (
+            "how many drives",
+            "what drives",
+            "show my drives",
+            "scan my drives",
+            "disk space",
+            "storage available",
+            "local system scan",
+            "what hardware do you see",
+            "body status",
+            "check local system",
+            "check my computer",
+        ),
         "github_create_repo": ("create-repo", "create repo", "create github repo", "create a github repo proposal", "github repo proposal", "new github repository", "private disposable repo"),
         "github_connect_init": ("connect this repo", "connect remote", "initialize this as a repo", "init repo"),
         "github_push": ("push this repo", "prepare to push", "git push"),
@@ -79,5 +92,3 @@
         # Treat generated file requirement lists as project-builder intent when coupled with explicit build+project wording.
         has_generated_requirements = "project" in lower and generated_file_hits >= 2
         return has_build_intent and (has_project_intent or has_generated_requirements)
-
-
