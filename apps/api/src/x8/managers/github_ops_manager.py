@@ -5,6 +5,8 @@ from urllib.parse import urlparse, urlunparse
 
 import httpx
 
+WINDOWS_DRIVE_PATH = re.compile(r"^[A-Za-z]:[\\/]")
+
 
 class GitHubOpsManager:
     def __init__(self, workspace_root: str, token: str = "", owner: str = "", default_visibility: str = "private") -> None:
@@ -27,7 +29,8 @@ class GitHubOpsManager:
         if not is_repo:
             return {"is_repo": False, "branch": "", "remote_origin_url": "", "dirty": False, "changed_files": [], "last_commit": {}, "ahead": None, "behind": None}
         branch = self._git(cwd, ["branch", "--show-current"]).stdout.strip()
-        remote = self._sanitize_remote(self._git(cwd, ["remote", "get-url", "origin"]).stdout.strip())
+        remote_result = self._git(cwd, ["remote", "get-url", "origin"])
+        remote = self._sanitize_remote(remote_result.stdout.strip()) if remote_result.returncode == 0 else ""
         changed = [line.strip() for line in self._git(cwd, ["status", "--short"]).stdout.splitlines() if line.strip()]
         last = self._git(cwd, ["log", "-1", "--pretty=%H%x00%s"]).stdout.strip().split("\x00", 1)
         ahead, behind = self._ahead_behind(cwd)
@@ -46,15 +49,28 @@ class GitHubOpsManager:
         status = self.local_status(path)
         cwd = self._resolve_path(path)
         branch = str(status.get("branch") or "")
+        remote = str(status.get("remote_origin_url") or "")
         commits = []
-        if branch:
+        if branch and remote:
             result = self._git(cwd, ["log", "--oneline", f"origin/{branch}..HEAD"])
             commits = [line for line in result.stdout.splitlines() if line.strip()]
-        return {"branch": branch, "remote": status.get("remote_origin_url", ""), "commits_to_push": commits, "dirty": status.get("dirty", False), "allowed_after_approval": bool(status.get("is_repo") and status.get("remote_origin_url"))}
+        return {
+            "branch": branch,
+            "remote": remote,
+            "commits_to_push": commits,
+            "dirty": status.get("dirty", False),
+            "allowed_after_approval": bool(status.get("is_repo") and remote),
+        }
 
     def pull_preview(self, path: str = ".") -> dict[str, object]:
         status = self.local_status(path)
-        return {"branch": status.get("branch", ""), "remote": status.get("remote_origin_url", ""), "dirty": status.get("dirty", False), "allowed_after_approval": bool(status.get("is_repo") and status.get("remote_origin_url"))}
+        remote = str(status.get("remote_origin_url") or "")
+        return {
+            "branch": status.get("branch", ""),
+            "remote": remote,
+            "dirty": status.get("dirty", False),
+            "allowed_after_approval": bool(status.get("is_repo") and remote),
+        }
 
     def init_repo(self, path: str = ".", approved: bool = False) -> dict[str, object]:
         if not approved:
@@ -114,7 +130,10 @@ class GitHubOpsManager:
         return {"status": "applied" if result.returncode == 0 else "blocked", "reason": result.stdout.strip() or result.stderr.strip(), "changed_files": self.local_status(path).get("changed_files", [])}
 
     def _resolve_path(self, path: str) -> Path:
-        target = (self.workspace_root / path).resolve()
+        clean_path = (path or ".").strip() or "."
+        if self._is_host_style_path(clean_path):
+            raise ValueError("GitHub operation path must be workspace-relative, not a host or absolute path.")
+        target = (self.workspace_root / clean_path).resolve()
         if target != self.workspace_root and self.workspace_root not in target.parents:
             raise ValueError("GitHub operation path escapes workspace root.")
         if not target.exists() or not target.is_dir():
@@ -147,6 +166,15 @@ class GitHubOpsManager:
     def _contains_secret_remote(self, value: str) -> bool:
         parsed = urlparse(value)
         return bool(parsed.username or parsed.password or (self.token and self.token in value))
+
+    def _is_host_style_path(self, value: str) -> bool:
+        candidate = value.strip()
+        return (
+            "\x00" in candidate
+            or WINDOWS_DRIVE_PATH.match(candidate) is not None
+            or candidate.startswith(("/", "\\\\", "//"))
+            or Path(candidate).is_absolute()
+        )
 
     def _sanitize_repo_name(self, value: str) -> str:
         return re.sub(r"[^A-Za-z0-9_.-]", "-", value.strip()).strip(".-")[:100]
