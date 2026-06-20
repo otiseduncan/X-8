@@ -4,6 +4,7 @@ import { App } from './app/App';
 import './styles.css';
 import './app/ideEnhancements.css';
 import './app/ideEnhancements';
+import './app/artifactWorkbenchCompact.css';
 
 const root = document.getElementById('root') as HTMLElement;
 
