@@ -231,3 +231,75 @@
 .codeMirrorShell .cm-line:nth-child(even) {
   background: rgba(13, 20, 35, 0.72);
 }
+
+.inlineCard.artifact {
+  border-color: rgba(34, 211, 238, 0.45);
+  box-shadow: inset 3px 0 0 rgba(34, 211, 238, 0.72), 0 0 22px rgba(34, 211, 238, 0.08);
+}
+
+.inlineCard.artifact .tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.inlineCard.artifact .tabs .tab {
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.9);
+  color: #dbeafe;
+  font-weight: 700;
+  min-height: 36px;
+  padding: 0 12px;
+}
+
+.inlineCard.artifact .tabs .tab:first-child::before {
+  content: "Preview app: ";
+  color: #67e8f9;
+}
+
+.inlineCard.artifact .tabs .tab.active {
+  border-color: rgba(34, 211, 238, 0.8);
+  background: linear-gradient(180deg, rgba(34, 211, 238, 0.18), rgba(14, 116, 144, 0.22));
+  box-shadow: 0 0 0 1px rgba(34, 211, 238, 0.15), 0 0 16px rgba(34, 211, 238, 0.12);
+  color: #ecfeff;
+}
+
+.inlineCard.artifact iframe {
+  min-height: 420px;
+  width: 100%;
+  border: 1px solid rgba(34, 211, 238, 0.32);
+  border-radius: 10px;
+  background: #fff;
+}
+
+.inlineCard.artifact .cardBody > .inlineActions .chipButton:nth-child(2) {
+  display: none;
+}
+
+.inlineCard.artifact .cardBody > .inlineActions::after {
+  content: "Apply appears only on the approval card after the proposal is approved.";
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 8px;
+  color: #cbd5e1;
+  padding: 0 11px;
+}
+
+.codeBlock .keyword,
+.diff .keyword {
+  color: #93c5fd;
+}
+
+.codeBlock .string,
+.diff .string {
+  color: #86efac;
+}
+
+.codeBlock .comment,
+.diff .comment {
+  color: #94a3b8;
+  font-style: italic;
+}
