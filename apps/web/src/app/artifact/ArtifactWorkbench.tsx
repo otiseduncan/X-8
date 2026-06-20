@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { CodeEditor } from '../../components/cockpit/CodeEditor';
+import type { ArtifactCommand, ArtifactWorkbenchSnapshot } from '../../types/contracts';
 
 type ArtifactTopTab = 'Preview' | 'Code' | 'Files' | 'Assets' | 'Console' | 'Metadata' | 'History/Log' | 'Export';
 type ApprovalState = 'draft' | 'edited' | 'saved' | 'proposed' | 'approved' | 'denied' | 'applied';
@@ -65,6 +66,10 @@ function textContent(value: unknown) {
 
 function normalizePath(input: string) {
   return input.replace(/^\.\//, '').replace(/\\/g, '/');
+}
+
+function asRecord(value: unknown) {
+  return typeof value === 'object' && value !== null ? value as Record<string, unknown> : {};
 }
 
 function packageSignature(filesByPath: Record<string, string>) {
@@ -201,6 +206,8 @@ ${html}
 
 export function ArtifactWorkbench({ card, onCardUpdate }: ArtifactWorkbenchProps) {
   const payload = card.payload || {};
+  const artifactBridge = asRecord(payload.artifactBridge);
+  const pendingCommand = asRecord(artifactBridge.command) as Partial<ArtifactCommand>;
   const initialFiles = useMemo(() => normalizeFiles(payload), [payload]);
   const initialAssets = useMemo(() => normalizeAssets(payload), [payload]);
 
@@ -222,12 +229,15 @@ export function ArtifactWorkbench({ card, onCardUpdate }: ArtifactWorkbenchProps
   const [runtimeErrors, setRuntimeErrors] = useState<RuntimeError[]>([]);
   const [highlightedFilePath, setHighlightedFilePath] = useState<string>('');
   const [highlightedLine, setHighlightedLine] = useState<number>(1);
+  const [highlightedLineEnd, setHighlightedLineEnd] = useState<number>(1);
   const [highlightedToken, setHighlightedToken] = useState<string>('');
   const [approvalState, setApprovalState] = useState<ApprovalState>('proposed');
   const [approvedPackageSignature, setApprovedPackageSignature] = useState<string>('');
   const [historyLog, setHistoryLog] = useState<string[]>(['Package generated and opened in Artifact Workbench.']);
   const [applyReceipt, setApplyReceipt] = useState<string>('');
   const lastPublishedPatchRef = useRef('');
+  const lastAppliedCommandIdRef = useRef('');
+  const sourceFileSignature = useMemo(() => packageSignature(initialFilesByPath), [initialFilesByPath]);
 
   useEffect(() => {
     setFilesByPath(initialFilesByPath);
@@ -241,12 +251,14 @@ export function ArtifactWorkbench({ card, onCardUpdate }: ArtifactWorkbenchProps
     setRuntimeErrors([]);
     setHighlightedFilePath('');
     setHighlightedLine(1);
+    setHighlightedLineEnd(1);
     setHighlightedToken('');
     setApprovalState('proposed');
     setApprovedPackageSignature('');
     setHistoryLog(['Package generated and opened in Artifact Workbench.']);
     setApplyReceipt('');
-  }, [card.id, initialFilesByPath]);
+    lastAppliedCommandIdRef.current = '';
+  }, [card.id, sourceFileSignature]);
 
   const filePaths = useMemo(() => Object.keys(filesByPath).sort(), [filesByPath]);
   const pagePaths = useMemo(() => collectPreviewPaths(filesByPath), [filesByPath]);
@@ -293,6 +305,33 @@ export function ArtifactWorkbench({ card, onCardUpdate }: ArtifactWorkbenchProps
   }, [card.id, filesByPath]);
 
   useEffect(() => {
+    const nextPayload = {
+      ...payload,
+      artifactBridge: {
+        ...artifactBridge,
+        snapshot: {
+          package_id: card.id,
+          title: card.title,
+          package_type: textContent(payload.package_type) || 'website_package',
+          active_file_path: activeFilePath,
+          active_tab: activeTopTab,
+          active_preview_path: activePreviewPath,
+          available_files: filePaths,
+          files_by_path: filesByPath,
+          saved_files_by_path: savedFilesByPath,
+          dirty_by_path: dirtyByPath,
+          approval_state: approvalState,
+          highlighted_file_path: highlightedFilePath,
+          highlighted_line_start: highlightedLine,
+          highlighted_line_end: highlightedLineEnd,
+          highlighted_token: highlightedToken
+        } satisfies ArtifactWorkbenchSnapshot,
+        last_applied_command_id: lastAppliedCommandIdRef.current
+      }
+    };
+    if (pendingCommand.id && pendingCommand.id === lastAppliedCommandIdRef.current) {
+      delete (nextPayload.artifactBridge as Record<string, unknown>).command;
+    }
     const status = approvalState === 'applied'
       ? 'applied'
       : approvalState === 'approved'
@@ -304,13 +343,52 @@ export function ArtifactWorkbench({ card, onCardUpdate }: ArtifactWorkbenchProps
             : 'proposed';
     const patch = {
       status,
-      summary: applyReceipt || `Workbench ready. ${filePaths.length} files loaded.`
+      summary: applyReceipt || `Workbench ready. ${filePaths.length} files loaded.`,
+      payload: nextPayload
     };
     const signature = JSON.stringify(patch);
     if (lastPublishedPatchRef.current === signature) return;
     lastPublishedPatchRef.current = signature;
     onCardUpdate(patch);
-  }, [approvalState, applyReceipt, filePaths.length, packageDirty]);
+  }, [activeFilePath, activePreviewPath, activeTopTab, approvalState, applyReceipt, artifactBridge, card.id, card.title, dirtyByPath, filePaths, filesByPath, highlightedFilePath, highlightedLine, highlightedLineEnd, highlightedToken, packageDirty, payload, pendingCommand.id, savedFilesByPath]);
+
+  useEffect(() => {
+    if (!pendingCommand.id || pendingCommand.id === lastAppliedCommandIdRef.current || pendingCommand.package_id !== card.id) return;
+    const command = pendingCommand as ArtifactCommand;
+    if (command.type === 'select_tab' && command.tab) {
+      setActiveTopTab(command.tab as ArtifactTopTab);
+    }
+    if ((command.type === 'select_file' || command.type === 'highlight_line' || command.type === 'edit_file' || command.type === 'explain_location') && command.file_path && filesByPath[command.file_path]) {
+      setActiveFilePath(command.file_path);
+      setHighlightedFilePath(command.file_path);
+    }
+    if (command.type === 'highlight_line' || command.type === 'explain_location') {
+      setActiveTopTab('Code');
+      setHighlightedLine(Math.max(1, Number(command.line_start || 1)));
+      setHighlightedLineEnd(Math.max(Number(command.line_end || command.line_start || 1), Number(command.line_start || 1)));
+      setHighlightedToken(command.token || '');
+      setHistoryLog((current) => [`Command highlight: ${command.file_path || activeFilePath} ${command.line_start || 1}-${command.line_end || command.line_start || 1}.`, ...current].slice(0, 200));
+    }
+    if (command.type === 'edit_file' && command.file_path && typeof command.replacement === 'string') {
+      const path = command.file_path;
+      setFilesByPath((current) => ({ ...current, [path]: command.replacement as string }));
+      const savedContent = savedFilesByPath[path] || '';
+      const changed = command.replacement !== savedContent;
+      setDirtyByPath((current) => ({ ...current, [path]: changed }));
+      setHighlightedLine(Math.max(1, Number(command.line_start || 1)));
+      setHighlightedLineEnd(Math.max(Number(command.line_end || command.line_start || 1), Number(command.line_start || 1)));
+      setHighlightedToken(command.token || '');
+      if (approvalState === 'approved' || approvalState === 'applied') {
+        setApprovalState('proposed');
+      }
+      setHistoryLog((current) => [command.explanation || `Edited ${path} from command bridge.`, ...current].slice(0, 200));
+      setActiveTopTab((command.tab as ArtifactTopTab) || 'Preview');
+    }
+    if (command.type === 'refresh_preview') {
+      setActiveTopTab('Preview');
+    }
+    lastAppliedCommandIdRef.current = command.id;
+  }, [activeFilePath, approvalState, card.id, filesByPath, pendingCommand, savedFilesByPath]);
 
   function markDirty(path: string, nextContent: string) {
     const isDirty = nextContent !== (savedFilesByPath[path] || '');
@@ -525,6 +603,11 @@ export function ArtifactWorkbench({ card, onCardUpdate }: ArtifactWorkbenchProps
           </aside>
           <section className="artifactEditorPanel">
             <div className="row split"><strong>Editing</strong><span>{activeFilePath}</span></div>
+            {(highlightedFilePath || highlightedToken) && (
+              <p className="cardSummary" data-testid="artifact-highlight-summary">
+                Highlighted {highlightedFilePath || activeFilePath} lines {highlightedLine}{highlightedLineEnd > highlightedLine ? `-${highlightedLineEnd}` : ''}{highlightedToken ? ` for ${highlightedToken}` : ''}.
+              </p>
+            )}
             <div data-testid="artifact-code-editor">
               <CodeEditor path={activeFilePath} value={activeFileContent} onChange={updateActiveFile} />
             </div>

@@ -1,4 +1,4 @@
-import type { AttachmentReference, Capability, ChatResponse, FileEntry, FileRead, IntegrationStatus, PatchProposal, ResultEnvelope, SessionDetail, SessionSummary, TeamSeat } from '../types/contracts';
+import type { ActiveArtifactContext, AttachmentReference, Capability, ChatResponse, FileEntry, FileRead, IntegrationStatus, PatchProposal, ResultEnvelope, SessionDetail, SessionSummary, TeamSeat } from '../types/contracts';
 
 const API = '';
 export const CHAT_TIMEOUT_MS = 45000;
@@ -371,7 +371,7 @@ export function loadReceipts() {
   return getJson<ResultEnvelope<Array<Record<string, unknown>>>>('/api/receipts');
 }
 
-export async function sendChat(message: string, attachments: AttachmentReference[] = [], session_id?: string, timeoutMs = CHAT_TIMEOUT_MS) {
+export async function sendChat(message: string, attachments: AttachmentReference[] = [], session_id?: string, artifact_context?: ActiveArtifactContext, timeoutMs = CHAT_TIMEOUT_MS) {
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
   const response = await fetch('/api/chat', {
@@ -388,7 +388,8 @@ export async function sendChat(message: string, attachments: AttachmentReference
           filename: attachment.filename,
           mime_type: attachment.mime_type,
           size_bytes: attachment.size_bytes
-        }))
+        })),
+      artifact_context
     })
   }).finally(() => window.clearTimeout(timeout));
   if (!response.ok) throw new Error('Chat request failed');

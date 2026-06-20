@@ -100,6 +100,68 @@ export interface ChatResponse {
   attachments: AttachmentReference[];
 }
 
+export type ArtifactCommandType = 'select_file' | 'highlight_line' | 'edit_file' | 'refresh_preview' | 'select_tab' | 'explain_location';
+
+export interface ArtifactCommand {
+  id: string;
+  command_class:
+    | 'artifact_locate_code'
+    | 'artifact_explain_code'
+    | 'artifact_highlight_line'
+    | 'artifact_edit_active_package'
+    | 'artifact_preview_refresh'
+    | 'artifact_select_file'
+    | 'artifact_select_tab';
+  type: ArtifactCommandType;
+  package_id: string;
+  file_path?: string;
+  line_start?: number;
+  line_end?: number;
+  token?: string;
+  replacement?: string;
+  explanation?: string;
+  changed_files?: string[];
+  tab?: string;
+}
+
+export interface ArtifactSearchEntry {
+  file_path: string;
+  line_start: number;
+  line_end: number;
+  label: string;
+  snippet: string;
+  tokens: string[];
+}
+
+export interface ArtifactWorkbenchSnapshot {
+  package_id: string;
+  title: string;
+  package_type: string;
+  active_file_path: string;
+  active_tab: string;
+  active_preview_path: string;
+  available_files: string[];
+  files_by_path: Record<string, string>;
+  saved_files_by_path: Record<string, string>;
+  dirty_by_path: Record<string, boolean>;
+  approval_state: string;
+  highlighted_file_path: string;
+  highlighted_line_start: number;
+  highlighted_line_end: number;
+  highlighted_token: string;
+}
+
+export interface ActiveArtifactContext {
+  package_id: string;
+  title: string;
+  package_type: string;
+  active_file_path: string;
+  active_tab: string;
+  available_files: string[];
+  searchable_index: ArtifactSearchEntry[];
+  snippet_index: string[];
+}
+
 export interface SessionSummary {
   session_id: string;
   title: string;

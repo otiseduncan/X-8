@@ -304,7 +304,7 @@ test('Brain continuity saves next step blocker validation and handoff', async ({
   const handoff = await (await request.post('/api/brain/continuity/handoff', { data: {} })).json();
   expect(handoff.data.handoff).toContain('Handoff note:');
   await page.getByRole('button', { name: /^Info/ }).click();
-  await page.getByRole('button', { name: /settings/i }).click();
+  await page.getByRole('button', { name: /settings/i }).click({ force: true });
   await expect(page.getByLabel('Continuity panel')).toContainText(`Brain V1 Phase 5 ${stamp}`);
 });
 

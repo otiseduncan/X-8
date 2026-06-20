@@ -1,0 +1,128 @@
+# V8.1 Artifact Command Bridge Report
+
+## Failure Reproduced
+The active artifact workbench existed, but follow-up chat prompts were not artifact-aware.
+
+Observed failure modes before the fix:
+- Code-locator prompts like "show me the lines of text that control the color of the background" fell through to normal chat behavior.
+- Follow-up prompts like "show me where to edit the main website name" were treated as new artifact-generation intents instead of package-inspection requests.
+- Edit prompts like "change the colors of the website to black and purple" targeted artifact generation or generic fallback instead of mutating the active package draft.
+- The assistant could incorrectly imply that it could not access code already present inside the active artifact package.
+
+## Active Artifact Command Contract
+Frontend bridge command envelope:
+- `dispatch_id`
+- `package_id`
+- `command_class`
+- `summary`
+- `commands[]`
+
+Supported command classes:
+- `artifact_locate_code`
+- `artifact_explain_code`
+- `artifact_highlight_line`
+- `artifact_edit_active_package`
+- `artifact_preview_refresh`
+- `artifact_select_file`
+- `artifact_select_tab`
+
+Supported command operations:
+- `select_tab`
+- `select_file`
+- `highlight_line`
+- `edit_file`
+- `refresh_preview`
+- `explain_location`
+
+Compact active artifact context sent with chat requests when an active package exists:
+- `package_id`
+- `title`
+- `package_type`
+- `active_file_path`
+- `active_tab`
+- `available_files`
+- `searchable_index`
+- `snippet_index`
+
+## Implementation Summary
+The bridge is frontend-first and deterministic for the current pass.
+
+Key behavior added:
+- The app now tracks the active artifact package in chat state.
+- Follow-up artifact prompts are intercepted before normal chat fallback.
+- Deterministic artifact follow-up routing handles common locate/edit scenarios against the active package.
+- The workbench now publishes a live package snapshot back into card payload state.
+- The workbench accepts externally dispatched artifact commands and applies them by:
+  - switching tabs
+  - selecting files
+  - highlighting line ranges
+  - editing file drafts
+  - invalidating approval state after edits
+  - refreshing preview state
+- Normal chat requests now include compact artifact context so backend/kernel can remain artifact-aware even when the frontend bridge does not handle a request locally.
+
+## Commands Supported In This Pass
+Deterministic local routing currently supports:
+- background color / background styling location
+- website name / title / brand location
+- button color location
+- palette change to black + purple for the current artifact package
+- button text replacement for the current artifact package
+
+## Files Changed
+Backend / contract:
+- `apps/api/src/x8/api/routes/chat.py`
+- `apps/api/src/x8/contracts/chat.py`
+
+Frontend app / bridge:
+- `apps/web/src/app/App.tsx`
+- `apps/web/src/app/artifact/ArtifactWorkbench.tsx`
+- `apps/web/src/app/artifact/commandBridge.ts`
+- `apps/web/src/app/artifact/appBridgeHelpers.ts`
+- `apps/web/src/services/apiClient.ts`
+- `apps/web/src/types/contracts.ts`
+- `apps/web/src/components/cockpit/CodeEditor.tsx`
+
+Tests:
+- `apps/web/src/tests/ArtifactCommandBridge.test.tsx`
+- `apps/web/src/tests/App.test.tsx`
+- `e2e/tests/artifact-package-viewer.spec.ts`
+- `e2e/tests/smoke.spec.ts`
+
+## Tests Added / Updated
+Unit coverage added or updated for:
+- active artifact context inclusion on normal chat after artifact generation
+- background code locator routing to active package
+- website-name locator routing to active package
+- active-package color edit routing without generating a second artifact
+- active-package button text edit routing without generating a second artifact
+- multi-page artifact preview wait stabilization
+
+Playwright coverage added or updated for:
+- artifact command bridge follow-up prompts against the active package
+- styles.css selection + highlighted background lines
+- index.html selection + website-name location
+- active-package palette edit without second artifact generation
+- active-package button text edit without second artifact generation
+- continuity smoke test stabilization for settings click overlay
+
+## Validation Results
+Targeted:
+- `cd apps/web && npm test -- src/tests/ArtifactCommandBridge.test.tsx` : passed
+- `docker compose run --rm e2e-tests npx playwright test artifact-package-viewer.spec.ts` : passed
+
+Full validation:
+- `cd apps/web && npm test` : passed
+- `docker compose run --rm web-tests` : passed
+- `docker compose run --rm e2e-tests` : passed
+- `docker compose run --rm architecture-guard` : passed with warnings only
+
+## Known Limitations
+- This pass is intentionally deterministic and pattern-based. It does not perform full semantic code analysis.
+- Local artifact command routing currently focuses on the most common artifact follow-up requests and package shapes generated by the current preview flow.
+- Artifact edits update the active draft and invalidate approval state, but they do not auto-save the draft.
+- Backend artifact-aware model reasoning is only lightly extended in this pass through compact `artifact_context`; most follow-up command behavior is still handled in the frontend bridge.
+- Architecture guard still emits existing preferred-length warnings for several large files, but there are no hard-max failures.
+
+## Commit Hash
+- Pending final commit

@@ -8,6 +8,8 @@ import { CodeEditor } from '../components/cockpit/CodeEditor';
 import { StatusPill } from '../components/ui/StatusPill';
 import { AvatarPresencePanel, ChatHistoryPanel, ChatTimeline, InfoDropdown, PushToTalkButton, ThinkingIndicator, messageCopyText, transcriptMarkdown } from './AssistantComponents';
 import type { AvatarRuntimeState, ChatCard, ChatMessage, InfoReceipt } from './AssistantComponents';
+import { findActiveArtifactCard, handleArtifactBridgeCommand as applyArtifactBridgeCommand } from './artifact/appBridgeHelpers';
+import { buildArtifactChatContext } from './artifact/commandBridge';
 import { errorCard, mapKernelCard, receiptCards } from './cardHelpers';
 import { DeveloperCockpit } from './DeveloperCockpit';
 import { classifyRequest, isGitHubCreateRepoRequest, parseGitHubCreateRepo } from './intentRouting';
@@ -18,8 +20,7 @@ import './chatUsability.css';
 const nowId = () => `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 const MIN_THINKING_VISIBLE_MS = 500, MIN_SPEAKING_VISIBLE_MS = 900, RESPONDED_VISIBLE_MS = 650;
 const wait = (ms: number) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
-  const speechInput = new SpeechInputManager();
-const speechOutput = new SpeechOutputManager();
+const speechInput = new SpeechInputManager(), speechOutput = new SpeechOutputManager();
 export function App() {
   const userInteracted = useRef(false);
   const requestStartedAt = useRef(0);
@@ -79,6 +80,7 @@ export function App() {
   const [attachments, setAttachments] = useState<AttachmentReference[]>([]);
   const [localChatId, setLocalChatId] = useState(() => window.localStorage.getItem('x8.localActiveChatId') || nowId());
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [activeArtifactPackageId, setActiveArtifactPackageId] = useState('');
   const [error, setError] = useState('');
   const voiceSelection = useVoiceSelection(speechOutput.tts);
   const voiceName = voiceSelection.displayVoiceName;
@@ -161,18 +163,13 @@ export function App() {
     setMessages((current) => [...current, { ...message, createdAt: message.createdAt || new Date().toISOString() }]);
   }
   function appendAudioReceipt(receipt: SpeechReceipt) {
-    setAudioReceipts((current) => [receipt, ...current].slice(0, 8));
-    setLatestReceipt(receipt);
-    setLatestResult(`Audio: ${receipt.status}`);
-    recordSpeechReceipt(receipt);
+    setAudioReceipts((current) => [receipt, ...current].slice(0, 8)); setLatestReceipt(receipt); setLatestResult(`Audio: ${receipt.status}`); recordSpeechReceipt(receipt);
   }
   function updateCard(cardId: string, patch: Partial<ChatCard>) {
-    setMessages((current) =>
-      current.map((message) => ({
-        ...message,
-        cards: message.cards?.map((card) => (card.id === cardId ? { ...card, ...patch } : card))
-      }))
-    );
+    setMessages((current) => current.map((message) => ({ ...message, cards: message.cards?.map((card) => (card.id === cardId ? { ...card, ...patch } : card)) })));
+  }
+  async function appendAssistantBridgeResponse(text: string, cards: ChatCard[]) {
+    recordResponseLifecycle(cards.length ? 'text-with-cards' : 'deterministic/text-only', Boolean(text.trim()), cards.length > 0); appendMessage({ id: nowId(), role: 'assistant', text, cards }); await finishAssistantResponseLifecycle(text, cards.length);
   }
   async function submitMessage(event?: React.FormEvent) {
     event?.preventDefault();
@@ -206,6 +203,8 @@ export function App() {
       .replace(/(password|passcode|token|api[_ -]?key|secret|one[- ]?time code|otp)\s*(is|=|:)?\s*\S+/gi, '$1 [redacted]');
   }
   async function handleUserText(text: string, outgoingAttachments: AttachmentReference[] = []) {
+    const activeArtifactCard = findActiveArtifactCard(messages, activeArtifactPackageId);
+    if (activeArtifactCard && await applyArtifactBridgeCommand({ text, artifactCard: activeArtifactCard, setActiveArtifactPackageId, setLatestResult, updateCard, appendAssistantBridgeResponse, makeId: nowId })) return;
     const intent = classifyRequest(text);
     if (intent === 'file') return openFileCard('README.md');
     if (intent === 'diff') return proposeDiffCard('README.md');
@@ -285,7 +284,8 @@ export function App() {
       setLastApiStatus('pending');
       setLastApiError('');
       setLastTimeoutReason('');
-      const response = await sendChat(text, outgoingAttachments, sessionId);
+      const activeArtifactCard = findActiveArtifactCard(messages, activeArtifactPackageId);
+      const response = await sendChat(text, outgoingAttachments, sessionId, activeArtifactCard ? buildArtifactChatContext(activeArtifactCard) || undefined : undefined);
       setSessionId(response.data.session_id);
       window.localStorage.setItem('x8.activeSessionId', response.data.session_id);
       setLatestReceipt(response.data.receipt || response.receipts?.[0] || null);
@@ -404,30 +404,30 @@ export function App() {
       const response = await createArtifactPreview('Inline website preview', prompt);
       setLatestReceipt(response.receipts?.[0] || null);
       setLatestResult(`Search status: ${response.status}`);
+      const artifactCard: ChatCard = {
+        id: nowId(),
+        type: 'artifact',
+        title: 'Inline website preview',
+        status: response.status,
+        summary: 'Preview, code, and metadata are attached to this chat response.',
+        receipt: response.receipts?.[0],
+        payload: {
+          html: response.data.html,
+          css: response.data.css,
+          pages: response.data.pages,
+          files: response.data.files,
+          assets: response.data.assets,
+          package_type: 'website_package',
+          metadata: { title: response.data.title, exportable: true }
+        }
+      };
       appendMessage({
         id: nowId(),
         role: 'assistant',
         text: 'Generated an inline website artifact preview.',
-        cards: [
-          {
-            id: nowId(),
-            type: 'artifact',
-            title: 'Inline website preview',
-            status: response.status,
-            summary: 'Preview, code, and metadata are attached to this chat response.',
-            receipt: response.receipts?.[0],
-            payload: {
-              html: response.data.html,
-              css: response.data.css,
-              pages: response.data.pages,
-              files: response.data.files,
-              assets: response.data.assets,
-              package_type: 'website_package',
-              metadata: { title: response.data.title, exportable: true }
-            }
-          }
-        ]
+        cards: [artifactCard]
       });
+      setActiveArtifactPackageId(artifactCard.id);
       setStage(muted ? 'muted' : 'idle');
     } catch {
       setStage('error');

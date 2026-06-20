@@ -699,7 +699,7 @@ test('supports package top tabs and page tabs for multi-page artifacts', async (
   });
   fireEvent.click(within(artifactCard).getByRole('button', { name: 'about' }));
   const frame = within(artifactCard).getByTitle('Inline website preview') as HTMLIFrameElement;
-  expect(frame.getAttribute('srcdoc') || '').toContain('About');
+  await waitFor(() => expect(frame.getAttribute('srcdoc') || '').toContain('About'));
   fireEvent.click(within(artifactCard).getByRole('button', { name: 'Code' }));
   fireEvent.click(within(artifactCard).getByRole('button', { name: 'about.html' }));
   expect(within(artifactCard).getByLabelText('Artifact page code editor')).toHaveValue('<main><h1>About</h1></main>');

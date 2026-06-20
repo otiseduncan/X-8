@@ -36,6 +36,7 @@ class ChatRequest(BaseModel):
     session_id: str | None = None
     message: str
     attachments: list[ChatAttachmentReference] = Field(default_factory=list)
+    artifact_context: dict[str, object] = Field(default_factory=dict)
 
 
 class ChatRoleMessage(BaseModel):

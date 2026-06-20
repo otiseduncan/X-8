@@ -46,7 +46,7 @@ test.describe('artifact package viewer workflow', () => {
 
     await codeEditor.click();
     await page.keyboard.press('Control+A');
-    await page.keyboard.type(editedValue);
+    await page.keyboard.insertText(editedValue);
     await expect(artifactCard.getByTestId('artifact-code-editor').locator('.cm-content').first()).toContainText('EDITED');
 
     // Step 6: Save draft
@@ -75,7 +75,7 @@ test.describe('artifact package viewer workflow', () => {
     const updatedValue = editedValue.replace('EDITED', 'EDITED AGAIN');
     await codeEditor.click();
     await page.keyboard.press('Control+A');
-    await page.keyboard.type(updatedValue);
+    await page.keyboard.insertText(updatedValue);
     await expect(artifactCard.getByTestId('artifact-code-editor').locator('.cm-content').first()).toContainText('EDITED AGAIN');
 
     if (await saveDraftBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
@@ -91,5 +91,41 @@ test.describe('artifact package viewer workflow', () => {
     await approveBtn.click();
     await page.waitForTimeout(500);
     await expect(applyBtn).toBeEnabled({ timeout: 5000 });
+  });
+
+  test('routes chat follow-up commands into the active artifact package', async ({ page }) => {
+    await ask(page, 'make a simple HTML website preview');
+    const artifactCard = page.getByTestId('inline-artifact-card');
+    await expect(artifactCard).toBeVisible({ timeout: 15000 });
+    await expect(page.getByTestId('inline-artifact-card')).toHaveCount(1);
+
+    await ask(page, 'show me the lines of text that control the color of the background');
+    await expect(page.getByText(/background styling is in styles\.css/i)).toBeVisible({ timeout: 5000 });
+    await expect(artifactCard.getByRole('button', { name: 'Code' })).toHaveClass(/active/);
+    await expect(artifactCard.getByTestId('artifact-highlight-summary')).toContainText('styles.css');
+    await expect(artifactCard.getByTestId('artifact-highlight-summary')).toContainText('background');
+    await expect(page.getByTestId('inline-artifact-card')).toHaveCount(1);
+
+    await ask(page, 'show me where to edit the main website name');
+    await expect(page.getByText(/Edit the main website name in index\.html/i)).toBeVisible({ timeout: 5000 });
+    await expect(artifactCard.getByTestId('artifact-highlight-summary')).toContainText('index.html');
+
+    await ask(page, 'change the colors of the website to black and purple');
+    await expect(page.getByText(/updated styles\.css to a black and purple palette/i).first()).toBeVisible({ timeout: 5000 });
+    await expect(page.getByTestId('inline-artifact-card')).toHaveCount(1);
+    await artifactCard.getByRole('button', { name: 'Code' }).click();
+    const cssButton = artifactCard.getByRole('button', { name: /styles\.css/i });
+    await cssButton.click();
+    await expect(artifactCard.getByTestId('artifact-code-editor').locator('.cm-content').first()).toContainText('#05030a');
+    await expect(artifactCard.getByTestId('artifact-code-editor').locator('.cm-content').first()).toContainText('#6d28d9');
+    await artifactCard.getByLabel('Artifact package tabs').getByRole('button', { name: 'Preview' }).click();
+    await expect(artifactCard.locator('iframe').first()).toHaveAttribute('srcdoc', /#05030a/);
+
+    await ask(page, 'change the button text to Book now');
+    await expect(page.getByText(/updated the button text to Book now/i)).toBeVisible({ timeout: 5000 });
+    await artifactCard.getByRole('button', { name: 'Code' }).click();
+    await artifactCard.getByRole('button', { name: /index\.html/i }).click();
+    await expect(artifactCard.getByTestId('artifact-code-editor').locator('.cm-content').first()).toContainText('Book now');
+    await expect(page.getByTestId('inline-artifact-card')).toHaveCount(1);
   });
 });

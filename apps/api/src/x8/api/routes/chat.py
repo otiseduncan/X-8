@@ -177,7 +177,7 @@ def chat(payload: ChatRequest, request: Request) -> ResultEnvelope[ChatResponse]
             attachments=[item.model_dump() for item in attachments],
             active_mode="assistant",
             requested_capabilities=[],
-            client_state={},
+            client_state={"artifact_context": payload.artifact_context},
             session_messages=session_messages,
         )
     )
