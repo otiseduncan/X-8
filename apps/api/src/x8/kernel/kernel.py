@@ -1,6 +1,7 @@
 import re
 from datetime import datetime, timezone
 
+from x8.adapters.integrations.local_system_adapter import LocalSystemAdapter, LocalSystemStatus
 from x8.brain.continuity_manager import BrainContinuityManager
 from x8.brain.memory_manager import BrainMemoryManager
 from x8.kernel.context_assembler import KernelContextAssembler
@@ -30,6 +31,7 @@ class XV8Kernel:
         brain_manager: BrainMemoryManager | None = None,
         continuity_manager: BrainContinuityManager | None = None,
         project_builder_manager: ProjectBuilderManager | None = None,
+        local_system_adapter: LocalSystemAdapter | None = None,
     ) -> None:
         self.context_assembler = context_assembler
         self.model_router = model_router
@@ -41,6 +43,7 @@ class XV8Kernel:
         self.brain_manager = brain_manager
         self.continuity_manager = continuity_manager
         self.project_builder_manager = project_builder_manager
+        self.local_system_adapter = local_system_adapter
 
     def handle(self, request: KernelRequest) -> KernelResponse:
         started_at = datetime.now(timezone.utc)
@@ -141,16 +144,18 @@ class XV8Kernel:
                 return "Brain continuity is unavailable right now.", "unavailable", ["Brain continuity manager unavailable."]
             if not self.brain_manager and lane != "brain_continuity":
                 return "Brain memory is unavailable right now.", "unavailable", ["Brain manager unavailable."]
+        if lane == "local_system_body":
+            return self._local_system_body_response(request)
         if lower in {"hi", "hi xv8", "hi x", "hello", "hello xv8", "hello x", "hey", "hey xv8", "hey x", "good morning", "good afternoon", "good evening"}:
-            return "Hello. I'm Xoduz. You can call me X.", "passed", []
+            return "Hello. I'm X. I'm here and ready.", "passed", []
         if "what is your name" in lower or lower in {"who are you", "who are you?"}:
-            return "I'm Xoduz. You can call me X.", "passed", []
+            return "I'm X. I'm Otis's local assistant and operator cockpit.", "passed", []
         if "how do you pronounce" in lower and "xoduz" in lower:
             return "Xoduz is pronounced Exodus.", "passed", []
         if "short name" in lower and ("xoduz" in lower or "your" in lower):
             return "My short name is X.", "passed", []
         if "are you chatgpt" in lower:
-            return "No. I'm Xoduz, Otis's local assistant and operator cockpit.", "passed", []
+            return "No. I'm X, Otis's local assistant and operator cockpit.", "passed", []
         if ("who is otis" in lower or "who do you assist" in lower or "who are you for" in lower) and "otis" in lower:
             return "I am Otis Duncan's personal assistant, local AI workstation, project builder, and operator cockpit.", "passed", []
         if "email" in lower and any(term in lower for term in ("write", "draft", "compose", "send")):
@@ -215,6 +220,70 @@ class XV8Kernel:
     def _session_says_generate_preview(self, session_context: list[str]) -> bool:
         joined = " ".join(session_context).lower()
         return "generate a website" in joined and "preview only" in joined and "build/write/create" in joined and "sandbox" in joined
+
+    def _local_system_body_response(self, request: KernelRequest) -> tuple[str, str, list[str]]:
+        if not self.local_system_adapter:
+            request.client_state["local_system_result"] = {"status": "not_configured", "permission_state": "read_only", "drives": []}
+            return (
+                "Local system body scan is not configured in this runtime. I can see the local-system route, but I cannot query the host from chat yet.",
+                "unavailable",
+                ["Local system adapter unavailable."],
+            )
+        try:
+            status = self.local_system_adapter.status()
+        except Exception as exc:
+            request.client_state["local_system_result"] = {"status": "unavailable", "permission_state": "read_only", "error": str(exc), "drives": []}
+            return (
+                "Local system body scan is unavailable right now. The read-only adapter failed before it could report drive inventory.",
+                "unavailable",
+                [f"Local system adapter failed: {exc}"],
+            )
+        request.client_state["local_system_result"] = self._local_system_payload(status)
+        if not status.drives:
+            return (
+                "I ran a read-only local system scan, but no approved drive/root paths were available to report from this runtime.",
+                "unavailable",
+                ["No approved drive paths reported by local system adapter."],
+            )
+        lines = [
+            f"I can see {len(status.drives)} approved local drive/root path{'s' if len(status.drives) != 1 else ''} through my read-only local-system adapter.",
+            "",
+        ]
+        for drive in status.drives:
+            lines.append(
+                f"- {drive.path}: {self._format_bytes(drive.free_bytes)} free / {self._format_bytes(drive.total_bytes)} total"
+            )
+        lines.append("")
+        lines.append("Read-only scan only. I did not change any files or drives.")
+        return "\n".join(lines), "passed", []
+
+    def _local_system_payload(self, status: LocalSystemStatus) -> dict[str, object]:
+        return {
+            "provider": "local_system_adapter",
+            "permission_state": "read_only",
+            "status": "implemented",
+            "drive_count": len(status.drives),
+            "drives": [drive.model_dump() for drive in status.drives],
+            "os_name": status.os_name,
+            "os_release": status.os_release,
+            "machine": status.machine,
+            "cpu_count": status.cpu_count,
+            "workspace_root": status.workspace_root,
+            "approved_roots": status.approved_roots,
+            "docker_cli_available": status.docker_cli_available,
+            "docker_engine_reachable": status.docker_engine_reachable,
+            "docker_engine_version": status.docker_engine_version,
+            "docker_failure_reason": status.docker_failure_reason,
+            "changed_files": False,
+        }
+
+    def _format_bytes(self, value: int) -> str:
+        size = float(value)
+        for unit in ("B", "KB", "MB", "GB", "TB", "PB"):
+            if size < 1024 or unit == "PB":
+                return f"{size:.1f} {unit}" if unit != "B" else f"{int(size)} B"
+            size /= 1024
+        return f"{value} B"
 
     def _project_builder_response(self, request: KernelRequest) -> tuple[str, str, list[str]]:
         if not self.project_builder_manager:
@@ -303,6 +372,9 @@ class XV8Kernel:
         if lane == "project_builder":
             result = request.client_state.get("project_builder_result", {}) if isinstance(request.client_state, dict) else {}
             cards.append(ResponseCard(type="receipt", title="Project Builder result", status=str(result.get("status", status)), summary="Sandbox Project Builder route handled this request before README/file routing.", payload=result))
+        if lane == "local_system_body":
+            result = request.client_state.get("local_system_result", {}) if isinstance(request.client_state, dict) else {}
+            cards.append(ResponseCard(type="status", title="Local system body", status=str(result.get("status", status)), summary="Read-only local-system body scan handled this request without model fallback.", payload=result))
         if lane == "brain_retrieve":
             cards.append(ResponseCard(type="receipt", title="Memory used", status=status, summary="Retrieved saved Brain memory without dumping raw records.", payload={"provider": "brain", "lane": lane, "auto_capture": False}))
         elif lane.startswith("brain_"):
