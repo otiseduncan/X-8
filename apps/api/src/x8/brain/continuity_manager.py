@@ -148,7 +148,7 @@ class BrainContinuityManager:
             if project:
                 return self._answer(f"Current project state: {project['summary']}.", "brain.continuity_project_retrieved", project)
             focus = self.focus.current_work_answer(session_id=session_scope, project_scope=project_scope)
-            if "No active focus" not in focus:
+            if "No active focus" not in focus and "do not have an active focus" not in focus:
                 return ContinuityResult(True, focus, "passed", [brain_receipt("brain.continuity_focus_fallback", "passed", "Active focus fallback retrieved.")])
             return self._miss(PROJECT_MISS, "brain.continuity_project_missing")
         if "next step" in lower or "before continuing" in lower:
@@ -174,7 +174,7 @@ class BrainContinuityManager:
     def handle_chat_command(self, message: str, session_id: str = "", project_scope: str = "") -> ContinuityResult:
         text = message.strip()
         lowered = text.lower()
-        scope = {"session_scope": session_id, "project_scope": project_scope, "global_scope": True}
+        scope = {"session_scope": session_id, "project_scope": project_scope, "global_scope": not bool(session_id or project_scope)}
         patterns = [
             (r"(?i)^we are working on\s+(.+)$", self.set_project_state),
             (r"(?i)^the current project is\s+(.+)$", self.set_project_state),
