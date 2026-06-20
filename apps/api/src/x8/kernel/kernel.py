@@ -148,7 +148,7 @@ class XV8Kernel:
             return self._local_system_body_response(request)
         if lower in {"hi", "hi xv8", "hi x", "hello", "hello xv8", "hello x", "hey", "hey xv8", "hey x", "good morning", "good afternoon", "good evening"}:
             return "Hello. I'm X. I'm here and ready.", "passed", []
-        if "what is your name" in lower or lower in {"who are you", "who are you?"}:
+        if "what is your name" in lower or "who are you" in lower:
             return "I'm X. I'm Otis's local assistant and operator cockpit.", "passed", []
         if "how do you pronounce" in lower and "xoduz" in lower:
             return "Xoduz is pronounced Exodus.", "passed", []
@@ -222,15 +222,9 @@ class XV8Kernel:
         return "generate a website" in joined and "preview only" in joined and "build/write/create" in joined and "sandbox" in joined
 
     def _local_system_body_response(self, request: KernelRequest) -> tuple[str, str, list[str]]:
-        if not self.local_system_adapter:
-            request.client_state["local_system_result"] = {"status": "not_configured", "permission_state": "read_only", "drives": []}
-            return (
-                "Local system body scan is not configured in this runtime. I can see the local-system route, but I cannot query the host from chat yet.",
-                "unavailable",
-                ["Local system adapter unavailable."],
-            )
+        adapter = self.local_system_adapter or LocalSystemAdapter(".", ".")
         try:
-            status = self.local_system_adapter.status()
+            status = adapter.status()
         except Exception as exc:
             request.client_state["local_system_result"] = {"status": "unavailable", "permission_state": "read_only", "error": str(exc), "drives": []}
             return (
