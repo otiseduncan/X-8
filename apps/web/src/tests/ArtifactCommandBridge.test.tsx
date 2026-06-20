@@ -188,6 +188,38 @@ test('website name locator request highlights index html and does not generate a
   expect(screen.getAllByTestId('inline-artifact-card')).toHaveLength(1);
 });
 
+test('javascript follow-up for special of the day is intercepted locally and never falls to kernel limitations', async () => {
+  const artifactCard = await generateArtifact();
+  await send('show me the JavaScript that changes the special of the day');
+  expect(chatBodies).toHaveLength(0);
+  expect(screen.getAllByTestId('inline-artifact-card')).toHaveLength(1);
+  expect(within(artifactCard).getByRole('button', { name: 'Code' })).toHaveClass('active');
+  expect(await screen.findByText(/This package currently has no separate JavaScript file or click-handler code\./i)).toBeInTheDocument();
+  expect(screen.queryByText('Kernel limitations')).not.toBeInTheDocument();
+});
+
+test('main website name edit routes to artifact_edit_active_package using the exact rename prompt', async () => {
+  const artifactCard = await generateArtifact();
+  await send("change the main website name to Harry's Hot Dogs");
+  expect(chatBodies).toHaveLength(0);
+  expect(screen.getAllByTestId('inline-artifact-card')).toHaveLength(1);
+  expect((await screen.findAllByText(/updated the main website name to Harry's Hot Dogs in index\.html/i)).length).toBeGreaterThan(0);
+  fireEvent.click(within(artifactCard).getByRole('button', { name: 'Code' }));
+  fireEvent.click(within(artifactCard).getByRole('button', { name: /index\.html/i }));
+  const htmlEditor = within(artifactCard).getByLabelText('Artifact page code editor') as HTMLTextAreaElement;
+  expect(htmlEditor.value).toContain("Harry's Hot Dogs");
+  expect(screen.queryByText('Kernel limitations')).not.toBeInTheDocument();
+});
+
+test('preview refresh follow-up routes to artifact_preview_refresh and does not generate a new artifact', async () => {
+  await generateArtifact();
+  await send('refresh the preview');
+  expect(chatBodies).toHaveLength(0);
+  expect(screen.getAllByTestId('inline-artifact-card')).toHaveLength(1);
+  expect(await screen.findByText(/I refreshed the preview for the active package\./i)).toBeInTheDocument();
+  expect(screen.queryByText('Kernel limitations')).not.toBeInTheDocument();
+});
+
 test('color and button text edit requests update the active package instead of generating a new artifact', async () => {
   const artifactCard = await generateArtifact();
   await send('change the colors of the website to black and purple');

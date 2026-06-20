@@ -110,6 +110,22 @@ test.describe('artifact package viewer workflow', () => {
     await expect(page.getByText(/Edit the main website name in index\.html/i)).toBeVisible({ timeout: 5000 });
     await expect(artifactCard.getByTestId('artifact-highlight-summary')).toContainText('index.html');
 
+    await ask(page, 'show me the JavaScript that changes the special of the day');
+    await expect(page.getByText(/This package currently has no separate JavaScript file or click-handler code\./i)).toBeVisible({ timeout: 5000 });
+    await expect(page.getByTestId('inline-artifact-card')).toHaveCount(1);
+
+    await ask(page, "change the main website name to Harry's Hot Dogs");
+    await expect(page.getByText(/updated the main website name to Harry's Hot Dogs in index\.html/i)).toBeVisible({ timeout: 5000 });
+    await artifactCard.getByRole('button', { name: 'Code' }).click();
+    await artifactCard.getByRole('button', { name: /index\.html/i }).click();
+    await expect(artifactCard.getByTestId('artifact-code-editor').locator('.cm-content').first()).toContainText("Harry's Hot Dogs");
+    await expect(page.getByTestId('inline-artifact-card')).toHaveCount(1);
+
+    await ask(page, 'refresh the preview');
+    await expect(page.getByText(/I refreshed the preview for the active package\./i)).toBeVisible({ timeout: 5000 });
+    await expect(artifactCard.getByLabel('Artifact package tabs').getByRole('button', { name: 'Preview' })).toHaveClass(/active/);
+    await expect(page.getByTestId('inline-artifact-card')).toHaveCount(1);
+
     await ask(page, 'change the colors of the website to black and purple');
     await expect(page.getByText(/updated styles\.css to a black and purple palette/i).first()).toBeVisible({ timeout: 5000 });
     await expect(page.getByTestId('inline-artifact-card')).toHaveCount(1);

@@ -53,6 +53,89 @@ function replaceFirstButtonLabel(html: string, nextLabel: string) {
   return html.replace(/(<(?:a|button)[^>]*class=\"[^\"]*button[^\"]*\"[^>]*>)([^<]+)(<\/+(?:a|button)>)/i, `$1${nextLabel}$3`);
 }
 
+function replaceMainWebsiteName(html: string, nextName: string) {
+  let updated = html;
+  updated = updated.replace(/(<title[^>]*>)([^<]*)(<\/title>)/i, `$1${nextName}$3`);
+  updated = updated.replace(/(<h1[^>]*>)([^<]*)(<\/h1>)/i, `$1${nextName}$3`);
+  updated = updated.replace(/(<strong[^>]*>)([^<]*)(<\/strong>)/i, `$1${nextName}$3`);
+  return updated;
+}
+
+function firstScriptPath(paths: string[]) {
+  const exact = paths.find((path) => normalizePath(path).toLowerCase() === 'script.js');
+  if (exact) return exact;
+  const nested = paths.find((path) => normalizePath(path).toLowerCase().endsWith('/script.js'));
+  if (nested) return nested;
+  return paths.find((path) => path.toLowerCase().endsWith('.js')) || '';
+}
+
+function uniqueSortedLines(lines: number[]) {
+  return Array.from(new Set(lines)).sort((a, b) => a - b);
+}
+
+function findInlineScriptLines(html: string, lower: string) {
+  const lines = splitLines(html);
+  const inlineScriptLines: number[] = [];
+  let scriptStart = 0;
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i];
+    if (/<script\b/i.test(line) && scriptStart === 0) {
+      scriptStart = i + 1;
+      continue;
+    }
+    if (scriptStart > 0 && /<\/script>/i.test(line)) {
+      for (let lineNumber = scriptStart; lineNumber <= i + 1; lineNumber += 1) {
+        inlineScriptLines.push(lineNumber);
+      }
+      scriptStart = 0;
+    }
+  }
+  if (scriptStart > 0) {
+    for (let lineNumber = scriptStart; lineNumber <= lines.length; lineNumber += 1) {
+      inlineScriptLines.push(lineNumber);
+    }
+  }
+  const clickHandlerLines = searchLines(html, (line) => /onclick\s*=|addEventListener\s*\(|handle\w+\s*\(/i.test(line));
+  const specialDayLines = searchLines(html, (line) => /special\s+of\s+the\s+day|special\s*\w*|daily\s+special/i.test(line));
+  if (lower.includes('click handler')) {
+    const match = clickHandlerLines.length > 0 ? clickHandlerLines : inlineScriptLines;
+    return uniqueSortedLines(match);
+  }
+  if (lower.includes('special of the day')) {
+    const match = specialDayLines.length > 0 ? specialDayLines : inlineScriptLines;
+    return uniqueSortedLines(match);
+  }
+  if (lower.includes('javascript') || lower.includes('script')) {
+    const match = inlineScriptLines.length > 0 ? inlineScriptLines : clickHandlerLines;
+    return uniqueSortedLines(match);
+  }
+  return uniqueSortedLines([...inlineScriptLines, ...clickHandlerLines]);
+}
+
+function findScriptLines(script: string, lower: string) {
+  if (lower.includes('click handler')) {
+    return searchLines(script, (line) => /addEventListener\s*\(|onclick\s*=|handle\w+\s*\(/i.test(line));
+  }
+  if (lower.includes('special of the day')) {
+    return searchLines(script, (line) => /special\s+of\s+the\s+day|special\s*\w*|daily\s+special/i.test(line));
+  }
+  return searchLines(script, (line) => /function\s+|=>|addEventListener\s*\(|const\s+|let\s+|var\s+/i.test(line));
+}
+
+function isJavaScriptLocateRequest(lower: string) {
+  return (
+    lower.includes('show me the javascript')
+    || lower.includes('show me the script')
+    || lower.includes('where is the click handler')
+    || lower.includes('where is the special of the day logic')
+    || lower.includes('special of the day logic')
+  );
+}
+
+function isPreviewRefreshRequest(lower: string) {
+  return lower.includes('refresh the preview') || lower.includes('reload the preview') || lower.includes('update the preview');
+}
+
 const runtimeAccentName = ['pur', 'ple'].join('');
 
 function applyNightAccentPalette(css: string) {
@@ -185,12 +268,111 @@ export function resolveArtifactCommand(message: string, card: ArtifactCardLike):
   if (!context || !snapshot) return null;
 
   const lower = message.toLowerCase();
-  if (/\b(new|another)\s+(artifact|website|preview)\b/.test(lower) || /\bgenerate\s+a\s+new\b/.test(lower)) return null;
+  if (/\bgenerate\s+a\s+new\s+artifact\b/.test(lower) || /\bstart\s+over\b/.test(lower)) return null;
 
   const cssPath = firstPath(snapshot.available_files, '.css');
   const htmlPath = snapshot.available_files.find((path) => path.endsWith('.html')) || snapshot.available_files[0];
+  const scriptPath = firstScriptPath(snapshot.available_files);
   const css = snapshot.files_by_path[cssPath] || '';
   const html = snapshot.files_by_path[htmlPath] || '';
+  const script = scriptPath ? (snapshot.files_by_path[scriptPath] || '') : '';
+
+  if (isPreviewRefreshRequest(lower)) {
+    return {
+      summary: 'Refreshed the active package preview.',
+      responseText: 'I refreshed the preview for the active package.',
+      command: {
+        id: `artifact-command-${Date.now()}`,
+        command_class: 'artifact_preview_refresh',
+        type: 'refresh_preview',
+        package_id: snapshot.package_id,
+        tab: 'Preview',
+        explanation: 'Refreshed the workbench preview for the active package.'
+      }
+    };
+  }
+
+  if (isJavaScriptLocateRequest(lower)) {
+    if (scriptPath) {
+      const lines = findScriptLines(script, lower);
+      const highlightLines = lines.length > 0 ? lines : [1];
+      return {
+        summary: `Located JavaScript logic in ${scriptPath} ${formatLines(highlightLines)}.`,
+        responseText: `The JavaScript logic is in ${scriptPath} ${formatLines(highlightLines)}. I selected that file and highlighted the matching lines.`,
+        command: {
+          id: `artifact-command-${Date.now()}`,
+          command_class: 'artifact_locate_code',
+          type: 'highlight_line',
+          package_id: snapshot.package_id,
+          file_path: scriptPath,
+          line_start: highlightLines[0],
+          line_end: highlightLines.at(-1),
+          token: lower.includes('click handler') ? 'click-handler' : (lower.includes('special of the day') ? 'special-of-the-day' : 'javascript'),
+          explanation: compactSnippet(splitLines(script), highlightLines[0])
+        }
+      };
+    }
+    const inlineLines = findInlineScriptLines(html, lower);
+    if (inlineLines.length > 0) {
+      return {
+        summary: `Located JavaScript logic in ${htmlPath} ${formatLines(inlineLines)}.`,
+        responseText: `The JavaScript logic is inline in ${htmlPath} ${formatLines(inlineLines)}. I selected that file and highlighted the matching lines.`,
+        command: {
+          id: `artifact-command-${Date.now()}`,
+          command_class: 'artifact_locate_code',
+          type: 'highlight_line',
+          package_id: snapshot.package_id,
+          file_path: htmlPath,
+          line_start: inlineLines[0],
+          line_end: inlineLines.at(-1),
+          token: lower.includes('click handler') ? 'click-handler' : (lower.includes('special of the day') ? 'special-of-the-day' : 'javascript-inline'),
+          explanation: compactSnippet(splitLines(html), inlineLines[0])
+        }
+      };
+    }
+    return {
+      summary: 'No JavaScript file or click-handler code found in the current package.',
+      responseText: 'This package currently has no separate JavaScript file or click-handler code.',
+      command: {
+        id: `artifact-command-${Date.now()}`,
+        command_class: 'artifact_locate_code',
+        type: 'select_tab',
+        package_id: snapshot.package_id,
+        tab: 'Code',
+        token: 'javascript-missing',
+        explanation: 'No separate JavaScript file or click-handler code found.'
+      }
+    };
+  }
+
+  const nameChangeMatch = message.match(/change\s+the\s+(?:main\s+)?(?:website\s+name|title|site\s+name|brand\s+name)\s+to\s+(.+)/i);
+  if (nameChangeMatch && htmlPath) {
+    const nextName = nameChangeMatch[1].trim().replace(/[.?!]+$/g, '').replace(/^['"]|['"]$/g, '').trim();
+    if (nextName) {
+      const replacement = replaceMainWebsiteName(html, nextName);
+      if (replacement !== html) {
+        const changedLines = searchLines(replacement, (line) => line.includes(nextName));
+        return {
+          summary: `Updated the main website name to ${nextName} in ${htmlPath}.`,
+          responseText: `I updated the main website name to ${nextName} in ${htmlPath} and refreshed the preview.`,
+          command: {
+            id: `artifact-command-${Date.now()}`,
+            command_class: 'artifact_edit_active_package',
+            type: 'edit_file',
+            package_id: snapshot.package_id,
+            file_path: htmlPath,
+            replacement,
+            line_start: changedLines[0] || 1,
+            line_end: changedLines.at(-1) || changedLines[0] || 1,
+            token: nextName,
+            explanation: `Updated the visible website naming content to ${nextName}.`,
+            changed_files: [htmlPath],
+            tab: 'Preview'
+          }
+        };
+      }
+    }
+  }
 
   if ((lower.includes('background') && lower.includes('color')) || lower.includes('control the color of the background')) {
     const lines = searchLines(css, (line) => /background(?:-color)?\s*:|linear-gradient|radial-gradient/i.test(line));
