@@ -2,8 +2,12 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { App } from './app/App';
 import './styles.css';
+import './app/ideEnhancements.css';
+import './app/ideEnhancements';
 
-ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
+const root = document.getElementById('root') as HTMLElement;
+
+ReactDOM.createRoot(root).render(
   <React.StrictMode>
     <App />
   </React.StrictMode>
