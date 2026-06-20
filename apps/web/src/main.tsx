@@ -5,6 +5,7 @@ import './styles.css';
 import './app/ideEnhancements.css';
 import './app/ideEnhancements';
 import './app/artifactWorkbenchCompact.css';
+import './app/artifactSolidIde.css';
 
 const root = document.getElementById('root') as HTMLElement;
 
