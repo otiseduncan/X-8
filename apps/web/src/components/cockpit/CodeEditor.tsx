@@ -16,6 +16,7 @@ interface CodeEditorProps {
   path: string;
   value: string;
   onChange: (value: string) => void;
+  highlightLineNumbers?: number[];
   highlightLineStart?: number;
   highlightLineEnd?: number;
   diffEntries?: DiffHighlightEntry[];
@@ -118,8 +119,8 @@ function classNameForDiffKinds(kinds: Set<string>) {
   return '';
 }
 
-function lineHighlightExtension(args: { highlightLineStart?: number; highlightLineEnd?: number; diffEntries?: DiffHighlightEntry[] }) {
-  const { diffEntries = [], highlightLineEnd, highlightLineStart } = args;
+function lineHighlightExtension(args: { highlightLineNumbers?: number[]; highlightLineStart?: number; highlightLineEnd?: number; diffEntries?: DiffHighlightEntry[] }) {
+  const { diffEntries = [], highlightLineEnd, highlightLineNumbers = [], highlightLineStart } = args;
   return ViewPlugin.fromClass(class {
     decorations;
 
@@ -153,6 +154,15 @@ function lineHighlightExtension(args: { highlightLineStart?: number; highlightLi
         return builder.finish();
       }
 
+      if (highlightLineNumbers.length > 0) {
+        Array.from(new Set(highlightLineNumbers)).forEach((rawLineNumber) => {
+          const lineNumber = clampLineNumber(view.state.doc, Number(rawLineNumber || 1));
+          const line = view.state.doc.line(lineNumber);
+          builder.add(line.from, line.from, Decoration.line({ attributes: { class: 'artifactLineLocate', 'data-artifact-line-kind': 'artifactLineLocate' } }));
+        });
+        return builder.finish();
+      }
+
       if (highlightLineStart && highlightLineStart > 0) {
         const start = clampLineNumber(view.state.doc, highlightLineStart);
         const end = clampLineNumber(view.state.doc, highlightLineEnd && highlightLineEnd >= start ? highlightLineEnd : start);
@@ -168,11 +178,12 @@ function lineHighlightExtension(args: { highlightLineStart?: number; highlightLi
   });
 }
 
-export function CodeEditor({ path, value, onChange, highlightLineEnd, highlightLineStart, diffEntries = [] }: CodeEditorProps) {
+export function CodeEditor({ path, value, onChange, highlightLineEnd, highlightLineNumbers = [], highlightLineStart, diffEntries = [] }: CodeEditorProps) {
   const editorRef = useRef<EditorView | null>(null);
-  const decorationExtension = useMemo(() => lineHighlightExtension({ highlightLineStart, highlightLineEnd, diffEntries }), [diffEntries, highlightLineEnd, highlightLineStart]);
-  const highlightKey = useMemo(() => `${path}:${highlightLineStart || 0}:${highlightLineEnd || 0}:${diffEntries.map((entry) => `${entry.line_number}-${entry.kind}`).join('|')}`, [diffEntries, highlightLineEnd, highlightLineStart, path]);
+  const decorationExtension = useMemo(() => lineHighlightExtension({ highlightLineNumbers, highlightLineStart, highlightLineEnd, diffEntries }), [diffEntries, highlightLineEnd, highlightLineNumbers, highlightLineStart]);
+  const highlightKey = useMemo(() => `${path}:${highlightLineNumbers.join(',')}:${highlightLineStart || 0}:${highlightLineEnd || 0}:${diffEntries.map((entry) => `${entry.line_number}-${entry.kind}`).join('|')}`, [diffEntries, highlightLineEnd, highlightLineNumbers, highlightLineStart, path]);
   const targetLine = diffEntries.find((entry) => entry.kind === 'added' || entry.kind === 'modified_new')?.line_number
+    || highlightLineNumbers[0]
     || diffEntries[0]?.line_number
     || highlightLineStart
     || 0;

@@ -106,7 +106,8 @@ test.describe('artifact package viewer workflow', () => {
     await expect(artifactCard.getByRole('button', { name: 'Code' })).toHaveClass(/active/);
     await expect(artifactCard.getByTestId('artifact-highlight-summary')).toContainText('styles.css');
     await expect(artifactCard.getByTestId('artifact-highlight-summary')).toContainText('background');
-    await expect(artifactCard.getByTestId('artifact-code-editor').locator('.artifactLineLocate').first()).toBeVisible({ timeout: 5000 });
+    await expect(artifactCard.getByTestId('artifact-highlight-summary')).toContainText('lines 1, 2, 3, 12, and 15');
+    await expect(artifactCard.getByTestId('artifact-code-editor').locator('.artifactLineLocate')).toHaveCount(5, { timeout: 5000 });
     await artifactCard.getByRole('button', { name: 'History/Log' }).click();
     await expect(artifactCard.getByTestId('artifact-pending-revision')).toContainText('What would you like to change it to?');
     await expect(page.getByTestId('inline-artifact-card')).toHaveCount(1);
@@ -125,6 +126,8 @@ test.describe('artifact package viewer workflow', () => {
 
     await ask(page, 'show me where the main website name is');
     await expect(page.getByText(/The main website name is in index\.html/i).first()).toBeVisible({ timeout: 5000 });
+    await expect(artifactCard.getByTestId('artifact-highlight-summary')).toContainText('lines 3 and 8');
+    await expect(artifactCard.getByTestId('artifact-code-editor').locator('.artifactLineLocate')).toHaveCount(2, { timeout: 5000 });
     await artifactCard.getByRole('button', { name: 'History/Log' }).click();
     await expect(artifactCard.getByTestId('artifact-pending-revision')).toContainText('What would you like to change it to?');
 

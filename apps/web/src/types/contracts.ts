@@ -142,6 +142,7 @@ export interface PendingArtifactRevision {
   target_file_path: string;
   line_start: number;
   line_end: number;
+  line_numbers?: number[];
   token_or_selector: string;
   current_value: string;
   revision_kind: ArtifactRevisionKind;
@@ -188,6 +189,7 @@ export interface ArtifactCommand {
   file_path?: string;
   line_start?: number;
   line_end?: number;
+  line_numbers?: number[];
   token?: string;
   replacement?: string;
   explanation?: string;
@@ -226,6 +228,7 @@ export interface ArtifactWorkbenchSnapshot {
   highlighted_file_path: string;
   highlighted_line_start: number;
   highlighted_line_end: number;
+  highlighted_line_numbers?: number[];
   highlighted_token: string;
   workbench_state?: ArtifactWorkbenchState;
   pending_revision?: PendingArtifactRevision | null;

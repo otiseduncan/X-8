@@ -6,18 +6,21 @@ vi.mock('../components/cockpit/CodeEditor', () => ({
   CodeEditor: ({
     value,
     onChange,
+    highlightLineNumbers = [],
     highlightLineStart,
     highlightLineEnd,
     diffEntries = []
   }: {
     value: string;
     onChange: (next: string) => void;
+    highlightLineNumbers?: number[];
     highlightLineStart?: number;
     highlightLineEnd?: number;
     diffEntries?: Array<{ line_number: number; kind: string }>;
   }) => (
     <div
       data-testid="mock-code-editor"
+      data-highlight-line-numbers={highlightLineNumbers.join('|')}
       data-highlight-line-start={highlightLineStart || ''}
       data-highlight-line-end={highlightLineEnd || ''}
       data-diff-kinds={diffEntries.map((entry) => `${entry.line_number}:${entry.kind}`).join('|')}
@@ -179,6 +182,8 @@ test('background locate asks what to change and stores pending revision', async 
   fireEvent.click(within(artifactCard).getByRole('button', { name: 'Code' }));
   fireEvent.click(within(artifactCard).getByRole('button', { name: /styles\.css/i }));
   const codeEditor = within(artifactCard).getByTestId('mock-code-editor');
+  expect(within(artifactCard).getByTestId('artifact-highlight-summary')).toHaveTextContent(/lines 1, 2, and 4/);
+  expect(codeEditor).toHaveAttribute('data-highlight-line-numbers', '1|2|4');
   expect(codeEditor).toHaveAttribute('data-highlight-line-start', '1');
   expect(codeEditor).toHaveAttribute('data-highlight-line-end', '4');
   expect(codeEditor).toHaveAttribute('data-diff-kinds', '');
@@ -227,6 +232,10 @@ test('website-name locate asks what to change then applies Harrys Hot Dogs', asy
   const artifactCard = await generateArtifact();
   await send('show me where to edit the main website name');
   expect(await screen.findByText(/What would you like to change it to\?/i)).toBeInTheDocument();
+  fireEvent.click(within(artifactCard).getByRole('button', { name: 'Code' }));
+  fireEvent.click(within(artifactCard).getByRole('button', { name: /index\.html/i }));
+  expect(within(artifactCard).getByTestId('artifact-highlight-summary')).toHaveTextContent(/lines 2, 5, and 8/);
+  expect(within(artifactCard).getByTestId('mock-code-editor')).toHaveAttribute('data-highlight-line-numbers', '2|5|8');
   openHistory(artifactCard);
   expect(within(artifactCard).getByTestId('artifact-pending-revision')).toHaveTextContent(/website_name/);
   await send("Harry's Hot Dogs");

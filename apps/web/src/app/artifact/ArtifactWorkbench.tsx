@@ -79,6 +79,14 @@ function asRecord(value: unknown) {
   return typeof value === 'object' && value !== null ? value as Record<string, unknown> : {};
 }
 
+function formatHighlightedLines(lines: number[]) {
+  if (lines.length === 0) return 'unknown lines';
+  if (lines.length === 1) return `line ${lines[0]}`;
+  const sorted = Array.from(new Set(lines)).sort((a, b) => a - b);
+  if (sorted.length === 2) return `lines ${sorted[0]} and ${sorted[1]}`;
+  return `lines ${sorted.slice(0, -1).join(', ')}, and ${sorted.at(-1)}`;
+}
+
 function packageSignature(filesByPath: Record<string, string>) {
   return JSON.stringify(Object.keys(filesByPath).sort().map((path) => [path, filesByPath[path]]));
 }
@@ -237,6 +245,7 @@ export function ArtifactWorkbench({ card, onCardUpdate }: ArtifactWorkbenchProps
   const [highlightedFilePath, setHighlightedFilePath] = useState<string>('');
   const [highlightedLine, setHighlightedLine] = useState<number>(1);
   const [highlightedLineEnd, setHighlightedLineEnd] = useState<number>(1);
+  const [highlightedLineNumbers, setHighlightedLineNumbers] = useState<number[]>([]);
   const [highlightedToken, setHighlightedToken] = useState<string>('');
   const [workbenchState, setWorkbenchState] = useState<ArtifactWorkbenchState>('idle');
   const [pendingRevision, setPendingRevision] = useState<PendingArtifactRevision | null>(null);
@@ -264,6 +273,7 @@ export function ArtifactWorkbench({ card, onCardUpdate }: ArtifactWorkbenchProps
     setHighlightedFilePath('');
     setHighlightedLine(1);
     setHighlightedLineEnd(1);
+    setHighlightedLineNumbers([]);
     setHighlightedToken('');
     setWorkbenchState('idle');
     setPendingRevision(null);
@@ -342,6 +352,7 @@ export function ArtifactWorkbench({ card, onCardUpdate }: ArtifactWorkbenchProps
           highlighted_file_path: highlightedFilePath,
           highlighted_line_start: highlightedLine,
           highlighted_line_end: highlightedLineEnd,
+          highlighted_line_numbers: highlightedLineNumbers,
           highlighted_token: highlightedToken,
           workbench_state: workbenchState,
           pending_revision: pendingRevision,
@@ -373,7 +384,7 @@ export function ArtifactWorkbench({ card, onCardUpdate }: ArtifactWorkbenchProps
     if (lastPublishedPatchRef.current === signature) return;
     lastPublishedPatchRef.current = signature;
     onCardUpdate(patch);
-  }, [activeFilePath, activePreviewPath, activeTopTab, approvalState, applyReceipt, artifactBridge, card.id, card.title, diffEntries, dirtyByPath, filePaths, filesByPath, highlightedFilePath, highlightedLine, highlightedLineEnd, highlightedToken, lastArtifactCommand, packageDirty, payload, pendingCommand.id, pendingRevision, revisionHistory, savedFilesByPath, workbenchState]);
+  }, [activeFilePath, activePreviewPath, activeTopTab, approvalState, applyReceipt, artifactBridge, card.id, card.title, diffEntries, dirtyByPath, filePaths, filesByPath, highlightedFilePath, highlightedLine, highlightedLineEnd, highlightedLineNumbers, highlightedToken, lastArtifactCommand, packageDirty, payload, pendingCommand.id, pendingRevision, revisionHistory, savedFilesByPath, workbenchState]);
 
   useEffect(() => {
     if (!pendingCommand.id || pendingCommand.id === lastAppliedCommandIdRef.current || pendingCommand.package_id !== card.id) return;
@@ -397,8 +408,11 @@ export function ArtifactWorkbench({ card, onCardUpdate }: ArtifactWorkbenchProps
       setActiveTopTab('Code');
       setHighlightedLine(Math.max(1, Number(command.line_start || 1)));
       setHighlightedLineEnd(Math.max(Number(command.line_end || command.line_start || 1), Number(command.line_start || 1)));
+      setHighlightedLineNumbers(Array.isArray(command.line_numbers) && command.line_numbers.length > 0
+        ? command.line_numbers.map((line) => Math.max(1, Number(line || 1)))
+        : [Math.max(1, Number(command.line_start || 1))]);
       setHighlightedToken(command.token || '');
-      setHistoryLog((current) => [`Command highlight: ${command.file_path || activeFilePath} ${command.line_start || 1}-${command.line_end || command.line_start || 1}.`, ...current].slice(0, 200));
+      setHistoryLog((current) => [`Command highlight: ${command.file_path || activeFilePath} ${formatHighlightedLines(Array.isArray(command.line_numbers) && command.line_numbers.length > 0 ? command.line_numbers : [Number(command.line_start || 1)])}.`, ...current].slice(0, 200));
     }
     if ((command.type === 'edit_file' || command.type === 'apply_pending_revision') && command.file_path && typeof command.replacement === 'string') {
       const path = command.file_path;
@@ -410,6 +424,7 @@ export function ArtifactWorkbench({ card, onCardUpdate }: ArtifactWorkbenchProps
       setDirtyByPath((current) => ({ ...current, [path]: changed }));
       setHighlightedLine(Math.max(1, Number(command.line_start || 1)));
       setHighlightedLineEnd(Math.max(Number(command.line_end || command.line_start || 1), Number(command.line_start || 1)));
+      setHighlightedLineNumbers([]);
       setHighlightedToken(command.token || '');
       const nextDiffEntries = Array.isArray(command.diff_entries) ? command.diff_entries : [];
       if (nextDiffEntries.length > 0) {
@@ -661,7 +676,7 @@ export function ArtifactWorkbench({ card, onCardUpdate }: ArtifactWorkbenchProps
             <div className="row split"><strong>Editing</strong><span>{activeFilePath}</span></div>
             {(highlightedFilePath || highlightedToken) && (
               <p className="cardSummary" data-testid="artifact-highlight-summary">
-                Highlighted {highlightedFilePath || activeFilePath} lines {highlightedLine}{highlightedLineEnd > highlightedLine ? `-${highlightedLineEnd}` : ''}{highlightedToken ? ` for ${highlightedToken}` : ''}.
+                Highlighted {highlightedFilePath || activeFilePath} {formatHighlightedLines(highlightedLineNumbers.length > 0 ? highlightedLineNumbers : [highlightedLine, ...(highlightedLineEnd > highlightedLine ? [highlightedLineEnd] : [])].filter(Boolean))}{highlightedToken ? ` for ${highlightedToken}` : ''}.
               </p>
             )}
             <div data-testid="artifact-code-editor">
@@ -669,6 +684,7 @@ export function ArtifactWorkbench({ card, onCardUpdate }: ArtifactWorkbenchProps
                 path={activeFilePath}
                 value={activeFileContent}
                 onChange={updateActiveFile}
+                highlightLineNumbers={activeFileDiffEntries.length === 0 ? highlightedLineNumbers : []}
                 highlightLineStart={activeFileDiffEntries.length === 0 ? highlightedLine : undefined}
                 highlightLineEnd={activeFileDiffEntries.length === 0 ? highlightedLineEnd : undefined}
                 diffEntries={activeFileDiffEntries.map((entry) => ({ line_number: entry.line_number, kind: entry.kind }))}
