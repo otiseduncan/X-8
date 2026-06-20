@@ -100,7 +100,9 @@ test.describe('artifact package viewer workflow', () => {
     await expect(page.getByTestId('inline-artifact-card')).toHaveCount(1);
 
     await ask(page, 'what controls the background color?');
-    await expect(page.getByText(/background/i).first()).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText(/Current colors include/i).first()).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText(/The current value is/i)).toHaveCount(0);
+    await expect(page.getByText(/Artifact command:/i)).toHaveCount(0);
     await expect(artifactCard.getByRole('button', { name: 'Code' })).toHaveClass(/active/);
     await expect(artifactCard.getByTestId('artifact-highlight-summary')).toContainText('styles.css');
     await expect(artifactCard.getByTestId('artifact-highlight-summary')).toContainText('background');

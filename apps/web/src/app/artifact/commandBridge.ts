@@ -132,10 +132,13 @@ function describeColorValue(rawValue: string) {
     const name = namedColors[normalized];
     return name ? `${name} (${normalized})` : normalized;
   });
-  if (described.length === 0) return rawValue;
-  if (described.length === 1) return `${described[0]} from ${rawValue}`;
-  if (described.length === 2) return `${described[0]} and ${described[1]} from ${rawValue}`;
-  return `${described.slice(0, -1).join(', ')}, and ${described.at(-1)} from ${rawValue}`;
+  const uniqueColors = Array.from(new Set(described));
+  if (uniqueColors.length === 0) return '';
+  const capped = uniqueColors.slice(0, 4);
+  const suffix = uniqueColors.length > 4 ? ', plus supporting accent colors' : '';
+  if (capped.length === 1) return `${capped[0]}${suffix}`;
+  if (capped.length === 2) return `${capped[0]} and ${capped[1]}${suffix}`;
+  return `${capped.slice(0, -1).join(', ')}, and ${capped.at(-1)}${suffix}`;
 }
 
 function describeBackgroundValue(css: string, lines: number[]) {

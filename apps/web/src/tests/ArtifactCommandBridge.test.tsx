@@ -170,9 +170,12 @@ test('background locate asks what to change and stores pending revision', async 
   const artifactCard = await generateArtifact();
   await send('what is the color for the background?');
   expect(chatBodies).toHaveLength(0);
-  expect(await screen.findByText(/What would you like to change it to\?/i)).toBeInTheDocument();
-  expect(await screen.findByText(/black \(#1b0909\)/i)).toBeInTheDocument();
-  expect(await screen.findByText(/red \(#e11d24\)/i)).toBeInTheDocument();
+  expect(await screen.findByText(/Current colors include/i)).toBeInTheDocument();
+  expect(screen.getByText(/black \(#1b0909\)/i)).toBeInTheDocument();
+  expect(screen.getByText(/red \(#e11d24\)/i)).toBeInTheDocument();
+  expect(screen.queryByText(/The current value is/i)).not.toBeInTheDocument();
+  expect(screen.queryByText(/from html,body/i)).not.toBeInTheDocument();
+  expect(screen.queryByTestId('inline-receipt-card')).not.toBeInTheDocument();
   fireEvent.click(within(artifactCard).getByRole('button', { name: 'Code' }));
   fireEvent.click(within(artifactCard).getByRole('button', { name: /styles\.css/i }));
   const codeEditor = within(artifactCard).getByTestId('mock-code-editor');
@@ -190,6 +193,7 @@ test('I want blue after background locate edits styles.css and refreshes preview
   await send('I want blue');
   expect(chatBodies).toHaveLength(0);
   expect(await screen.findByText(/I changed the background to blue in styles\.css and refreshed the preview\./i)).toBeInTheDocument();
+  expect(screen.queryByTestId('inline-receipt-card')).not.toBeInTheDocument();
   fireEvent.click(within(artifactCard).getByRole('button', { name: 'Code' }));
   fireEvent.click(within(artifactCard).getByRole('button', { name: /styles\.css/i }));
   const mockEditor = within(artifactCard).getByTestId('mock-code-editor');
@@ -238,6 +242,7 @@ test('direct change background to blue edits without asking', async () => {
   expect(chatBodies).toHaveLength(0);
   expect(await screen.findByText(/I changed the background to blue in styles\.css and refreshed the preview\./i)).toBeInTheDocument();
   expect(screen.queryByText(/What would you like to change it to\?/i)).not.toBeInTheDocument();
+  expect(screen.queryByTestId('inline-receipt-card')).not.toBeInTheDocument();
   fireEvent.click(within(artifactCard).getByRole('button', { name: 'Code' }));
   fireEvent.click(within(artifactCard).getByRole('button', { name: /styles\.css/i }));
   expect(within(artifactCard).getByTestId('mock-code-editor').getAttribute('data-diff-kinds') || '').toMatch(/modified_new/);
