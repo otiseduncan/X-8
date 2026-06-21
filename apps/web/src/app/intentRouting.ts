@@ -81,6 +81,30 @@ function isPlanningOnly(lower: string) {
   return planningMarkers.some((marker) => lower.includes(marker));
 }
 
+function hasNegativeExecutionGuard(lower: string) {
+  const markers = [
+    'do not run',
+    "don't run",
+    'dont run',
+    'do not execute',
+    "don't execute",
+    'dont execute',
+    'without running',
+    'not run it',
+    'not as a docker test',
+    'not as docker test',
+    'not a docker test',
+    'not as a test',
+    'no docker test',
+    'no test run',
+    'no test command',
+    'do not start docker',
+    "don't start docker",
+    'dont start docker'
+  ];
+  return markers.some((marker) => lower.includes(marker));
+}
+
 export function isArtifactRequest(lower: string) {
   if (isPlanningOnly(lower)) return false;
   const explicitPreview = [
@@ -121,20 +145,24 @@ export function isImageRequest(lower: string) {
 }
 
 export function isTestExecutionRequest(lower: string) {
+  if (hasNegativeExecutionGuard(lower) || isPlanningOnly(lower)) return false;
+
   const explicitTestMarkers = [
     'run tests',
     'run the tests',
     'execute tests',
     'start tests',
-    'docker test',
-    'test command',
     'run web tests',
     'run api tests',
     'run unit tests',
     'run e2e tests',
     'run smoke tests'
   ];
-  return explicitTestMarkers.some((marker) => lower.includes(marker));
+
+  if (explicitTestMarkers.some((marker) => lower.includes(marker))) return true;
+
+  return /\b(run|execute|start)\s+(the\s+)?(docker\s+)?tests?\b/.test(lower)
+    || (lower.includes('docker compose run') && lower.includes('test'));
 }
 
 export function isGitHubCreateRepoRequest(lower: string) {
