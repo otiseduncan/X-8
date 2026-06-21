@@ -1,4 +1,4 @@
-﻿from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request
 
 from x8.contracts.base import ResultEnvelope
 from x8.contracts.chat import AttachmentReference, ChatRequest, ChatResponse, ChatRoleMessage, PromptReceipt
@@ -143,12 +143,14 @@ def chat(payload: ChatRequest, request: Request) -> ResultEnvelope[ChatResponse]
         receipts=[envelope_receipt, *kernel_response.extra_receipts],
     )
 
+
 # XOWUI-BRIDGE-FASTAPI-01
 # Thin Open WebUI bridge. Open WebUI remains the brain.
 @router.post("/xoduz/openwebui-chat")
 async def xoduz_openwebui_chat(request: Request):
     import json
     import os
+    import re
     import time
     import urllib.error
     import urllib.request
@@ -190,6 +192,9 @@ Do not say or write Zodus, Zodas, X-O-Duz, or X-O-Dus.
 Do not spell the name unless the user specifically asks how it is spelled.
 
 Answer directly, practically, and honestly. Work in tiny verified slices. Do not pretend to have live access to files, repos, Docker, tools, logs, memory, or system state unless that access was actually provided. When evidence is missing, say what is unknown and what should be checked next.
+
+Coding/UI rule:
+When you provide code, use fenced code blocks with the correct language label such as powershell, js, jsx, ts, tsx, python, json, yaml, html, or css. Do not claim the code ran unless actual tool output was provided.
 """.strip()
 
     body = {
@@ -258,6 +263,85 @@ Answer directly, practically, and honestly. Work in tiny verified slices. Do not
     message_id = f"xowui_msg_{now_ms}"
     receipt_id = f"xowui_receipt_{now_ms}"
 
+    language_aliases = {
+        "ps1": "powershell",
+        "pwsh": "powershell",
+        "shell": "bash",
+        "sh": "bash",
+        "javascript": "js",
+        "typescript": "ts",
+        "react": "jsx",
+        "tsx": "tsx",
+        "jsx": "jsx",
+        "py": "python",
+        "yml": "yaml",
+    }
+
+    extension_by_language = {
+        "powershell": "ps1",
+        "bash": "sh",
+        "js": "js",
+        "jsx": "jsx",
+        "ts": "ts",
+        "tsx": "tsx",
+        "python": "py",
+        "json": "json",
+        "yaml": "yml",
+        "html": "html",
+        "css": "css",
+        "markdown": "md",
+    }
+
+    def normalize_language(value: str) -> str:
+        raw_language = re.sub(r"[^A-Za-z0-9_+.-]", "", (value or "").strip().lower())
+        return language_aliases.get(raw_language, raw_language or "text")
+
+    def title_for_language(language: str) -> str:
+        labels = {
+            "powershell": "PowerShell",
+            "bash": "Shell",
+            "js": "JavaScript",
+            "jsx": "React JSX",
+            "ts": "TypeScript",
+            "tsx": "React TSX",
+            "python": "Python",
+            "json": "JSON",
+            "yaml": "YAML",
+            "html": "HTML",
+            "css": "CSS",
+            "markdown": "Markdown",
+            "text": "Text",
+        }
+        return labels.get(language, language.upper())
+
+    code_cards = []
+    for index, match in enumerate(re.finditer(r"```([^\n`]*)\n([\s\S]*?)```", content), start=1):
+        language = normalize_language(match.group(1))
+        code = match.group(2).strip("\n")
+        if not code.strip():
+            continue
+        extension = extension_by_language.get(language, "txt")
+        path = f"generated/openwebui-code-{index}.{extension}"
+        code_cards.append(
+            {
+                "id": f"{message_id}_code_{index}",
+                "type": "editor",
+                "title": f"Code artifact: {title_for_language(language)}",
+                "status": "draft",
+                "summary": "Detected from an Open WebUI fenced code block. Not saved or executed.",
+                "collapsed": False,
+                "payload": {
+                    "path": path,
+                    "content": code,
+                    "language": language,
+                    "source": "open-webui-code-fence",
+                    "execution_status": "not_run",
+                    "write_status": "not_written",
+                    "safety": "copy/edit only; execution requires separate approval",
+                },
+            }
+        )
+
     assistant_message = {
         "message_id": message_id,
         "id": message_id,
@@ -271,7 +355,7 @@ Answer directly, practically, and honestly. Work in tiny verified slices. Do not
         "audio_text": speech_text,
         "audioText": speech_text,
         "type": "message",
-        "cards": [],
+        "cards": code_cards,
         "attachments": [],
         "sources": [],
         "source_pins": [],
@@ -313,7 +397,7 @@ Answer directly, practically, and honestly. Work in tiny verified slices. Do not
         "audioText": speech_text,
         "source": "open-webui",
         "model": model,
-        "cards": [],
+        "cards": code_cards,
         "attachments": [],
         "sources": [],
         "source_pins": [],
@@ -342,7 +426,7 @@ Answer directly, practically, and honestly. Work in tiny verified slices. Do not
             "receipt": receipt,
             "receipts": [receipt],
             "attachments": [],
-            "cards": [],
+            "cards": code_cards,
             "sources": [],
             "source_pins": [],
             "sourcePins": [],
@@ -370,4 +454,3 @@ Answer directly, practically, and honestly. Work in tiny verified slices. Do not
             },
         },
     }
-
