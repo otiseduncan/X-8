@@ -200,14 +200,43 @@ When you provide code, use fenced code blocks with the correct language label su
 If you provide a fenced code block, do not explain every line unless asked. X8 will place the code in an IDE card.
 """.strip()
 
+    messages = [{"role": "system", "content": system_prompt}]
+
+    if active_artifact:
+        artifact_title = str(active_artifact.get("title") or "Active artifact")
+        artifact_path = str(active_artifact.get("path") or "generated/openwebui-code-1.html")
+        artifact_language = normalize_language(str(active_artifact.get("language") or "html"))
+        artifact_content = str(active_artifact.get("content") or "")
+
+        if len(artifact_content) > 14000:
+            artifact_content = artifact_content[:14000] + "\n<!-- active artifact truncated for context -->"
+
+        messages.append(
+            {
+                "role": "system",
+                "content": (
+                    "ACTIVE ARTIFACT LOCK:\n"
+                    "The user is currently revising this exact artifact. Treat follow-up requests as edits to this artifact unless the user explicitly says new project, new website, start over, or different artifact.\n"
+                    "For HTML artifacts, return the complete updated HTML document in one fenced ```html code block.\n"
+                    "Do not return CSS-only snippets, instructions, clarifying questions, or a separate new artifact when the user asks for color/layout/text/page revisions.\n"
+                    "Preserve the existing page structure unless the user asks to change it.\n"
+                    "If the user asks to highlight or show lines, focus on the current artifact lines.\n\n"
+                    f"Active title: {artifact_title}\n"
+                    f"Active path: {artifact_path}\n"
+                    f"Active language: {artifact_language}\n"
+                    "Current artifact content:\n"
+                    f"```{artifact_language}\n{artifact_content}\n```"
+                ),
+            }
+        )
+
+    messages.append({"role": "user", "content": user_message})
+
     body = {
         "model": model,
         "temperature": payload.get("temperature", 0.25),
         "stream": False,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_message},
-        ],
+        "messages": messages,
     }
 
     req = urllib.request.Request(
@@ -338,6 +367,88 @@ If you provide a fenced code block, do not explain every line unless asked. X8 w
             }
         )
 
+    # CSS-only fallback for active HTML artifacts:
+    # If the model ignores instructions and returns CSS for an active HTML artifact,
+    # fold that CSS into the existing HTML so the UI keeps one unified card.
+    if active_artifact and code_cards:
+        active_language = normalize_language(str(active_artifact.get("language") or ""))
+        active_path = str(active_artifact.get("path") or "")
+        active_title = str(active_artifact.get("title") or "Active artifact")
+        active_id = str(active_artifact.get("id") or "")
+
+        css_cards = [card for card in code_cards if card.get("payload", {}).get("language") == "css"]
+        html_cards = [card for card in code_cards if card.get("payload", {}).get("language") == "html"]
+
+        if active_language == "html" and css_cards and not html_cards:
+            existing_html = str(active_artifact.get("content") or "")
+            merged_css = "\n\n".join(str(card.get("payload", {}).get("content") or "") for card in css_cards)
+            if existing_html:
+                if re.search(r"<style[\s\S]*?</style>", existing_html, flags=re.IGNORECASE):
+                    merged_html = re.sub(r"<style[\s\S]*?</style>", f"<style>\n{merged_css}\n</style>", existing_html, count=1, flags=re.IGNORECASE)
+                elif re.search(r"</head>", existing_html, flags=re.IGNORECASE):
+                    merged_html = re.sub(r"</head>", f"<style>\n{merged_css}\n</style>\n</head>", existing_html, count=1, flags=re.IGNORECASE)
+                else:
+                    merged_html = f"<style>\n{merged_css}\n</style>\n{existing_html}"
+
+                code_cards = [
+                    {
+                        "id": active_id or f"{message_id}_code_active",
+                        "type": "editor",
+                        "title": active_title,
+                        "status": "draft",
+                        "summary": "Updated the active HTML artifact. CSS-only response was folded back into the same card.",
+                        "collapsed": False,
+                        "payload": {
+                            "path": active_path or "generated/openwebui-code-1.html",
+                            "content": merged_html,
+                            "language": "html",
+                            "raw_content": raw_content,
+                            "source": "open-webui-active-artifact-fallback",
+                            "execution_status": "not_run",
+                            "write_status": "not_written",
+                            "active_artifact": True,
+                            "safety": "copy/edit only; execution requires separate approval",
+                        },
+                    }
+                ]
+
+        for card in code_cards:
+            card_language = str(card.get("payload", {}).get("language") or "")
+            if active_language and card_language == active_language:
+                if active_id:
+                    card["id"] = active_id
+                if active_title:
+                    card["title"] = active_title
+                if active_path:
+                    card["payload"]["path"] = active_path
+                card["payload"]["active_artifact"] = True
+                break
+
+    html_cards = [card for card in code_cards if card.get("payload", {}).get("language") == "html"]
+    if len(html_cards) > 1:
+        pages = []
+        for page_index, card in enumerate(html_cards, start=1):
+            page_path = str(card.get("payload", {}).get("path") or f"generated/page-{page_index}.html")
+            pages.append(
+                {
+                    "title": f"Page {page_index}",
+                    "path": page_path,
+                    "language": "html",
+                    "content": str(card.get("payload", {}).get("content") or ""),
+                }
+            )
+
+        grouped = html_cards[0]
+        grouped["title"] = str(active_artifact.get("title") or "Multi-page HTML artifact") if active_artifact else "Multi-page HTML artifact"
+        grouped["summary"] = f"{len(pages)} HTML pages are available as tabs in this card."
+        grouped["payload"]["pages"] = pages
+        grouped["payload"]["path"] = pages[0]["path"]
+        grouped["payload"]["content"] = pages[0]["content"]
+        grouped["payload"]["language"] = "html"
+
+        code_cards = [card for card in code_cards if card.get("payload", {}).get("language") != "html"]
+        code_cards.insert(0, grouped)
+
     visible_text = raw_content
     if code_cards:
         visible_text = "I placed the results in the chat. Does it need any revisions?"
@@ -462,4 +573,5 @@ If you provide a fenced code block, do not explain every line unless asked. X8 w
             },
         },
     }
+
 

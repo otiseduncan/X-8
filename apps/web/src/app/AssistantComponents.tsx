@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+﻿import type { ReactNode } from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import { Activity, ChevronDown, ChevronUp, Code2, Copy, FileText, GitBranch, Image, Info, Mic, MicOff, Pause, Play, Search, ShieldCheck, Square, Trash2, Volume2, VolumeX, X } from 'lucide-react';
 import type { SpeechReceipt, SttStatus, TtsStatus } from '../audio/speechManagers';
@@ -683,3 +683,4 @@ export function Panel({ icon, title, children }: { icon: ReactNode; title: strin
     </article>
   );
 }
+

@@ -1,4 +1,4 @@
-import { Activity, Boxes, Check, ChevronDown, ChevronUp, Code2, Copy, FileText, GitBranch, Image, Info, Mic, MicOff, Paperclip, Pause, Play, Search, Send, Server, Settings, ShieldCheck, Square, Users, X } from 'lucide-react';
+﻿import { Activity, Boxes, Check, ChevronDown, ChevronUp, Code2, Copy, FileText, GitBranch, Image, Info, Mic, MicOff, Paperclip, Pause, Play, Search, Send, Server, Settings, ShieldCheck, Square, Users, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { SpeechInputManager, SpeechOutputManager } from '../audio/speechManagers';
 import type { SpeechReceipt, SttStatus, TtsStatus } from '../audio/speechManagers';
@@ -238,6 +238,7 @@ export function App() {
   const { changeVolume, clearChat, copyMessage, copyTranscript, downloadTranscript, finishAssistantResponseLifecycle, jumpToLatest, pauseSpeech, readAloud, resetStage, restoreLocalSession, resumeSpeech, scrollToLatest, startMicrophone, startNewChat, stopSpeech, toggleMute, trackTimelineScroll, unlockTestVoice } = runtimeHandlers;
   const conversationHandlers = createChatConversationHandlers({
     appendMessage,
+    updateCard,
     attachments,
     createGitHubCards,
     entry,
@@ -349,3 +350,4 @@ export function App() {
     </main>
   );
 }
+
