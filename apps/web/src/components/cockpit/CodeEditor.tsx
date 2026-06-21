@@ -53,6 +53,13 @@ export function CodeEditor({ path, value, onChange }: { path: string; value: str
         .xoduzCodeMirrorShell .cm-activeLine { background: rgba(34, 211, 238, 0.12) !important; }
         .xoduzCodeMirrorShell .cm-activeLineGutter { background: rgba(34, 211, 238, 0.14) !important; color: #e0f2fe; }
         .xoduzCodeMirrorShell .cm-scroller { line-height: 1.55; }
+        .xoduzCodeMirrorShell .tok-keyword { color: #c084fc; font-weight: 700; }
+        .xoduzCodeMirrorShell .tok-string { color: #86efac; }
+        .xoduzCodeMirrorShell .tok-number { color: #fca5a5; }
+        .xoduzCodeMirrorShell .tok-comment { color: #94a3b8; font-style: italic; }
+        .xoduzCodeMirrorShell .tok-variableName { color: #fbbf24; }
+        .xoduzCodeMirrorShell .tok-propertyName { color: #38bdf8; }
+        .xoduzCodeMirrorShell .tok-operator { color: #67e8f9; }
       `}</style>
       <CodeMirror
         value={value}
