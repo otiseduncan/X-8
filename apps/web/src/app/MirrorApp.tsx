@@ -5,7 +5,7 @@ import { OpenWebUIMirror } from './OpenWebUIMirror';
 import './chatUsability.css';
 import './openWebUiMirror.css';
 
-export function MirrorApp() {
+export function App() {
   const [avatarState, setAvatarState] = useState<AvatarRuntimeState>('idle');
 
   return (
@@ -40,3 +40,5 @@ export function MirrorApp() {
     </main>
   );
 }
+
+export const MirrorApp = App;
