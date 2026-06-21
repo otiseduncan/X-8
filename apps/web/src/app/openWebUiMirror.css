@@ -1,25 +1,47 @@
+:root {
+  --owui-sidebar-width: 305px;
+}
+
 .xoduzMirrorShell {
-  width: min(1500px, calc(100% - 24px));
-  padding-top: 14px;
+  width: min(1680px, calc(100% - 20px));
+  padding-top: 10px;
 }
 
-.xoduzMirrorFrame {
-  grid-template-columns: minmax(280px, 330px) minmax(0, 1fr);
-  gap: 18px;
-  min-height: calc(100vh - 32px);
+.xoduzMirrorStage {
+  position: relative;
+  min-height: calc(100vh - 22px);
+  border: 1px solid var(--color-xv-accent-border);
+  border-radius: 14px;
+  background: rgba(5, 7, 13, 0.9);
+  box-shadow: inset 3px 0 0 var(--color-xv-accent), 0 22px 54px rgba(0, 0, 0, 0.34);
+  overflow: hidden;
 }
 
-.xoduzMirrorAvatar {
-  z-index: 3;
+.xoduzMirrorAvatarOverlay {
+  position: absolute;
+  right: 18px;
+  top: 84px;
+  z-index: 6;
+  width: min(300px, calc(100% - 40px));
+  max-height: calc(100vh - 118px);
+  overflow: auto;
+  border: 1px solid rgba(34, 211, 238, 0.28);
+  background: linear-gradient(180deg, rgba(2, 6, 23, 0.82), rgba(8, 13, 24, 0.74));
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.38);
+  backdrop-filter: blur(14px);
 }
 
-.xoduzMirrorAvatar .avatarStage {
-  min-height: 330px;
+.xoduzMirrorAvatarHeader h1 {
+  font-size: 1rem;
 }
 
-.xoduzMirrorAvatar .avatar {
-  width: 250px;
-  height: 250px;
+.xoduzMirrorAvatarOverlay .avatarStage {
+  min-height: 250px;
+}
+
+.xoduzMirrorAvatarOverlay .avatar {
+  width: 205px;
+  height: 205px;
 }
 
 .xoduzMirrorStateControls {
@@ -29,39 +51,33 @@
 }
 
 .xoduzMirrorStateControls .ghost {
-  min-height: 32px;
+  min-height: 30px;
   padding: 0 8px;
-}
-
-.xoduzMirrorPane {
-  min-height: calc(100vh - 32px);
-  max-height: calc(100vh - 32px);
-  border: 1px solid var(--color-xv-accent-border);
-  border-radius: 10px;
-  background: rgba(5, 7, 13, 0.86);
-  box-shadow: inset 3px 0 0 var(--color-xv-accent), 0 18px 44px rgba(0, 0, 0, 0.28);
-  padding: 10px;
 }
 
 .openWebUiMirror {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  min-height: 0;
-  height: 100%;
+  min-height: calc(100vh - 22px);
+  height: calc(100vh - 22px);
 }
 
 .openWebUiMirrorHeader {
+  position: relative;
+  z-index: 7;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  min-height: 58px;
+  min-height: 64px;
   border-bottom: 1px solid rgba(34, 211, 238, 0.22);
-  padding: 4px 4px 10px;
+  background: linear-gradient(90deg, rgba(2, 6, 23, 0.92), rgba(15, 23, 42, 0.64));
+  padding: 9px 14px;
+  backdrop-filter: blur(12px);
 }
 
 .openWebUiMirrorHeader h1 {
-  font-size: 1.15rem;
+  font-size: 1.08rem;
 }
 
 .openWebUiMirrorActions {
@@ -72,40 +88,108 @@
   flex-wrap: wrap;
 }
 
-.openWebUiFrameShell {
+.openWebUiNativeFrameShell {
+  position: relative;
   min-height: 0;
   height: 100%;
   overflow: hidden;
-  border: 1px solid rgba(34, 211, 238, 0.2);
-  border-radius: 10px;
   background: #05070d;
 }
 
-.openWebUiFrame {
+.openWebUiNativeFrame {
+  position: absolute;
+  inset: 0;
   display: block;
   width: 100%;
   height: 100%;
-  min-height: calc(100vh - 124px);
   border: 0;
   background: #0b0f1a;
 }
 
-@media (max-width: 980px) {
-  .xoduzMirrorFrame {
-    grid-template-columns: 1fr;
+.openWebUiMirrorRails {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: grid;
+  grid-template-columns: var(--owui-sidebar-width) minmax(0, 1fr);
+}
+
+.openWebUiMirrorRail {
+  position: relative;
+  min-width: 0;
+  border-right: 1px solid rgba(34, 211, 238, 0.18);
+}
+
+.openWebUiMirrorRailChat {
+  border-right: 0;
+}
+
+.openWebUiMirrorRail::before {
+  content: attr(class);
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  display: none;
+  max-width: calc(100% - 24px);
+  border: 1px solid rgba(34, 211, 238, 0.26);
+  border-radius: 999px;
+  background: rgba(2, 6, 23, 0.68);
+  color: #a5f3fc;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  padding: 7px 9px;
+  text-transform: uppercase;
+}
+
+.xoduzMirrorStage[data-show-rails='true'] .openWebUiMirrorRail::before {
+  display: block;
+}
+
+@media (max-width: 1180px) {
+  :root {
+    --owui-sidebar-width: 270px;
   }
 
-  .xoduzMirrorAvatar {
-    position: relative;
-    top: 0;
+  .xoduzMirrorAvatarOverlay {
+    width: 250px;
+    opacity: 0.92;
   }
 
-  .xoduzMirrorPane {
-    min-height: 72vh;
-    max-height: none;
+  .xoduzMirrorAvatarOverlay .avatar {
+    width: 170px;
+    height: 170px;
+  }
+}
+
+@media (max-width: 860px) {
+  .xoduzMirrorShell {
+    width: calc(100% - 10px);
+    padding-top: 5px;
   }
 
-  .openWebUiFrame {
-    min-height: 72vh;
+  .xoduzMirrorStage,
+  .openWebUiMirror {
+    min-height: calc(100vh - 10px);
+    height: calc(100vh - 10px);
+  }
+
+  .openWebUiMirrorHeader {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .openWebUiMirrorRails {
+    display: none;
+  }
+
+  .xoduzMirrorAvatarOverlay {
+    right: 10px;
+    top: auto;
+    bottom: 12px;
+    width: min(240px, calc(100% - 20px));
+    max-height: 45vh;
   }
 }
