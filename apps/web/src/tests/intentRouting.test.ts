@@ -25,6 +25,13 @@ test('keeps coding and design prompts on the Open WebUI chat path', () => {
   expect(classifyRequest('I approve that preview. Now explain exactly what files you would create. Do not actually write anything.')).toBe('chat');
 });
 
+test('keeps negated Docker/test wording on the Open WebUI chat path', () => {
+  expect(classifyRequest('Create a PowerShell script that scans the repo read-only and outputs a zip report. Return it as a PowerShell code artifact, not as a website preview, not as a Docker test, and do not run it.')).toBe('chat');
+  expect(classifyRequest('Create a test plan, but do not run tests.')).toBe('chat');
+  expect(classifyRequest('Return this as code, not as docker test approval.')).toBe('chat');
+  expect(classifyRequest('docker test')).toBe('chat');
+});
+
 test('only routes explicit execution requests to Docker test approval', () => {
   expect(classifyRequest('run tests')).toBe('test');
   expect(classifyRequest('run api tests')).toBe('ide');
