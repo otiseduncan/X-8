@@ -195,6 +195,7 @@ Answer directly, practically, and honestly. Work in tiny verified slices. Do not
 
 Coding/UI rule:
 When you provide code, use fenced code blocks with the correct language label such as powershell, js, jsx, ts, tsx, python, json, yaml, html, or css. Do not claim the code ran unless actual tool output was provided.
+If you provide a fenced code block, do not explain every line unless asked. X8 will place the code in an IDE card.
 """.strip()
 
     body = {
@@ -244,18 +245,10 @@ When you provide code, use fenced code blocks with the correct language label su
             },
         )
 
-    content = (
+    raw_content = (
         data.get("choices", [{}])[0]
         .get("message", {})
         .get("content", "")
-    )
-
-    # Visible text stays Xoduz. Speech/TTS text gets pronunciation alias.
-    speech_text = (
-        content
-        .replace("Xoduz", "Exodus")
-        .replace("XODUZ", "Exodus")
-        .replace("xoduz", "Exodus")
     )
 
     now_ms = int(time.time() * 1000)
@@ -315,7 +308,7 @@ When you provide code, use fenced code blocks with the correct language label su
         return labels.get(language, language.upper())
 
     code_cards = []
-    for index, match in enumerate(re.finditer(r"```([^\n`]*)\n([\s\S]*?)```", content), start=1):
+    for index, match in enumerate(re.finditer(r"```([^\n`]*)\n([\s\S]*?)```", raw_content), start=1):
         language = normalize_language(match.group(1))
         code = match.group(2).strip("\n")
         if not code.strip():
@@ -334,6 +327,7 @@ When you provide code, use fenced code blocks with the correct language label su
                     "path": path,
                     "content": code,
                     "language": language,
+                    "raw_content": raw_content,
                     "source": "open-webui-code-fence",
                     "execution_status": "not_run",
                     "write_status": "not_written",
@@ -342,12 +336,24 @@ When you provide code, use fenced code blocks with the correct language label su
             }
         )
 
+    visible_text = raw_content
+    if code_cards:
+        visible_text = "I placed the results in the chat. Does it need any revisions?"
+
+    # Visible text stays Xoduz. Speech/TTS text gets pronunciation alias.
+    speech_text = (
+        visible_text
+        .replace("Xoduz", "Exodus")
+        .replace("XODUZ", "Exodus")
+        .replace("xoduz", "Exodus")
+    )
+
     assistant_message = {
         "message_id": message_id,
         "id": message_id,
         "role": "assistant",
-        "content": content,
-        "text": content,
+        "content": visible_text,
+        "text": visible_text,
         "speech_text": speech_text,
         "speechText": speech_text,
         "tts_text": speech_text,
@@ -387,8 +393,8 @@ When you provide code, use fenced code blocks with the correct language label su
         "success": True,
         "status": "passed",
         "message": "ok",
-        "content": content,
-        "text": content,
+        "content": visible_text,
+        "text": visible_text,
         "speech_text": speech_text,
         "speechText": speech_text,
         "tts_text": speech_text,
@@ -437,9 +443,9 @@ When you provide code, use fenced code blocks with the correct language label su
             "events": [],
             "warnings": [],
             "errors": [],
-            "content": content,
-            "text": content,
-            "message": content,
+            "content": visible_text,
+            "text": visible_text,
+            "message": visible_text,
             "speech_text": speech_text,
             "speechText": speech_text,
             "tts_text": speech_text,
