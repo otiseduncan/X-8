@@ -243,7 +243,7 @@ export function createChatConversationHandlers(deps: ChatConversationHandlersDep
       language,
       content,
       active_artifact: true,
-      lineDecorations: colorTargetLineDecorations(content),
+      lineDecorations: [],
       updatedAt: new Date().toISOString(),
     };
 
@@ -702,6 +702,7 @@ export function createChatConversationHandlers(deps: ChatConversationHandlersDep
     submitMessage
   };
 }
+
 
 
 

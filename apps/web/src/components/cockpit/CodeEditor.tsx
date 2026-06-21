@@ -15,12 +15,22 @@ type TokenSpan = {
   priority: number;
 };
 
+type LineDecorationInput = {
+  lineNumber?: number;
+  line?: number;
+  type?: string;
+  kind?: string;
+};
+
 type CodeEditorProps = {
   path: string;
   value: string;
   onChange: (value: string) => void;
   onRun?: (value: string) => Promise<string> | string;
   onSave?: (value: string) => void;
+  onRefresh?: () => string | void;
+  savedValue?: string;
+  lineDecorations?: LineDecorationInput[];
 };
 
 function addTokenMatches(spans: TokenSpan[], lineText: string, lineOffset: number, pattern: RegExp, className: string, priority: number) {
@@ -61,9 +71,7 @@ function powerShellTokensForLine(lineText: string, lineOffset: number) {
 
   const accepted: TokenSpan[] = [];
   for (const span of spans.sort((a, b) => a.priority - b.priority || a.from - b.from || b.to - a.to)) {
-    if (!accepted.some((candidate) => overlaps(candidate, span))) {
-      accepted.push(span);
-    }
+    if (!accepted.some((candidate) => overlaps(candidate, span))) accepted.push(span);
   }
 
   return accepted.sort((a, b) => a.from - b.from || a.to - b.to);
@@ -108,20 +116,36 @@ const powerShellSyntax = ViewPlugin.fromClass(
   },
 );
 
-function lineDecorationClass(path: string, lineText: string) {
-  const trimmed = lineText.trim();
-  if (/^\+[^+]/.test(trimmed)) return 'xoduzLineAdded';
-  if (/^-[^-]/.test(trimmed)) return 'xoduzLineRemoved';
-  if (/x8-modified|x8-changed|changed-line/i.test(lineText)) return 'xoduzLineModified';
+function lineClassForType(value: string) {
+  const type = value.toLowerCase();
+  if (type === 'highlight' || type === 'target' || type === 'yellow') return 'xoduzLineHighlight';
+  if (type === 'added' || type === 'add' || type === 'green') return 'xoduzLineAdded';
+  if (type === 'removed' || type === 'remove' || type === 'deleted' || type === 'red') return 'xoduzLineRemoved';
+  if (type === 'modified' || type === 'changed' || type === 'blue') return 'xoduzLineModified';
+  return '';
+}
 
-  const isWebDraft = path.endsWith('.html') || path.endsWith('.css') || path.endsWith('.scss');
-  const colorTarget = /(?:color|background|border|box-shadow|text-shadow|--[A-Za-z0-9_-]+)\s*[:=][^;]*(?:#[0-9A-Fa-f]{3,8}|rgb\(|hsl\(|\bred\b|\bblue\b|\byellow\b|\bpurple\b|\borange\b|\bwhite\b|\bblack\b|\bsilver\b)/i;
-  if (isWebDraft && colorTarget.test(lineText)) return 'xoduzLineHighlight';
+function explicitLineDecorationClass(lineNumber: number, lineDecorations: LineDecorationInput[]) {
+  const match = lineDecorations.find((item) => Number(item.lineNumber || item.line) === lineNumber);
+  if (!match) return '';
+  return lineClassForType(String(match.type || match.kind || 'highlight'));
+}
+
+function diffLineDecorationClass(lineNumber: number, savedValue: string, currentValue: string, isEditing: boolean) {
+  if (!isEditing || savedValue === currentValue) return '';
+
+  const savedLines = savedValue.split(/\r?\n/);
+  const currentLines = currentValue.split(/\r?\n/);
+  const index = lineNumber - 1;
+
+  if (index >= savedLines.length) return 'xoduzLineAdded';
+  if (savedLines.length > currentLines.length && index === Math.max(0, currentLines.length - 1)) return 'xoduzLineRemoved';
+  if (savedLines[index] !== currentLines[index]) return 'xoduzLineModified';
 
   return '';
 }
 
-function buildLineDecorations(view: EditorView, path: string): DecorationSet {
+function buildLineDecorations(view: EditorView, lineDecorations: LineDecorationInput[], savedValue: string, currentValue: string, isEditing: boolean): DecorationSet {
   const lines = [];
 
   for (const visibleRange of view.visibleRanges) {
@@ -129,7 +153,10 @@ function buildLineDecorations(view: EditorView, path: string): DecorationSet {
 
     while (position <= visibleRange.to) {
       const line = view.state.doc.lineAt(position);
-      const className = lineDecorationClass(path, line.text);
+      const explicitClass = explicitLineDecorationClass(line.number, lineDecorations);
+      const diffClass = diffLineDecorationClass(line.number, savedValue, currentValue, isEditing);
+      const className = explicitClass || diffClass;
+
       if (className) lines.push(Decoration.line({ class: className }).range(line.from));
 
       if (line.to >= visibleRange.to) break;
@@ -140,18 +167,18 @@ function buildLineDecorations(view: EditorView, path: string): DecorationSet {
   return Decoration.set(lines, true);
 }
 
-function lineDecorationPlugin(path: string) {
+function lineDecorationPlugin(lineDecorations: LineDecorationInput[], savedValue: string, currentValue: string, isEditing: boolean) {
   return ViewPlugin.fromClass(
     class {
       decorations: DecorationSet;
 
       constructor(view: EditorView) {
-        this.decorations = buildLineDecorations(view, path);
+        this.decorations = buildLineDecorations(view, lineDecorations, savedValue, currentValue, isEditing);
       }
 
       update(update: ViewUpdate) {
         if (update.docChanged || update.viewportChanged) {
-          this.decorations = buildLineDecorations(update.view, path);
+          this.decorations = buildLineDecorations(update.view, lineDecorations, savedValue, currentValue, isEditing);
         }
       }
     },
@@ -194,7 +221,7 @@ function isPreviewable(path: string) {
   return path.endsWith('.html');
 }
 
-export function CodeEditor({ path, value, onChange, onRun, onSave }: CodeEditorProps) {
+export function CodeEditor({ path, value, onChange, onRun, onSave, onRefresh, savedValue = value, lineDecorations = [] }: CodeEditorProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
   const [previewRefreshKey, setPreviewRefreshKey] = useState(0);
@@ -206,24 +233,27 @@ export function CodeEditor({ path, value, onChange, onRun, onSave }: CodeEditorP
 
   const extensions = useMemo(
     () => [
-      lineDecorationPlugin(path),
+      lineDecorationPlugin(lineDecorations, savedValue, value, isEditing),
       ...languageFor(path),
       EditorView.editable.of(isEditing),
       EditorState.readOnly.of(!isEditing),
     ],
-    [path, isEditing],
+    [path, isEditing, lineDecorations, savedValue, value],
   );
 
   const handleSave = () => {
     onSave?.(value);
     setIsEditing(false);
-    setStatusText('Saved in draft.');
+    setStatusText('Saved draft.');
   };
 
   const handleRefresh = () => {
+    const refreshed = onRefresh?.();
+    if (typeof refreshed === 'string') onChange(refreshed);
     setPreviewRefreshKey((current) => current + 1);
     setShowPreview(true);
-    setStatusText('Preview refreshed.');
+    setIsEditing(false);
+    setStatusText('Refreshed from last saved draft.');
   };
 
   const handleRun = async () => {
@@ -350,7 +380,8 @@ export function CodeEditor({ path, value, onChange, onRun, onSave }: CodeEditorP
           </button>
           <button className="xoduzEditorButton" type="button" onClick={handleSave}>
             Save
-          </button>          {canPreview ? (
+          </button>
+          {canPreview ? (
             <button className="xoduzEditorButton" type="button" onClick={handleRefresh}>
               Refresh
             </button>
@@ -382,6 +413,3 @@ export function CodeEditor({ path, value, onChange, onRun, onSave }: CodeEditorP
     </div>
   );
 }
-
-
-
