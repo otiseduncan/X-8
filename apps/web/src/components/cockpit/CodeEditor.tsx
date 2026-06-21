@@ -6,6 +6,7 @@ import { javascript } from '@codemirror/lang-javascript';
 import { python } from '@codemirror/lang-python';
 
 function languageFor(path: string) {
+  if (path.endsWith('.ps1')) return javascript();
   if (path.endsWith('.py')) return python();
   if (path.endsWith('.json')) return json();
   if (path.endsWith('.html')) return html();
