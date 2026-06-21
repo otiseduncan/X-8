@@ -144,6 +144,7 @@ function isPreviewable(path: string) {
 export function CodeEditor({ path, value, onChange, onRun, onSave }: CodeEditorProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
+  const [previewRefreshKey, setPreviewRefreshKey] = useState(0);
   const [statusText, setStatusText] = useState<string | null>(null);
   const [isRunning, setIsRunning] = useState(false);
   const label = languageLabel(path);
@@ -165,15 +166,10 @@ export function CodeEditor({ path, value, onChange, onRun, onSave }: CodeEditorP
     setStatusText('Saved in draft.');
   };
 
-  const handlePaste = async () => {
-    try {
-      const pasted = await navigator.clipboard.readText();
-      onChange(pasted);
-      setIsEditing(true);
-      setStatusText('Pasted into draft.');
-    } catch {
-      setStatusText('Paste failed. Browser clipboard permission may be blocked.');
-    }
+  const handleRefresh = () => {
+    setPreviewRefreshKey((current) => current + 1);
+    setShowPreview(true);
+    setStatusText('Preview refreshed.');
   };
 
   const handleRun = async () => {
@@ -296,10 +292,11 @@ export function CodeEditor({ path, value, onChange, onRun, onSave }: CodeEditorP
           </button>
           <button className="xoduzEditorButton" type="button" onClick={handleSave}>
             Save
-          </button>
-          <button className="xoduzEditorButton" type="button" onClick={handlePaste}>
-            Paste
-          </button>
+          </button>          {canPreview ? (
+            <button className="xoduzEditorButton" type="button" onClick={handleRefresh}>
+              Refresh
+            </button>
+          ) : null}
           {canRun ? (
             <button className="xoduzEditorButton xoduzEditorButtonPrimary" type="button" onClick={handleRun} disabled={isRunning}>
               {isRunning ? 'Running' : 'Run'}
@@ -323,7 +320,8 @@ export function CodeEditor({ path, value, onChange, onRun, onSave }: CodeEditorP
       />
 
       {statusText ? <div className="xoduzEditorStatus">{statusText}</div> : null}
-      {showPreview && canPreview ? <iframe className="xoduzCodePreview" title={`${label} preview`} srcDoc={value} sandbox="allow-scripts allow-forms allow-popups" /> : null}
+      {showPreview && canPreview ? <iframe key={previewRefreshKey} className="xoduzCodePreview" title={`${label} preview`} srcDoc={`${value}` + `<!-- x8-preview-refresh-${previewRefreshKey} -->`} sandbox="allow-scripts allow-forms allow-popups" /> : null}
     </div>
   );
 }
+
