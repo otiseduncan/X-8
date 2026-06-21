@@ -297,6 +297,10 @@ export function CodeEditor({ path, value, onChange, onRun, onSave }: CodeEditorP
         .xoduzCodeMirrorShell .cm-gutters { background: #020617; color: #64748b; border-right: 1px solid rgba(34, 211, 238, 0.18); }
         .xoduzCodeMirrorShell .cm-content { font-family: 'Cascadia Code', 'Fira Code', Consolas, monospace; font-size: 0.86rem; }
         .xoduzCodeMirrorShell .cm-line:nth-child(even) { background: rgba(15, 23, 42, 0.78); }
+        .xoduzCodeMirrorShell .cm-line.xoduzLineHighlight { background: rgba(250, 204, 21, 0.20) !important; box-shadow: inset 3px 0 #facc15; }
+        .xoduzCodeMirrorShell .cm-line.xoduzLineAdded { background: rgba(34, 197, 94, 0.20) !important; box-shadow: inset 3px 0 #22c55e; }
+        .xoduzCodeMirrorShell .cm-line.xoduzLineRemoved { background: rgba(248, 113, 113, 0.20) !important; box-shadow: inset 3px 0 #f87171; }
+        .xoduzCodeMirrorShell .cm-line.xoduzLineModified { background: rgba(59, 130, 246, 0.20) !important; box-shadow: inset 3px 0 #3b82f6; }
         .xoduzCodeMirrorShell .cm-activeLine { background: rgba(34, 211, 238, 0.12) !important; }
         .xoduzCodeMirrorShell .cm-activeLineGutter { background: rgba(34, 211, 238, 0.14) !important; color: #e0f2fe; }
         .xoduzCodeMirrorShell .cm-scroller { line-height: 1.55; }
@@ -378,5 +382,6 @@ export function CodeEditor({ path, value, onChange, onRun, onSave }: CodeEditorP
     </div>
   );
 }
+
 
 
