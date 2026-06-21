@@ -205,7 +205,16 @@ If you provide a fenced code block, do not explain every line unless asked. X8 w
     if active_artifact:
         artifact_title = str(active_artifact.get("title") or "Active artifact")
         artifact_path = str(active_artifact.get("path") or "generated/openwebui-code-1.html")
-        artifact_language = normalize_language(str(active_artifact.get("language") or "html"))
+        artifact_language_raw = re.sub(r"[^A-Za-z0-9_+.-]", "", str(active_artifact.get("language") or "html").strip().lower())
+        artifact_language = {
+            "javascript": "js",
+            "typescript": "ts",
+            "react": "jsx",
+            "ps1": "powershell",
+            "pwsh": "powershell",
+            "py": "python",
+            "yml": "yaml",
+        }.get(artifact_language_raw, artifact_language_raw or "html")
         artifact_content = str(active_artifact.get("content") or "")
 
         if len(artifact_content) > 14000:
@@ -573,5 +582,6 @@ If you provide a fenced code block, do not explain every line unless asked. X8 w
             },
         },
     }
+
 
 
