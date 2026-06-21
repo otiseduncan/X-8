@@ -125,6 +125,10 @@ export function createChatConversationHandlers(deps: ChatConversationHandlersDep
     return asksForCreation && targetsArtifact && !isRevision;
   }
 
+  function hasHighlightWord(text: string) {
+    return /\b(highlight|highlighted|highlighting|highlit|highlite|hilight|highligt|marker|markers|yellow\s+line|yellow\s+lines)\b/i.test(text);
+  }
+
   function isClearHighlightRequest(text: string) {
     return /\b(remove|clear|hide|reset)\b/i.test(text) && /\b(highlight|highlighted|line highlights|markers)\b/i.test(text);
   }
@@ -791,6 +795,7 @@ export function createChatConversationHandlers(deps: ChatConversationHandlersDep
     submitMessage
   };
 }
+
 
 
 
