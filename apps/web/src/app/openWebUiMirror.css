@@ -1,5 +1,6 @@
 :root {
   --owui-sidebar-crop: 305px;
+  --owui-chat-left-safe-pad: 34px;
   --owui-top-crop: 58px;
   --xoduz-avatar-rail-width: 330px;
 }
@@ -69,40 +70,13 @@
 }
 
 .openWebUiChatSurface {
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  display: block;
   min-height: calc(100vh - 46px);
   height: calc(100vh - 46px);
   border: 1px solid rgba(34, 211, 238, 0.22);
   border-radius: 12px;
   background: #05070d;
   overflow: hidden;
-}
-
-.openWebUiChatSurfaceHeader {
-  position: relative;
-  z-index: 2;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  min-height: 62px;
-  border-bottom: 1px solid rgba(34, 211, 238, 0.22);
-  background: linear-gradient(90deg, rgba(2, 6, 23, 0.96), rgba(15, 23, 42, 0.72));
-  padding: 9px 14px;
-  backdrop-filter: blur(12px);
-}
-
-.openWebUiChatSurfaceHeader h1 {
-  font-size: 1.08rem;
-}
-
-.openWebUiMirrorActions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-  flex-wrap: wrap;
 }
 
 .openWebUiChatCropShell {
@@ -115,10 +89,10 @@
 
 .openWebUiChatCropFrame {
   position: absolute;
-  left: calc(-1 * var(--owui-sidebar-crop));
+  left: calc((-1 * var(--owui-sidebar-crop)) + var(--owui-chat-left-safe-pad));
   top: calc(-1 * var(--owui-top-crop));
   display: block;
-  width: calc(100% + var(--owui-sidebar-crop));
+  width: calc(100% + var(--owui-sidebar-crop) - var(--owui-chat-left-safe-pad));
   height: calc(100% + var(--owui-top-crop));
   border: 0;
   background: #0b0f1a;
@@ -127,6 +101,7 @@
 @media (max-width: 1180px) {
   :root {
     --owui-sidebar-crop: 270px;
+    --owui-chat-left-safe-pad: 28px;
     --xoduz-avatar-rail-width: 280px;
   }
 
