@@ -221,22 +221,54 @@ export function createChatConversationHandlers(deps: ChatConversationHandlersDep
   }
 
   function isHighlightLineRequest(text: string) {
-    return /\b(highlight|show|where|which)\b/i.test(text) && /\b(line|lines|text|color|colors|css|change|changes)\b/i.test(text);
+    return /\b(highlight|show|where|which)\b/i.test(text)
+      && /\b(line|lines|section|sections|control|controls|button|buttons|nav|navigation|footer|header|hero|form|forms|image|images|text|copy|color|colors|css|change|changes)\b/i.test(text);
+  }
+
+  function targetLineDecorationsForRequest(content: string, requestText: string) {
+    const lines = content.split(/\r?\n/);
+    const wantsButtons = /\b(button|buttons|btn|cta|control|controls)\b/i.test(requestText);
+    const wantsNav = /\b(nav|navigation|menu|link|links)\b/i.test(requestText);
+    const wantsFooter = /\b(footer|bottom|copyright)\b/i.test(requestText);
+    const wantsHeader = /\b(header|hero|top|banner)\b/i.test(requestText);
+    const wantsForm = /\b(form|forms|input|inputs|field|fields|submit)\b/i.test(requestText);
+    const wantsImage = /\b(image|images|img|photo|photos|logo)\b/i.test(requestText);
+    const wantsColor = /\b(color|colors|background|theme|palette)\b/i.test(requestText);
+    const wantsText = /\b(text|copy|font|word|words|headline|heading|paragraph)\b/i.test(requestText);
+
+    const colorPattern = /(?:color|background|border|box-shadow|text-shadow|--[A-Za-z0-9_-]+)\s*[:=][^;]*(?:#[0-9A-Fa-f]{3,8}|rgb\(|hsl\(|\bred\b|\bblue\b|\byellow\b|\bpurple\b|\borange\b|\bwhite\b|\bblack\b|\bsilver\b|\bpink\b|\bgreen\b)/i;
+    const buttonPattern = /(<button\b|<\/button>|class=["'][^"']*(btn|button|cta|control|action)[^"']*["']|id=["'][^"']*(btn|button|cta|control|action)[^"']*["']|(\.|#)(btn|button|cta|control|action)\b|\bbutton\s*\{|\.btn\b|\.cta\b)/i;
+    const navPattern = /(<nav\b|<\/nav>|class=["'][^"']*(nav|menu|navbar|navigation)[^"']*["']|id=["'][^"']*(nav|menu|navbar|navigation)[^"']*["']|(\.|#)(nav|menu|navbar|navigation)\b|\bnav\s*\{)/i;
+    const footerPattern = /(<footer\b|<\/footer>|class=["'][^"']*footer[^"']*["']|id=["'][^"']*footer[^"']*["']|(\.|#)footer\b|\bfooter\s*\{)/i;
+    const headerPattern = /(<header\b|<\/header>|class=["'][^"']*(header|hero|banner)[^"']*["']|id=["'][^"']*(header|hero|banner)[^"']*["']|(\.|#)(header|hero|banner)\b|\bheader\s*\{)/i;
+    const formPattern = /(<form\b|<\/form>|<input\b|<textarea\b|<select\b|class=["'][^"']*(form|input|field|submit)[^"']*["']|(\.|#)(form|input|field|submit)\b)/i;
+    const imagePattern = /(<img\b|<picture\b|background-image|class=["'][^"']*(image|img|photo|logo)[^"']*["']|(\.|#)(image|img|photo|logo)\b)/i;
+    const textPattern = /(<h[1-6]\b|<\/h[1-6]>|<p\b|<\/p>|font-family|font-size|font-weight|line-height|letter-spacing|class=["'][^"']*(title|headline|text|copy|paragraph)[^"']*["'])/i;
+
+    const matches = lines
+      .map((line, index) => ({ line, lineNumber: index + 1 }))
+      .filter(({ line }) => {
+        if (wantsButtons && buttonPattern.test(line)) return true;
+        if (wantsNav && navPattern.test(line)) return true;
+        if (wantsFooter && footerPattern.test(line)) return true;
+        if (wantsHeader && headerPattern.test(line)) return true;
+        if (wantsForm && formPattern.test(line)) return true;
+        if (wantsImage && imagePattern.test(line)) return true;
+        if (wantsColor && colorPattern.test(line)) return true;
+        if (wantsText && textPattern.test(line)) return true;
+
+        return false;
+      });
+
+    return matches.map(({ lineNumber }) => ({
+      lineNumber,
+      type: 'highlight',
+      reason: 'Target line in the active artifact',
+    }));
   }
 
   function colorTargetLineDecorations(content: string) {
-    return content
-      .split(/\r?\n/)
-      .map((line, index) => ({
-        line,
-        lineNumber: index + 1,
-      }))
-      .filter(({ line }) => /(?:color|background|border|box-shadow|text-shadow|--[A-Za-z0-9_-]+)\s*[:=][^;]*(?:#[0-9A-Fa-f]{3,8}|rgb\(|hsl\(|\bred\b|\bblue\b|\byellow\b|\bpurple\b|\borange\b|\bwhite\b|\bblack\b|\bsilver\b)/i.test(line))
-      .map(({ lineNumber }) => ({
-        lineNumber,
-        type: 'highlight',
-        reason: 'Color-related line in the active artifact',
-      }));
+    return targetLineDecorationsForRequest(content, 'color');
   }
 
   function updateExistingActiveCard(activeArtifact: Record<string, unknown>, editorCard: ChatCard, summary = 'Updated the active artifact in this card.') {
@@ -296,7 +328,7 @@ export function createChatConversationHandlers(deps: ChatConversationHandlersDep
 
     const content = String(activeArtifact.content || '');
     const path = String(activeArtifact.path || 'generated/openwebui-code-1.html');
-    const decorations = colorTargetLineDecorations(content);
+    const decorations = targetLineDecorationsForRequest(content, text);
     const cardId = String(activeArtifact.id || nowId());
 
     updateCard(cardId, {
@@ -327,7 +359,7 @@ export function createChatConversationHandlers(deps: ChatConversationHandlersDep
       role: 'assistant',
       text: decorations.length
         ? 'I highlighted the matching lines in the active artifact.'
-        : 'I kept the active artifact selected, but I did not find matching color lines to highlight.',
+        : 'I kept the active artifact selected, but I did not find matching lines for that target.',
     });
 
     setLatestResult('Active artifact lines highlighted');
@@ -759,6 +791,7 @@ export function createChatConversationHandlers(deps: ChatConversationHandlersDep
     submitMessage
   };
 }
+
 
 
 
