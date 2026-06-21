@@ -373,7 +373,122 @@ function FileBody({ card }: { card: ChatCard }) {
 }
 
 function EditorBody({ card }: { card: ChatCard }) {
-  return <CodeEditor path={String(card.payload?.path || 'draft.txt')} value={String(card.payload?.content || '')} onChange={() => undefined} />;
+  const rawPages = Array.isArray(card.payload?.pages) ? card.payload.pages as Array<Record<string, unknown>> : [];
+  const fallbackPage = {
+    title: 'Page 1',
+    path: String(card.payload?.path || 'draft.txt'),
+    language: String(card.payload?.language || ''),
+    content: String(card.payload?.content || ''),
+  };
+
+  const sourcePages = rawPages.length
+    ? rawPages.map((page, index) => ({
+        title: String(page.title || `Page ${index + 1}`),
+        path: String(page.path || `generated/page-${index + 1}.html`),
+        language: String(page.language || card.payload?.language || ''),
+        content: String(page.content || ''),
+      }))
+    : [fallbackPage];
+
+  const sourceDecorations = Array.isArray(card.payload?.lineDecorations)
+    ? card.payload.lineDecorations as Array<Record<string, unknown>>
+    : [];
+
+  const [activePageIndex, setActivePageIndex] = useState(0);
+  const [draftPages, setDraftPages] = useState(sourcePages);
+  const [savedPages, setSavedPages] = useState(sourcePages);
+  const [lineDecorations, setLineDecorations] = useState(sourceDecorations);
+
+  useEffect(() => {
+    setDraftPages(sourcePages);
+    setSavedPages(sourcePages);
+    setLineDecorations(sourceDecorations);
+    setActivePageIndex(0);
+  }, [
+    card.id,
+    String(card.payload?.content || ''),
+    JSON.stringify(card.payload?.pages || []),
+    JSON.stringify(card.payload?.lineDecorations || []),
+  ]);
+
+  const activePage = draftPages[activePageIndex] || draftPages[0] || fallbackPage;
+  const savedPage = savedPages[activePageIndex] || savedPages[0] || activePage;
+
+  function persistActiveArtifact(nextPages = draftPages, nextContent = activePage.content, nextDecorations = lineDecorations) {
+    const nextActivePage = nextPages[activePageIndex] || nextPages[0] || activePage;
+
+    const activeArtifact = {
+      ...(card.payload || {}),
+      id: card.id,
+      title: card.title,
+      path: nextActivePage.path,
+      language: nextActivePage.language || String(card.payload?.language || ''),
+      content: nextContent,
+      pages: nextPages,
+      lineDecorations: nextDecorations,
+      active_artifact: true,
+      updatedAt: new Date().toISOString(),
+    };
+
+    window.localStorage.setItem('x8.activeArtifact', JSON.stringify(activeArtifact));
+  }
+
+  function updatePageContent(nextValue: string) {
+    setDraftPages((current) => {
+      const nextPages = current.map((page, index) => (
+        index === activePageIndex ? { ...page, content: nextValue } : page
+      ));
+      persistActiveArtifact(nextPages, nextValue, lineDecorations);
+      return nextPages;
+    });
+  }
+
+  function saveActivePage(nextValue: string) {
+    const nextPages = draftPages.map((page, index) => (
+      index === activePageIndex ? { ...page, content: nextValue } : page
+    ));
+    setDraftPages(nextPages);
+    setSavedPages(nextPages);
+    setLineDecorations([]);
+    persistActiveArtifact(nextPages, nextValue, []);
+  }
+
+  function refreshActivePage() {
+    const nextPages = savedPages.map((page) => ({ ...page }));
+    const nextActive = nextPages[activePageIndex] || nextPages[0] || savedPage;
+    setDraftPages(nextPages);
+    setLineDecorations([]);
+    persistActiveArtifact(nextPages, nextActive.content, []);
+    return nextActive.content;
+  }
+
+  return (
+    <div className="stack">
+      {draftPages.length > 1 && (
+        <div className="tabs" aria-label="HTML artifact pages">
+          {draftPages.map((page, index) => (
+            <button
+              key={`${page.path}-${index}`}
+              className={activePageIndex === index ? 'tab active' : 'tab'}
+              type="button"
+              onClick={() => setActivePageIndex(index)}
+            >
+              {page.title || `Page ${index + 1}`}
+            </button>
+          ))}
+        </div>
+      )}
+      <CodeEditor
+        path={activePage.path}
+        value={activePage.content}
+        savedValue={savedPage.content}
+        lineDecorations={lineDecorations}
+        onChange={updatePageContent}
+        onSave={saveActivePage}
+        onRefresh={refreshActivePage}
+      />
+    </div>
+  );
 }
 
 function DiffBody({ card }: { card: ChatCard }) {
@@ -683,5 +798,6 @@ export function Panel({ icon, title, children }: { icon: ReactNode; title: strin
     </article>
   );
 }
+
 
 
