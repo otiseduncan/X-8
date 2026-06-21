@@ -322,42 +322,6 @@ export function createChatConversationHandlers(deps: ChatConversationHandlersDep
     setLatestResult('Active artifact lines highlighted');
     setStage(muted ? 'muted' : 'idle');
   }
-
-    const content = String(activeArtifact.content || '');
-    const path = String(activeArtifact.path || 'generated/openwebui-code-1.html');
-    const decorations = colorTargetLineDecorations(content);
-
-    appendMessage({
-      id: nowId(),
-      role: 'assistant',
-      text: decorations.length
-        ? 'I highlighted the matching lines in the active artifact.'
-        : 'I kept the active artifact selected, but I did not find matching color lines to highlight.',
-      cards: [
-        {
-          id: nowId(),
-          type: 'editor',
-          title: String(activeArtifact.title || 'Active artifact'),
-          status: 'draft',
-          summary: decorations.length
-            ? 'Yellow highlighted lines mark the current target lines in the active artifact.'
-            : 'Active artifact reopened without matching line highlights.',
-          payload: {
-            ...activeArtifact,
-            path,
-            content,
-            lineDecorations: decorations,
-            active_artifact: true,
-          },
-          collapsed: false,
-        },
-      ],
-    });
-
-    setLatestResult('Active artifact lines highlighted');
-    setStage(muted ? 'muted' : 'idle');
-  }
-
   async function handleUserText(text: string, outgoingAttachments: AttachmentReference[] = []) {
     if (isHighlightLineRequest(text) && activeArtifactForPrompt(text)) return highlightActiveArtifactLines(text);
     if (isActiveArtifactFollowUp(text)) return createAssistantReply(text, outgoingAttachments);
@@ -738,5 +702,6 @@ export function createChatConversationHandlers(deps: ChatConversationHandlersDep
     submitMessage
   };
 }
+
 
 
