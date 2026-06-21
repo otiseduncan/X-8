@@ -1,14 +1,92 @@
-export function classifyRequest(text: string) {
+export type RequestIntent =
+  | 'self_build'
+  | 'github'
+  | 'file'
+  | 'repo'
+  | 'diff'
+  | 'artifact'
+  | 'research'
+  | 'image'
+  | 'test'
+  | 'chat';
+
+const FILE_EXTENSIONS = [
+  'py',
+  'ts',
+  'tsx',
+  'js',
+  'jsx',
+  'json',
+  'md',
+  'txt',
+  'css',
+  'html',
+  'yaml',
+  'yml',
+  'toml',
+  'env',
+  'ini',
+  'ps1',
+  'sh',
+  'dockerfile'
+];
+
+export function classifyRequest(text: string): RequestIntent {
   const lower = text.toLowerCase();
   if (isSelfBuildRequest(lower)) return 'self_build';
   if (isGitHubRequest(lower)) return 'github';
+  if (isRepoInspectionRequest(lower)) return 'repo';
+  if (parseRequestedPath(text, '')) return 'file';
   if (lower.includes('open') && lower.includes('readme')) return 'file';
   if (lower.includes('propose') && (lower.includes('edit') || lower.includes('diff'))) return 'diff';
   if (isArtifactRequest(lower)) return 'artifact';
   if (lower.includes('search') || lower.includes('searxng')) return 'research';
-  if (lower.includes('image') || lower.includes('generate')) return 'image';
+  if (lower.includes('image') || lower.includes('generate picture') || lower.includes('generate image')) return 'image';
   if (lower.includes('test') || lower.includes('testing')) return 'test';
   return 'chat';
+}
+
+export function parseRequestedPath(text: string, fallback = 'README.md') {
+  const clean = text.trim();
+  const quoted = clean.match(/["'`]([^"'`]+\.[A-Za-z0-9]+)["'`]/);
+  if (quoted?.[1]) return normalizePathCandidate(quoted[1], fallback);
+
+  const afterVerb = clean.match(/\b(?:open|read|show|inspect|view|load|display|edit)\s+(?:the\s+)?(?:file\s+)?([A-Za-z0-9_./\\:@ -]+\.[A-Za-z0-9]+)\b/i);
+  if (afterVerb?.[1]) return normalizePathCandidate(afterVerb[1], fallback);
+
+  const anyPath = clean.match(/\b([A-Za-z0-9_.-]+(?:[\\/][A-Za-z0-9_. -]+)*\.(?:py|ts|tsx|js|jsx|json|md|txt|css|html|yaml|yml|toml|ini|ps1|sh))\b/i);
+  if (anyPath?.[1]) return normalizePathCandidate(anyPath[1], fallback);
+
+  if (/\breadme\b/i.test(clean)) return 'README.md';
+  return fallback;
+}
+
+function normalizePathCandidate(value: string, fallback: string) {
+  const trimmed = value
+    .trim()
+    .replace(/[.,;:!?]+$/g, '')
+    .replace(/^\.?[\\/]+/, '')
+    .replace(/\\/g, '/');
+
+  if (!trimmed) return fallback;
+  if (trimmed.includes('..')) return fallback;
+
+  const ext = trimmed.split('.').pop()?.toLowerCase() || '';
+  if (!FILE_EXTENSIONS.includes(ext) && !trimmed.toLowerCase().endsWith('dockerfile')) return fallback;
+
+  return trimmed;
+}
+
+export function isRepoInspectionRequest(lower: string) {
+  return lower.includes('check the repo')
+    || lower.includes('inspect the repo')
+    || lower.includes('inspect repo')
+    || lower.includes('repo inspection')
+    || lower.includes('repo status')
+    || lower.includes('scan the repo')
+    || lower.includes('scan repo')
+    || lower.includes('what is broken in the repo')
+    || lower.includes('what broke in the repo');
 }
 
 export function isSelfBuildRequest(lower: string) {
