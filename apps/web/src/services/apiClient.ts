@@ -408,7 +408,7 @@ function normalizeOpenWebUICodeArtifactResponse(envelope: ResultEnvelope<ChatRes
   return envelope;
 }
 
-export async function sendChat(message: string, attachments: AttachmentReference[] = [], session_id?: string, timeoutMs = CHAT_TIMEOUT_MS) {
+export async function sendChat(message: string, attachments: AttachmentReference[] = [], session_id?: string, active_artifact?: Record<string, unknown> | null, timeoutMs = CHAT_TIMEOUT_MS) {
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
   const response = await fetch('/api/xoduz/openwebui-chat', {
@@ -418,6 +418,7 @@ export async function sendChat(message: string, attachments: AttachmentReference
     body: JSON.stringify({
       message,
       session_id,
+      active_artifact,
       attachments: attachments
         .filter((attachment) => attachment.attachment_id && attachment.status !== 'blocked' && attachment.status !== 'failed')
         .map((attachment) => ({
@@ -431,6 +432,7 @@ export async function sendChat(message: string, attachments: AttachmentReference
   if (!response.ok) throw new Error('Chat request failed');
   return response.json() as Promise<ResultEnvelope<ChatResponse>>;
 }
+
 
 
 

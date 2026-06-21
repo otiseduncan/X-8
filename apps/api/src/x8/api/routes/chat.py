@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Request
+﻿from fastapi import APIRouter, Request
 
 from x8.contracts.base import ResultEnvelope
 from x8.contracts.chat import AttachmentReference, ChatRequest, ChatResponse, ChatRoleMessage, PromptReceipt
@@ -174,6 +174,8 @@ async def xoduz_openwebui_chat(request: Request):
 
     if not user_message:
         raise HTTPException(status_code=400, detail="Message is required")
+
+    active_artifact = payload.get("active_artifact") if isinstance(payload.get("active_artifact"), dict) else None
 
     base_url = os.getenv("OPENWEBUI_BASE_URL", "http://host.docker.internal:3000").rstrip("/")
     api_key = os.getenv("OPENWEBUI_API_KEY", "").strip()
@@ -460,3 +462,4 @@ If you provide a fenced code block, do not explain every line unless asked. X8 w
             },
         },
     }
+

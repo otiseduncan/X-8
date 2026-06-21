@@ -1,4 +1,4 @@
-import type React from 'react';
+﻿import type React from 'react';
 import { CHAT_TIMEOUT_MS, createArtifactPreview, proposeUpdate, readFile, requestImage, runSearch, runSelfBuildPrompt, scanX7Configs, sendChat, uploadAttachment } from '../../services/apiClient';
 import type { AttachmentReference, PatchProposal } from '../../types/contracts';
 import type { AvatarRuntimeState, ChatCard, ChatMessage, InfoReceipt } from '../AssistantComponents';
@@ -110,7 +110,120 @@ export function createChatConversationHandlers(deps: ChatConversationHandlersDep
       .replace(/(password|passcode|token|api[_ -]?key|secret|one[- ]?time code|otp)\s*(is|=|:)?\s*\S+/gi, '$1 [redacted]');
   }
 
+  const ACTIVE_ARTIFACT_KEY = 'x8.activeArtifact';
+
+  function shouldClearActiveArtifact(text: string) {
+    return /\b(new artifact|new website|different website|start over|reset artifact|clear artifact|new project)\b/i.test(text);
+  }
+
+  function readActiveArtifact(): Record<string, unknown> | null {
+    try {
+      const raw = window.localStorage.getItem(ACTIVE_ARTIFACT_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== 'object') return null;
+      if (!String(parsed.content || '').trim()) return null;
+      return parsed as Record<string, unknown>;
+    } catch {
+      return null;
+    }
+  }
+
+  function rememberActiveArtifactFromCards(cards: ChatCard[]) {
+    const editorCard = [...cards].reverse().find((card) => card.type === 'editor' && String(card.payload?.content || '').trim());
+    if (!editorCard) return;
+
+    const payload = editorCard.payload || {};
+    const artifact = {
+      id: editorCard.id,
+      title: editorCard.title,
+      path: String(payload.path || 'generated/openwebui-code-1.html'),
+      language: String(payload.language || ''),
+      content: String(payload.content || ''),
+      updatedAt: new Date().toISOString(),
+      source: String(payload.source || 'x8-editor-card')
+    };
+
+    window.localStorage.setItem(ACTIVE_ARTIFACT_KEY, JSON.stringify(artifact));
+  }
+
+  function activeArtifactForPrompt(text: string): Record<string, unknown> | null {
+    if (shouldClearActiveArtifact(text)) {
+      window.localStorage.removeItem(ACTIVE_ARTIFACT_KEY);
+      return null;
+    }
+
+    return readActiveArtifact();
+  }
+
+  function isHighlightLineRequest(text: string) {
+    return /\b(highlight|show|where|which)\b/i.test(text) && /\b(line|lines|text|color|colors|css|change|changes)\b/i.test(text);
+  }
+
+  function colorTargetLineDecorations(content: string) {
+    return content
+      .split(/\r?\n/)
+      .map((line, index) => ({
+        line,
+        lineNumber: index + 1,
+      }))
+      .filter(({ line }) => /(?:color|background|border|box-shadow|text-shadow|--[A-Za-z0-9_-]+)\s*[:=][^;]*(?:#[0-9A-Fa-f]{3,8}|rgb\(|hsl\(|\bred\b|\bblue\b|\byellow\b|\bpurple\b|\borange\b|\bwhite\b|\bblack\b|\bsilver\b)/i.test(line))
+      .map(({ lineNumber }) => ({
+        lineNumber,
+        type: 'highlight',
+        reason: 'Color-related line in the active artifact',
+      }));
+  }
+
+  function highlightActiveArtifactLines(text: string) {
+    const activeArtifact = activeArtifactForPrompt(text);
+    if (!activeArtifact) {
+      appendMessage({
+        id: nowId(),
+        role: 'assistant',
+        text: 'I do not have an active artifact selected yet. Generate or select a website/code card first.',
+      });
+      setStage(muted ? 'muted' : 'idle');
+      return;
+    }
+
+    const content = String(activeArtifact.content || '');
+    const path = String(activeArtifact.path || 'generated/openwebui-code-1.html');
+    const decorations = colorTargetLineDecorations(content);
+
+    appendMessage({
+      id: nowId(),
+      role: 'assistant',
+      text: decorations.length
+        ? 'I highlighted the matching lines in the active artifact.'
+        : 'I kept the active artifact selected, but I did not find matching color lines to highlight.',
+      cards: [
+        {
+          id: nowId(),
+          type: 'editor',
+          title: String(activeArtifact.title || 'Active artifact'),
+          status: 'draft',
+          summary: decorations.length
+            ? 'Yellow highlighted lines mark the current target lines in the active artifact.'
+            : 'Active artifact reopened without matching line highlights.',
+          payload: {
+            ...activeArtifact,
+            path,
+            content,
+            lineDecorations: decorations,
+            active_artifact: true,
+          },
+          collapsed: false,
+        },
+      ],
+    });
+
+    setLatestResult('Active artifact lines highlighted');
+    setStage(muted ? 'muted' : 'idle');
+  }
+
   async function handleUserText(text: string, outgoingAttachments: AttachmentReference[] = []) {
+    if (isHighlightLineRequest(text) && activeArtifactForPrompt(text)) return highlightActiveArtifactLines(text);
     const intent = classifyRequest(text);
     if (intent === 'file') return openFileCard('README.md');
     if (intent === 'diff') return proposeDiffCard('README.md');
@@ -130,7 +243,7 @@ export function createChatConversationHandlers(deps: ChatConversationHandlersDep
       setLastApiStatus('pending');
       setLastApiError('');
       setLastTimeoutReason('');
-      const response = await sendChat(text, outgoingAttachments, sessionId);
+      const response = await sendChat(text, outgoingAttachments, sessionId, activeArtifactForPrompt(text));
       setSessionId(response.data.session_id);
       window.localStorage.setItem('x8.activeSessionId', response.data.session_id);
       setLatestReceipt(response.data.receipt || response.receipts?.[0] || null);
@@ -138,6 +251,7 @@ export function createChatConversationHandlers(deps: ChatConversationHandlersDep
       setLastApiStatus(response.status || 'ok');
       const responseText = response.data.assistant_message.content;
       const responseCards = response.data.assistant_message.cards.map(mapKernelCard).filter((card): card is ChatCard => Boolean(card));
+      rememberActiveArtifactFromCards(responseCards);
       recordResponseLifecycle(responseCards.length ? 'text-with-cards' : 'deterministic/text-only', Boolean(responseText.trim()), responseCards.length > 0);
       appendMessage({
         id: response.data.message_id || nowId(),
@@ -467,3 +581,4 @@ export function createChatConversationHandlers(deps: ChatConversationHandlersDep
     submitMessage
   };
 }
+

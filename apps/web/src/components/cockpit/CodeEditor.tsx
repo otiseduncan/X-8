@@ -108,6 +108,59 @@ const powerShellSyntax = ViewPlugin.fromClass(
   },
 );
 
+function lineDecorationClass(path: string, lineText: string) {
+  const trimmed = lineText.trim();
+  if (/^\+[^+]/.test(trimmed)) return 'xoduzLineAdded';
+  if (/^-[^-]/.test(trimmed)) return 'xoduzLineRemoved';
+  if (/x8-modified|x8-changed|changed-line/i.test(lineText)) return 'xoduzLineModified';
+
+  const isWebDraft = path.endsWith('.html') || path.endsWith('.css') || path.endsWith('.scss');
+  const colorTarget = /(?:color|background|border|box-shadow|text-shadow|--[A-Za-z0-9_-]+)\s*[:=][^;]*(?:#[0-9A-Fa-f]{3,8}|rgb\(|hsl\(|\bred\b|\bblue\b|\byellow\b|\bpurple\b|\borange\b|\bwhite\b|\bblack\b|\bsilver\b)/i;
+  if (isWebDraft && colorTarget.test(lineText)) return 'xoduzLineHighlight';
+
+  return '';
+}
+
+function buildLineDecorations(view: EditorView, path: string): DecorationSet {
+  const lines = [];
+
+  for (const visibleRange of view.visibleRanges) {
+    let position = visibleRange.from;
+
+    while (position <= visibleRange.to) {
+      const line = view.state.doc.lineAt(position);
+      const className = lineDecorationClass(path, line.text);
+      if (className) lines.push(Decoration.line({ class: className }).range(line.from));
+
+      if (line.to >= visibleRange.to) break;
+      position = line.to + 1;
+    }
+  }
+
+  return Decoration.set(lines, true);
+}
+
+function lineDecorationPlugin(path: string) {
+  return ViewPlugin.fromClass(
+    class {
+      decorations: DecorationSet;
+
+      constructor(view: EditorView) {
+        this.decorations = buildLineDecorations(view, path);
+      }
+
+      update(update: ViewUpdate) {
+        if (update.docChanged || update.viewportChanged) {
+          this.decorations = buildLineDecorations(update.view, path);
+        }
+      }
+    },
+    {
+      decorations: (value) => value.decorations,
+    },
+  );
+}
+
 function languageFor(path: string): Extension[] {
   if (path.endsWith('.ps1')) return [powerShellSyntax];
   if (path.endsWith('.py')) return [python()];
@@ -153,6 +206,7 @@ export function CodeEditor({ path, value, onChange, onRun, onSave }: CodeEditorP
 
   const extensions = useMemo(
     () => [
+      lineDecorationPlugin(path),
       ...languageFor(path),
       EditorView.editable.of(isEditing),
       EditorState.readOnly.of(!isEditing),
@@ -324,4 +378,5 @@ export function CodeEditor({ path, value, onChange, onRun, onSave }: CodeEditorP
     </div>
   );
 }
+
 
