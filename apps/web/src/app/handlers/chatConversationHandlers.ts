@@ -227,7 +227,7 @@ export function createChatConversationHandlers(deps: ChatConversationHandlersDep
 
   function targetLineDecorationsForRequest(content: string, requestText: string) {
     const lines = content.split(/\r?\n/);
-    const wantsButtons = /\b(button|buttons|btn|cta|control|controls)\b/i.test(requestText);
+    const wantsButtons = /\b(button|buttons|btn|cta|control|controls|link|links)\b/i.test(requestText);
     const wantsNav = /\b(nav|navigation|menu|link|links)\b/i.test(requestText);
     const wantsFooter = /\b(footer|bottom|copyright)\b/i.test(requestText);
     const wantsHeader = /\b(header|hero|top|banner)\b/i.test(requestText);
@@ -237,7 +237,7 @@ export function createChatConversationHandlers(deps: ChatConversationHandlersDep
     const wantsText = /\b(text|copy|font|word|words|headline|heading|paragraph)\b/i.test(requestText);
 
     const colorPattern = /(?:color|background|border|box-shadow|text-shadow|--[A-Za-z0-9_-]+)\s*[:=][^;]*(?:#[0-9A-Fa-f]{3,8}|rgb\(|hsl\(|\bred\b|\bblue\b|\byellow\b|\bpurple\b|\borange\b|\bwhite\b|\bblack\b|\bsilver\b|\bpink\b|\bgreen\b)/i;
-    const buttonPattern = /(<button\b|<\/button>|class=["'][^"']*(btn|button|cta|control|action)[^"']*["']|id=["'][^"']*(btn|button|cta|control|action)[^"']*["']|(\.|#)(btn|button|cta|control|action)\b|\bbutton\s*\{|\.btn\b|\.cta\b)/i;
+    const buttonPattern = /(<button\b|<\/button>|<a\b|<\/a>|href=|class=["'][^"']*(btn|button|cta|control|action|link|nav-link)[^"']*["']|id=["'][^"']*(btn|button|cta|control|action|link)[^"']*["']|(\.|#)(btn|button|cta|control|action|link|nav-link)\b|\bbutton\s*\{|\ba\s*\{|a:hover|\.btn\b|\.cta\b)/i;
     const navPattern = /(<nav\b|<\/nav>|class=["'][^"']*(nav|menu|navbar|navigation)[^"']*["']|id=["'][^"']*(nav|menu|navbar|navigation)[^"']*["']|(\.|#)(nav|menu|navbar|navigation)\b|\bnav\s*\{)/i;
     const footerPattern = /(<footer\b|<\/footer>|class=["'][^"']*footer[^"']*["']|id=["'][^"']*footer[^"']*["']|(\.|#)footer\b|\bfooter\s*\{)/i;
     const headerPattern = /(<header\b|<\/header>|class=["'][^"']*(header|hero|banner)[^"']*["']|id=["'][^"']*(header|hero|banner)[^"']*["']|(\.|#)(header|hero|banner)\b|\bheader\s*\{)/i;
@@ -334,7 +334,7 @@ export function createChatConversationHandlers(deps: ChatConversationHandlersDep
     updateCard(cardId, {
       summary: decorations.length
         ? 'Yellow highlighted lines mark the current target lines in the active artifact.'
-        : 'Active artifact stayed selected, but no matching color lines were found.',
+        : 'Active artifact stayed selected, but no matching lines were found for that target.',
       payload: {
         ...activeArtifact,
         path,
@@ -410,8 +410,8 @@ export function createChatConversationHandlers(deps: ChatConversationHandlersDep
       return createAssistantReply(text, outgoingAttachments);
     }
 
-    if (isClearHighlightRequest(text) && activeArtifactForPrompt(text)) return clearActiveArtifactHighlights(text);
-    if (isHighlightLineRequest(text) && activeArtifactForPrompt(text)) return highlightActiveArtifactLines(text);
+    if (isClearHighlightRequest(text)) return clearActiveArtifactHighlights(text);
+    if (isHighlightLineRequest(text)) return highlightActiveArtifactLines(text);
     if (isActiveArtifactFollowUp(text)) return createAssistantReply(text, outgoingAttachments);
 
     const intent = classifyRequest(text);
@@ -791,6 +791,7 @@ export function createChatConversationHandlers(deps: ChatConversationHandlersDep
     submitMessage
   };
 }
+
 
 
 
