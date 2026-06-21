@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Request
+﻿from fastapi import APIRouter, Request
 
 from x8.contracts.base import ResultEnvelope
 from x8.contracts.chat import AttachmentReference, ChatRequest, ChatResponse, ChatRoleMessage, PromptReceipt
@@ -142,3 +142,232 @@ def chat(payload: ChatRequest, request: Request) -> ResultEnvelope[ChatResponse]
         ),
         receipts=[envelope_receipt, *kernel_response.extra_receipts],
     )
+
+# XOWUI-BRIDGE-FASTAPI-01
+# Thin Open WebUI bridge. Open WebUI remains the brain.
+@router.post("/xoduz/openwebui-chat")
+async def xoduz_openwebui_chat(request: Request):
+    import json
+    import os
+    import time
+    import urllib.error
+    import urllib.request
+    from fastapi import HTTPException
+
+    payload = await request.json()
+
+    user_message = str(
+        payload.get("message")
+        or payload.get("content")
+        or payload.get("text")
+        or payload.get("prompt")
+        or ""
+    ).strip()
+
+    if not user_message and isinstance(payload.get("messages"), list):
+        for item in reversed(payload.get("messages", [])):
+            if isinstance(item, dict) and item.get("role") == "user":
+                user_message = str(item.get("content", "")).strip()
+                break
+
+    if not user_message:
+        raise HTTPException(status_code=400, detail="Message is required")
+
+    base_url = os.getenv("OPENWEBUI_BASE_URL", "http://host.docker.internal:3000").rstrip("/")
+    api_key = os.getenv("OPENWEBUI_API_KEY", "").strip()
+    model = os.getenv("OPENWEBUI_MODEL", "qwen3:14b").strip()
+
+    if not api_key:
+        raise HTTPException(status_code=500, detail="OPENWEBUI_API_KEY is not configured")
+
+    system_prompt = """You are Xoduz, Otis Duncan's private local-first AI assistant.
+
+Name rule:
+Your name is written as Xoduz. Always write it as Xoduz in visible chat text.
+The pronunciation of Xoduz is like Exodus when spoken aloud.
+Do not replace the written name with Exodus in visible text.
+Do not say or write Zodus, Zodas, X-O-Duz, or X-O-Dus.
+Do not spell the name unless the user specifically asks how it is spelled.
+
+Answer directly, practically, and honestly. Work in tiny verified slices. Do not pretend to have live access to files, repos, Docker, tools, logs, memory, or system state unless that access was actually provided. When evidence is missing, say what is unknown and what should be checked next.
+""".strip()
+
+    body = {
+        "model": model,
+        "temperature": payload.get("temperature", 0.25),
+        "stream": False,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_message},
+        ],
+    }
+
+    req = urllib.request.Request(
+        f"{base_url}/api/chat/completions",
+        data=json.dumps(body).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=180) as response:
+            raw = response.read().decode("utf-8")
+            data = json.loads(raw)
+    except urllib.error.HTTPError as error:
+        detail = error.read().decode("utf-8", errors="replace")
+        try:
+            detail = json.loads(detail)
+        except Exception:
+            pass
+
+        raise HTTPException(
+            status_code=error.code,
+            detail={
+                "error": "Open WebUI request failed",
+                "details": detail,
+            },
+        )
+    except Exception as error:
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": "Open WebUI bridge failed",
+                "details": str(error),
+            },
+        )
+
+    content = (
+        data.get("choices", [{}])[0]
+        .get("message", {})
+        .get("content", "")
+    )
+
+    # Visible text stays Xoduz. Speech/TTS text gets pronunciation alias.
+    speech_text = (
+        content
+        .replace("Xoduz", "Exodus")
+        .replace("XODUZ", "Exodus")
+        .replace("xoduz", "Exodus")
+    )
+
+    now_ms = int(time.time() * 1000)
+    session_id = str(payload.get("session_id") or payload.get("sessionId") or f"xowui_session_{now_ms}")
+    message_id = f"xowui_msg_{now_ms}"
+    receipt_id = f"xowui_receipt_{now_ms}"
+
+    assistant_message = {
+        "message_id": message_id,
+        "id": message_id,
+        "role": "assistant",
+        "content": content,
+        "text": content,
+        "speech_text": speech_text,
+        "speechText": speech_text,
+        "tts_text": speech_text,
+        "ttsText": speech_text,
+        "audio_text": speech_text,
+        "audioText": speech_text,
+        "type": "message",
+        "cards": [],
+        "attachments": [],
+        "sources": [],
+        "source_pins": [],
+        "sourcePins": [],
+        "actions": [],
+        "next_actions": [],
+        "nextActions": [],
+        "artifacts": [],
+        "events": [],
+        "warnings": [],
+        "errors": [],
+        "source": "open-webui",
+        "model": model,
+    }
+
+    receipt = {
+        "receipt_id": receipt_id,
+        "action_type": "openwebui_chat",
+        "status": "passed",
+        "model": model,
+        "source": "open-webui",
+        "limitations": [],
+        "warnings": [],
+        "errors": [],
+    }
+
+    return {
+        "ok": True,
+        "success": True,
+        "status": "passed",
+        "message": "ok",
+        "content": content,
+        "text": content,
+        "speech_text": speech_text,
+        "speechText": speech_text,
+        "tts_text": speech_text,
+        "ttsText": speech_text,
+        "audio_text": speech_text,
+        "audioText": speech_text,
+        "source": "open-webui",
+        "model": model,
+        "cards": [],
+        "attachments": [],
+        "sources": [],
+        "source_pins": [],
+        "sourcePins": [],
+        "actions": [],
+        "next_actions": [],
+        "nextActions": [],
+        "artifacts": [],
+        "events": [],
+        "warnings": [],
+        "errors": [],
+        "receipts": [receipt],
+        "assistant_message": assistant_message,
+        "assistantMessage": assistant_message,
+        "messages": [assistant_message],
+        "validation": {
+            "status": "unchecked",
+            "warnings": [],
+        },
+        "data": {
+            "session_id": session_id,
+            "message_id": message_id,
+            "assistant_message": assistant_message,
+            "assistantMessage": assistant_message,
+            "messages": [assistant_message],
+            "receipt": receipt,
+            "receipts": [receipt],
+            "attachments": [],
+            "cards": [],
+            "sources": [],
+            "source_pins": [],
+            "sourcePins": [],
+            "actions": [],
+            "next_actions": [],
+            "nextActions": [],
+            "artifacts": [],
+            "events": [],
+            "warnings": [],
+            "errors": [],
+            "content": content,
+            "text": content,
+            "message": content,
+            "speech_text": speech_text,
+            "speechText": speech_text,
+            "tts_text": speech_text,
+            "ttsText": speech_text,
+            "audio_text": speech_text,
+            "audioText": speech_text,
+            "source": "open-webui",
+            "model": model,
+            "validation": {
+                "status": "unchecked",
+                "warnings": [],
+            },
+        },
+    }
+

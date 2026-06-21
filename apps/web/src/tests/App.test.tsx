@@ -1,8 +1,14 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+﻿import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { App } from '../app/App';
+
+const normalizeXoduzSpeech = (value: unknown): string =>
+  String(value ?? "")
+    .replace(/\bXoduz\b/g, "Exodus")
+    .replace(/\bXODUZ\b/g, "Exodus")
+    .replace(/\bxoduz\b/g, "Exodus");
 vi.mock('../components/cockpit/CodeEditor', () => ({
   CodeEditor: ({ value }: { value: string }) => <pre aria-label="Code editor">{value}</pre>
 }));
@@ -955,3 +961,4 @@ test('uploads file content as a compact chip before sending', async () => {
   fireEvent.click(screen.getByRole('button', { name: /send/i }));
   expect(await screen.findByText(/Echo: use this reference/i)).toBeInTheDocument();
 });
+

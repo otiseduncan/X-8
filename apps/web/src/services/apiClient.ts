@@ -1,4 +1,4 @@
-import type { AttachmentReference, Capability, ChatResponse, FileEntry, FileRead, IntegrationStatus, PatchProposal, ResultEnvelope, SessionDetail, SessionSummary, TeamSeat } from '../types/contracts';
+﻿import type { AttachmentReference, Capability, ChatResponse, FileEntry, FileRead, IntegrationStatus, PatchProposal, ResultEnvelope, SessionDetail, SessionSummary, TeamSeat } from '../types/contracts';
 
 const API = '';
 export const CHAT_TIMEOUT_MS = 45000;
@@ -389,7 +389,7 @@ export function loadReceipts() {
 export async function sendChat(message: string, attachments: AttachmentReference[] = [], session_id?: string, timeoutMs = CHAT_TIMEOUT_MS) {
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
-  const response = await fetch('/api/chat', {
+  const response = await fetch('/api/xoduz/openwebui-chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     signal: controller.signal,
@@ -409,3 +409,4 @@ export async function sendChat(message: string, attachments: AttachmentReference
   if (!response.ok) throw new Error('Chat request failed');
   return response.json() as Promise<ResultEnvelope<ChatResponse>>;
 }
+

@@ -1,8 +1,14 @@
-import { useEffect, useState } from 'react';
+﻿import { useEffect, useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import type { SpeechReceipt, TtsStatus } from '../audio/speechManagers';
 import type { AvatarRuntimeState } from './AssistantComponents';
 
+
+const normalizeXoduzSpeech = (value: unknown): string =>
+  String(value ?? "")
+    .replace(/\bXoduz\b/g, "Exodus")
+    .replace(/\bXODUZ\b/g, "Exodus")
+    .replace(/\bxoduz\b/g, "Exodus");
 type AudioContextCtor = new () => AudioContext;
 
 export function useAudioLifecycleDiagnostics({
@@ -189,7 +195,7 @@ export function useAudioLifecycleDiagnostics({
     }
     try {
       await new Promise<void>((resolve, reject) => {
-        const utterance = new SpeechSynthesisUtterance('XV8 raw audio test.');
+        const utterance = new SpeechSynthesisUtterance(normalizeXoduzSpeech('XV8 raw audio test.'));
         utterance.volume = Math.max(0.1, Math.min(1, volume / 100));
         setSpeechSpeakCalled(true);
         utterance.onstart = () => {
@@ -231,3 +237,4 @@ export function useAudioLifecycleDiagnostics({
     avatarDiagnostics: { state: speechState, waitingOnAudio: voiceStatus === 'speaking' && speechState !== 'speaking', videoReadyState: videoDiagnostics.readyState, videoPaused: videoDiagnostics.paused, videoError: videoDiagnostics.error, syncClaimed: voiceStatus === 'speaking' && speechState === 'speaking' && Boolean(lastSpeakStartedAt) }
   };
 }
+

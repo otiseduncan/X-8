@@ -1,0 +1,6 @@
+﻿services:
+  x8-api:
+    environment:
+      OPENWEBUI_BASE_URL: ${OPENWEBUI_BASE_URL:-http://host.docker.internal:3000}
+      OPENWEBUI_MODEL: ${OPENWEBUI_MODEL:-qwen3:14b}
+      OPENWEBUI_API_KEY: ${OPENWEBUI_API_KEY}

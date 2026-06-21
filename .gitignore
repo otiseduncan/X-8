@@ -48,3 +48,12 @@ test-results/
 .DS_Store
 Thumbs.db
 .vscode/settings.json
+
+# Local secrets
+
+# X8 local repair/runtime artifacts
+runtime/repair-backups/
+runtime_repair-backups/
+xowui-reality-scan-*/
+xowui-reality-scan-*.zip
+*.bak

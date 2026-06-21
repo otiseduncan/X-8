@@ -1,3 +1,8 @@
+﻿const normalizeXoduzSpeech = (value: unknown): string =>
+  String(value ?? "")
+    .replace(/\bXoduz\b/g, "Exodus")
+    .replace(/\bXODUZ\b/g, "Exodus")
+    .replace(/\bxoduz\b/g, "Exodus");
 export type SttStatus = 'ready' | 'listening' | 'transcribing' | 'permission_required' | 'permission_denied' | 'unavailable' | 'error';
 export type TtsStatus = 'ready' | 'speaking' | 'paused' | 'muted' | 'unavailable' | 'error';
 
@@ -278,7 +283,7 @@ export class TextToSpeechAdapter {
       callbacks.onReceipt(this.outputReceipt('speech_output_failed', 'unavailable', startedAt, this.preference.resolveVoice([], selectedVoiceURI), 'Speech synthesis is unavailable.'));
       return;
     }
-    const utterance = new SpeechSynthesisUtterance(text);
+    const utterance = new SpeechSynthesisUtterance(normalizeXoduzSpeech(text));
     utterance.volume = Math.max(0, Math.min(1, volume));
     const resolved = this.resolve(selectedVoiceURI);
     if (resolved.voice) utterance.voice = resolved.voice;
@@ -340,3 +345,4 @@ export class SpeechOutputManager {
   playback = new AudioPlaybackManager();
   preference = new VoicePreferenceManager();
 }
+
