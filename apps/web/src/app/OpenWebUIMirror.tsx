@@ -1,6 +1,6 @@
 import { useState } from 'react';
 
-const OPENWEBUI_MIRROR_SRC = '/openwebui/';
+const OPENWEBUI_MIRROR_SRC = 'http://localhost:3000/';
 
 export function OpenWebUIMirror() {
   const [reloadKey, setReloadKey] = useState(0);
