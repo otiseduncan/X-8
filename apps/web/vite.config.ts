@@ -1,3 +1,4 @@
+import { fileURLToPath, URL } from 'node:url';
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
@@ -5,6 +6,14 @@ const openWebUiTarget = process.env.VITE_OPENWEBUI_PROXY_TARGET || process.env.O
 
 export default defineConfig({
   plugins: [react()],
+  resolve: {
+    alias: [
+      {
+        find: './app/App',
+        replacement: fileURLToPath(new URL('./src/app/MirrorApp.tsx', import.meta.url))
+      }
+    ]
+  },
   server: {
     allowedHosts: ['x8-web', 'localhost', '127.0.0.1'],
     proxy: {
