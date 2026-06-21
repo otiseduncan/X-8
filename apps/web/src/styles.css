@@ -667,6 +667,7 @@ input:focus {
 .codeMirrorShell .cm-editor {
   font-size: 0.86rem;
 }
+.codeBlock,
 .diff {
   width: 100%;
   max-width: 100%;
@@ -679,6 +680,22 @@ input:focus {
   color: #d5d9e2;
   padding: 12px;
   white-space: pre-wrap;
+}
+.ideCodeBlock {
+  white-space: pre;
+  overflow-x: auto;
+}
+.codeLine {
+  display: block;
+  min-width: 0;
+  white-space: pre;
+  overflow-wrap: anywhere;
+}
+.codeLineNumber {
+  display: inline-block;
+  width: 3.5em;
+  color: #64748b;
+  user-select: none;
 }
 .row,
 .source,

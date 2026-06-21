@@ -1,0 +1,19 @@
+.developerCockpit details {
+  margin-top: 14px;
+}
+.developerCockpit details summary {
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  color: var(--color-primary);
+}
+.developerCockpit details pre {
+  margin: 0;
+}
+.developerCockpit .fileList button {
+  text-align: left;
+  width: 100%;
+  word-break: break-word;
+}

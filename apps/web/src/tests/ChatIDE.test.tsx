@@ -87,3 +87,31 @@ test('formats Git IDE answers as human-readable assistant text', () => {
   expect(gitStatusText(git, 'what should be committed')).toContain('Exclude: test-results/.');
   expect(gitStatusText({ branch: 'feature/chat-ide-core-v1', dirty: false, changed_files: [] }, 'what changed')).toBe('No working-tree changes are currently present.');
 });
+
+test('normalizes untracked directory placeholders to exact file paths when available', () => {
+  const git = {
+    branch: 'feature/chat-ide-core-v1',
+    dirty: true,
+    changed_files: ['M apps/web/src/styles.css', '?? apps/web/src/styles/.'],
+    file_recommendations: [
+      { path: 'apps/web/src/styles/chat-ide.css', recommendation: 'include in commit', reason: 'Source style change.' }
+    ]
+  };
+  const result = gitStatusText(git, 'what should be committed');
+  expect(result).toContain('apps/web/src/styles/chat-ide.css');
+  expect(result).not.toContain('apps/web/src/styles/.');
+});
+
+test('blocks architecture-guard files from include-in-commit recommendations', () => {
+  const git = {
+    branch: 'feature/chat-ide-core-v1',
+    dirty: true,
+    changed_files: ['M apps/web/src/styles.css'],
+    file_recommendations: [
+      { path: 'apps/web/src/styles.css', recommendation: 'include in commit', reason: 'Architecture guard failed: line-count policy.' }
+    ]
+  };
+  const result = gitStatusText(git, 'what should be committed');
+  expect(result).toContain('No clean source changes are currently available yet.');
+  expect(result).toContain('Do not commit yet: apps/web/src/styles.css must be split before commit.');
+});

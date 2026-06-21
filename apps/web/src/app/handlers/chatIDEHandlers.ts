@@ -57,7 +57,7 @@ export function createChatIDEHandlers(deps: ChatIDEHandlersDeps) {
     setSelectedPath(path);
     setCode(response.data.content);
     setLatestReceipt(response.receipts?.[0] as InfoReceipt || null);
-    setLatestResult(showCode ? `Showing source for ${path}` : `Opened ${path}`);
+    setLatestResult(showCode ? `Showing source for ${path}` : `Opened read-only editor view for ${path}`);
     const card: ChatCard = showCode
       ? { id: nowId(), type: 'file', title: path, status: response.status, summary: `${response.data.line_count} lines shown read-only with line numbers.`, payload: { path, content: response.data.content } }
       : {
@@ -65,7 +65,7 @@ export function createChatIDEHandlers(deps: ChatIDEHandlersDeps) {
           type: 'receipt',
           title: 'Chat IDE read-only file',
           status: response.status,
-          summary: 'File summary loaded. Source is hidden until you ask to show code.',
+          summary: 'Read-only editor view loaded. Source is hidden until you explicitly ask to show code.',
           payload: {
             rows: fileSummaryRows(response.data, path),
             recommendation: 'Use "show code for App.tsx" when you want the source body.',
@@ -73,7 +73,7 @@ export function createChatIDEHandlers(deps: ChatIDEHandlersDeps) {
             raw: { path: response.data.path, line_count: response.data.line_count }
           }
         };
-    appendMessage({ id: nowId(), role: 'assistant', text: showCode ? `Showing source for ${path}.` : `Opened ${path}.`, cards: [card] });
+    appendMessage({ id: nowId(), role: 'assistant', text: showCode ? `Showing source for ${path}.` : `Opened read-only editor view for ${path}.`, cards: [card] });
     setStage(muted ? 'muted' : 'idle');
   }
 
@@ -147,46 +147,77 @@ export function gitStatusText(git: Record<string, unknown>, prompt: string) {
   const branch = String(git.branch || 'unknown');
   const dirty = Boolean(git.dirty);
   const changed = changedFiles(git);
-  const counts = changedCounts(changed);
-  const commitCandidates = recommendationPaths(git, 'include in commit');
+  const counts = changedCounts(git);
+  const guardPaths = architectureGuardPaths(git);
+  const splitPaths = lineCountPolicyPaths(git);
+  const commitCandidates = recommendationPaths(git, 'include in commit').filter((path) => !guardPaths.includes(path) && !splitPaths.includes(path));
   const excludes = recommendationPaths(git, 'do not commit');
   const risks = recommendationPaths(git, 'possible secret/risk');
   const excluded = [...excludes, ...risks];
+  const branchPrefix = `You are on \`${branch}\`.`;
 
   if (prompt.includes('branch')) {
-    if (!dirty) return `You are on \`${branch}\`. Working tree is clean.`;
-    return `You are on \`${branch}\`. Working tree is dirty: ${dirtyCountText(counts)}.`;
+    return dirty
+      ? `${branchPrefix} Working tree is dirty: ${dirtyCountText(counts)}.`
+      : `${branchPrefix} Working tree is clean.`;
   }
 
   if (prompt.includes('what changed') || prompt.includes('changed')) {
     if (!dirty || !changed.length) return 'No working-tree changes are currently present.';
-    return `Working-tree changes: ${changed.map(displayPath).join(', ')}.`;
+    return `Working-tree changes are present: ${changed.map(displayPath).join(', ')}.`;
   }
 
   if (prompt.includes('what should') || prompt.includes('committed')) {
-    if (!dirty || !changed.length) return `Branch: \`${branch}\`. Working tree is clean. Nothing needs to be committed.`;
-    const includeText = commitCandidates.length ? `Include: ${commitCandidates.map(displayPath).join(', ')}.` : 'No clear source/test/docs commit candidates were detected.';
+    if (!dirty || !changed.length) return `${branchPrefix} Working tree is clean. Nothing needs to be committed.`;
+    const includeText = commitCandidates.length
+      ? `Include clean source changes only after tests pass: ${commitCandidates.map(displayPath).join(', ')}.`
+      : 'No clean source changes are currently available yet.';
+    const guardText = guardPaths.length ? ` Review first: ${guardPaths.map(displayPath).join(', ')} are blocked by architecture guard.` : '';
+    const splitText = splitPaths.length ? ` Do not commit yet: ${splitPaths.map(displayPath).join(', ')} must be split before commit.` : '';
     const excludeText = excluded.length ? ` Exclude: ${excluded.map(displayPath).join(', ')}.` : '';
-    return `${includeText}${excludeText} Run the validation gates before committing.`;
+    return `${branchPrefix} Working tree is dirty: ${dirtyCountText(counts)}. ${includeText}${guardText}${splitText}${excludeText} Run validation gates before committing.`;
   }
 
-  if (!dirty || !changed.length) return `Branch: \`${branch}\`. Working tree is clean. Nothing needs to be committed.`;
+  if (!dirty || !changed.length) return `${branchPrefix} Working tree is clean. No pending changes.`;
   const candidateText = commitCandidates.length ? ` Commit candidates: ${commitCandidates.map(displayPath).join(', ')}.` : '';
   const excludeText = excluded.length ? ` Exclude: ${excluded.map(displayPath).join(', ')}.` : '';
-  return `Branch: \`${branch}\`. Working tree is dirty. ${changed.length} changed file${changed.length === 1 ? '' : 's'}.${candidateText}${excludeText}`;
+  return `${branchPrefix} Working tree is dirty: ${dirtyCountText(counts)}.${candidateText}${excludeText}`;
+}
+
+function architectureGuardPaths(git: Record<string, unknown>) {
+  const items = Array.isArray(git.file_recommendations) ? git.file_recommendations as Array<Record<string, unknown>> : [];
+  return items
+    .filter((item) => /architecture\s*-?guard/i.test(String(item.reason || '')))
+    .map((item) => normalizePath(String(item.path || '').trim(), git))
+    .filter(Boolean);
+}
+
+function lineCountPolicyPaths(git: Record<string, unknown>) {
+  const items = Array.isArray(git.file_recommendations) ? git.file_recommendations as Array<Record<string, unknown>> : [];
+  return items
+    .filter((item) => /line\s*-?count|line count policy|must split before commit/i.test(String(item.reason || '')))
+    .map((item) => normalizePath(String(item.path || '').trim(), git))
+    .filter(Boolean);
 }
 
 function changedFiles(git: Record<string, unknown>) {
   const files = Array.isArray(git.changed_files) ? git.changed_files : [];
-  return files.map((item) => String(item).trim()).filter(Boolean);
+  return files.flatMap((item) => {
+    const raw = String(item).trim();
+    if (!raw) return [];
+    const normalized = normalizePath(raw, git);
+    return normalized ? [normalized] : [];
+  });
 }
 
-function changedCounts(files: string[]) {
+function changedCounts(git: Record<string, unknown>) {
+  const files = Array.isArray(git.changed_files) ? git.changed_files : [];
   return files.reduce((counts, item) => {
-    const status = item.slice(0, 2);
+    const raw = String(item).trim();
+    const status = raw.slice(0, 2);
     if (status.includes('?')) counts.untracked += 1;
     else if (status.includes('D')) counts.deleted += 1;
-    else counts.modified += 1;
+    else if (status.includes('M')) counts.modified += 1;
     return counts;
   }, { modified: 0, untracked: 0, deleted: 0 });
 }
@@ -204,8 +235,37 @@ function recommendationPaths(git: Record<string, unknown>, recommendation: strin
   const items = Array.isArray(git.file_recommendations) ? git.file_recommendations as Array<Record<string, unknown>> : [];
   return items
     .filter((item) => String(item.recommendation || '') === recommendation)
-    .map((item) => String(item.path || '').trim())
+    .map((item) => normalizePath(String(item.path || '').trim(), git))
     .filter(Boolean);
+}
+
+function normalizePath(path: string, git: Record<string, unknown>) {
+  const cleaned = displayPath(path);
+  if (!cleaned.endsWith('/.') && !cleaned.endsWith('/')) return cleaned;
+  const dir = cleaned.replace(/\/(?:\.)?$/, '');
+  const candidates = knownFilesUnder(dir, git);
+  if (candidates.length === 1) return candidates[0];
+  return cleaned;
+}
+
+function knownFilesUnder(dir: string, git: Record<string, unknown>) {
+  const prefix = `${dir}/`;
+  const candidates = new Set<string>();
+  const files = Array.isArray(git.changed_files) ? git.changed_files : [];
+  files.forEach((item) => {
+    const cleaned = displayPath(String(item));
+    if (cleaned.startsWith(prefix) && !cleaned.endsWith('/.') && !cleaned.endsWith('/')) {
+      candidates.add(cleaned);
+    }
+  });
+  const recommendations = Array.isArray(git.file_recommendations) ? git.file_recommendations as Array<Record<string, unknown>> : [];
+  recommendations.forEach((item) => {
+    const candidate = String(item.path || '').trim();
+    if (candidate.startsWith(prefix) && !candidate.endsWith('/.') && !candidate.endsWith('/')) {
+      candidates.add(candidate);
+    }
+  });
+  return Array.from(candidates);
 }
 
 function displayPath(path: string) {
