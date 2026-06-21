@@ -7,21 +7,21 @@ function openWebUiMirrorSource() {
   return String(configured || DEFAULT_OPENWEBUI_MIRROR_SRC);
 }
 
-export function OpenWebUIMirror() {
+export function OpenWebUIChatSurface() {
   const [reloadKey, setReloadKey] = useState(0);
   const mirrorSrc = useMemo(() => openWebUiMirrorSource(), []);
 
   return (
-    <section className="openWebUiMirror" aria-label="Open WebUI mirror">
-      <header className="openWebUiMirrorHeader">
+    <section className="openWebUiChatSurface" aria-label="Open WebUI chat mirror">
+      <header className="openWebUiChatSurfaceHeader">
         <div>
-          <p className="modeLabel">Open WebUI Native Mirror</p>
-          <h1>Xoduz cockpit shell</h1>
-          <span className="statusText">Open WebUI owns the sidebar, chat, input, history, artifacts, tools, and context.</span>
+          <p className="modeLabel">Open WebUI Chat Mirror</p>
+          <h1>Native responses + native message input</h1>
+          <span className="statusText">History, model controls, and Open WebUI chrome are cropped out of the X8 shell.</span>
         </div>
         <div className="openWebUiMirrorActions">
           <button className="ghost" type="button" onClick={() => setReloadKey((current) => current + 1)}>
-            Reload mirror
+            Reload chat
           </button>
           <a className="ghost" href={mirrorSrc} target="_blank" rel="noreferrer">
             Open native
@@ -29,19 +29,19 @@ export function OpenWebUIMirror() {
         </div>
       </header>
 
-      <div className="openWebUiNativeFrameShell">
+      <div className="openWebUiChatCropShell">
         <iframe
           key={reloadKey}
-          className="openWebUiNativeFrame"
-          title="Open WebUI native chat"
+          className="openWebUiChatCropFrame"
+          title="Open WebUI chat responses and message input"
           src={mirrorSrc}
           allow="clipboard-read; clipboard-write; microphone; camera"
         />
-        <div className="openWebUiMirrorRails" aria-hidden="true">
-          <div className="openWebUiMirrorRail openWebUiMirrorRailSide">Open WebUI side panel</div>
-          <div className="openWebUiMirrorRail openWebUiMirrorRailChat">Open WebUI chat</div>
-        </div>
       </div>
     </section>
   );
+}
+
+export function OpenWebUIMirror() {
+  return <OpenWebUIChatSurface />;
 }
