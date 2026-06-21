@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { AvatarStage } from './AssistantComponents';
 import type { AvatarRuntimeState } from './AssistantComponents';
-import { OpenWebUIChatMirror, OpenWebUISidebarMirror } from './OpenWebUIMirror';
+import { OpenWebUIChatSurface } from './OpenWebUIMirror';
 import './chatUsability.css';
 import './openWebUiMirror.css';
 
@@ -10,15 +10,17 @@ export function App() {
 
   return (
     <main className="shell xoduzMirrorShell" data-theme="neon-blue">
-      <section className="xoduzMirrorStage" aria-label="Xoduz Open WebUI cockpit">
-        <OpenWebUIChatMirror />
+      <section className="xoduzMirrorStage" aria-label="Xoduz Open WebUI chat cockpit">
+        <section className="xoduzChatPane" aria-label="Open WebUI chat responses and input">
+          <OpenWebUIChatSurface />
+        </section>
 
-        <aside className="xoduzRightRail" aria-label="Xoduz right rail">
-          <section className="avatarPresence xoduzRightRailAvatar" aria-label="Xoduz avatar">
+        <aside className="xoduzAvatarRail" aria-label="Xoduz avatar and shell status">
+          <section className="avatarPresence xoduzAvatarCard" aria-label="Xoduz avatar">
             <div className="assistantIdentityCard xoduzMirrorAvatarHeader">
               <p className="eyebrow">Xoduz Shell</p>
-              <h1>Avatar overlay</h1>
-              <p className="avatarState">Open WebUI owns chat. X8 owns the face, chrome, and operator rail.</p>
+              <h1>Avatar online</h1>
+              <p className="avatarState">Open WebUI owns the chat. X8 owns the face, shell, and local chrome.</p>
             </div>
 
             <AvatarStage state={avatarState} />
@@ -29,8 +31,6 @@ export function App() {
               <button className="ghost" type="button" onClick={() => setAvatarState('speaking')}>Speaking</button>
             </div>
           </section>
-
-          <OpenWebUISidebarMirror />
         </aside>
       </section>
     </main>
