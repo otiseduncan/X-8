@@ -118,6 +118,17 @@ export function createChatConversationHandlers(deps: ChatConversationHandlersDep
     return /\b(new artifact|new website|different website|start over|reset artifact|clear artifact|new project)\b/i.test(text);
   }
 
+  function isNewArtifactRequest(text: string) {
+    const asksForCreation = /\b(create|build|generate|write|make)\b/i.test(text);
+    const targetsArtifact = /\b(html|website|web\s?page|landing page|artifact|site|web app|small business)\b/i.test(text);
+    const isRevision = /\b(change|update|revise|edit|modify|same|this|that|current|existing)\b/i.test(text);
+    return asksForCreation && targetsArtifact && !isRevision;
+  }
+
+  function isClearHighlightRequest(text: string) {
+    return /\b(remove|clear|hide|reset)\b/i.test(text) && /\b(highlight|highlighted|line highlights|markers)\b/i.test(text);
+  }
+
   function readActiveArtifact(): Record<string, unknown> | null {
     try {
       const raw = window.localStorage.getItem(ACTIVE_ARTIFACT_KEY);
@@ -322,9 +333,55 @@ export function createChatConversationHandlers(deps: ChatConversationHandlersDep
     setLatestResult('Active artifact lines highlighted');
     setStage(muted ? 'muted' : 'idle');
   }
+  function clearActiveArtifactHighlights(text: string) {
+    const activeArtifact = activeArtifactForPrompt(text);
+    if (!activeArtifact) {
+      appendMessage({
+        id: nowId(),
+        role: 'assistant',
+        text: 'No active artifact is selected to clear highlights from.',
+      });
+      setStage(muted ? 'muted' : 'idle');
+      return;
+    }
+
+    const cardId = String(activeArtifact.id || '');
+    const payload = {
+      ...activeArtifact,
+      lineDecorations: [],
+      active_artifact: true,
+      updatedAt: new Date().toISOString(),
+    };
+
+    if (cardId) {
+      updateCard(cardId, {
+        summary: 'Highlight markers cleared. Code content was not removed.',
+        payload,
+        collapsed: false,
+      });
+    }
+
+    writeActiveArtifact(payload);
+
+    appendMessage({
+      id: nowId(),
+      role: 'assistant',
+      text: 'I cleared the highlight markers. The code was not removed.',
+    });
+
+    setLatestResult('Active artifact highlights cleared');
+    setStage(muted ? 'muted' : 'idle');
+  }
   async function handleUserText(text: string, outgoingAttachments: AttachmentReference[] = []) {
+    if (isNewArtifactRequest(text)) {
+      window.localStorage.removeItem(ACTIVE_ARTIFACT_KEY);
+      return createAssistantReply(text, outgoingAttachments);
+    }
+
+    if (isClearHighlightRequest(text) && activeArtifactForPrompt(text)) return clearActiveArtifactHighlights(text);
     if (isHighlightLineRequest(text) && activeArtifactForPrompt(text)) return highlightActiveArtifactLines(text);
     if (isActiveArtifactFollowUp(text)) return createAssistantReply(text, outgoingAttachments);
+
     const intent = classifyRequest(text);
     if (intent === 'file') return openFileCard('README.md');
     if (intent === 'diff') return proposeDiffCard('README.md');
@@ -702,6 +759,7 @@ export function createChatConversationHandlers(deps: ChatConversationHandlersDep
     submitMessage
   };
 }
+
 
 
 
