@@ -10,12 +10,14 @@ export function App() {
 
   return (
     <main className="shell xoduzMirrorShell" data-theme="neon-blue">
-      <section className="assistantFrame xoduzMirrorFrame" aria-label="Xoduz cockpit">
-        <aside className="avatarPresence xoduzMirrorAvatar" aria-label="Xoduz avatar">
-          <div className="assistantIdentityCard">
+      <section className="xoduzMirrorStage" aria-label="Xoduz Open WebUI cockpit">
+        <OpenWebUIMirror />
+
+        <aside className="avatarPresence xoduzMirrorAvatarOverlay" aria-label="Xoduz avatar overlay">
+          <div className="assistantIdentityCard xoduzMirrorAvatarHeader">
             <p className="eyebrow">Xoduz Shell</p>
-            <h1>Open WebUI chat</h1>
-            <p className="avatarState">The chat surface is Open WebUI. X8 frames it with the avatar and Xoduz styling.</p>
+            <h1>Open WebUI mirror</h1>
+            <p className="avatarState">X8 now frames the native Open WebUI surface instead of replacing it.</p>
           </div>
 
           <AvatarStage state={avatarState} />
@@ -27,15 +29,11 @@ export function App() {
           </div>
 
           <div className="compactStatus">
-            <div className="row split"><strong>Chat source</strong><span>Open WebUI</span></div>
-            <div className="row split"><strong>X8 role</strong><span>Mirror shell</span></div>
-            <div className="row split"><strong>Artifacts</strong><span>Open WebUI</span></div>
+            <div className="row split"><strong>Brain</strong><span>Open WebUI</span></div>
+            <div className="row split"><strong>Chat/Input</strong><span>Native mirror</span></div>
+            <div className="row split"><strong>X8 role</strong><span>Avatar shell</span></div>
           </div>
         </aside>
-
-        <section className="conversationPane xoduzMirrorPane" aria-label="Open WebUI chat mirror">
-          <OpenWebUIMirror />
-        </section>
       </section>
     </main>
   );
