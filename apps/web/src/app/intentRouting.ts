@@ -1,4 +1,6 @@
-export function classifyRequest(text: string) {
+export type RequestIntent = 'self_build' | 'github' | 'ide' | 'file' | 'diff' | 'artifact' | 'research' | 'image' | 'test' | 'chat';
+
+export function classifyRequest(text: string): RequestIntent {
   const lower = text.toLowerCase();
   if (isSelfBuildRequest(lower)) return 'self_build';
   if (isGitHubRequest(lower)) return 'github';
@@ -6,9 +8,9 @@ export function classifyRequest(text: string) {
   if (lower.includes('open') && lower.includes('readme')) return 'file';
   if (lower.includes('propose') && (lower.includes('edit') || lower.includes('diff'))) return 'diff';
   if (isArtifactRequest(lower)) return 'artifact';
-  if (lower.includes('search') || lower.includes('searxng')) return 'research';
-  if (lower.includes('image') || lower.includes('generate')) return 'image';
-  if (lower.includes('test') || lower.includes('testing')) return 'test';
+  if (isResearchRequest(lower)) return 'research';
+  if (isImageRequest(lower)) return 'image';
+  if (isTestExecutionRequest(lower)) return 'test';
   return 'chat';
 }
 
@@ -61,11 +63,78 @@ export function isSelfBuildRequest(lower: string) {
     || (lower.includes('completion rule') && lower.includes('tests'));
 }
 
+function isPlanningOnly(lower: string) {
+  const planningMarkers = [
+    'explain',
+    'design',
+    'plan',
+    'what files',
+    'what would',
+    'do not write',
+    'do not actually',
+    'do not run',
+    'contract',
+    'permission model',
+    'file structure',
+    'first tiny implementation slice'
+  ];
+  return planningMarkers.some((marker) => lower.includes(marker));
+}
+
 export function isArtifactRequest(lower: string) {
-  return lower.includes('website')
-    || lower.includes('preview')
-    || lower.includes('html')
-    || lower.includes('artifact');
+  if (isPlanningOnly(lower)) return false;
+  const explicitPreview = [
+    'generate a preview',
+    'show me a preview',
+    'create a preview',
+    'website preview',
+    'landing page preview',
+    'inline website preview',
+    'generate a website',
+    'create a website',
+    'build a website',
+    'render html',
+    'show html preview'
+  ];
+  return explicitPreview.some((marker) => lower.includes(marker));
+}
+
+export function isResearchRequest(lower: string) {
+  return lower.includes('searxng')
+    || lower.startsWith('search ')
+    || lower.includes(' web search ')
+    || lower.includes('search the web')
+    || lower.includes('look up online');
+}
+
+export function isImageRequest(lower: string) {
+  const explicitImageMarkers = [
+    'generate an image',
+    'create an image',
+    'make an image',
+    'draw an image',
+    'image generation',
+    'generate a picture',
+    'create a picture'
+  ];
+  return explicitImageMarkers.some((marker) => lower.includes(marker));
+}
+
+export function isTestExecutionRequest(lower: string) {
+  const explicitTestMarkers = [
+    'run tests',
+    'run the tests',
+    'execute tests',
+    'start tests',
+    'docker test',
+    'test command',
+    'run web tests',
+    'run api tests',
+    'run unit tests',
+    'run e2e tests',
+    'run smoke tests'
+  ];
+  return explicitTestMarkers.some((marker) => lower.includes(marker));
 }
 
 export function isGitHubCreateRepoRequest(lower: string) {
