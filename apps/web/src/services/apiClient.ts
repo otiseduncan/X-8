@@ -386,6 +386,28 @@ export function loadReceipts() {
   return getJson<ResultEnvelope<Array<Record<string, unknown>>>>('/api/receipts');
 }
 
+function normalizeOpenWebUICodeArtifactResponse(envelope: ResultEnvelope<ChatResponse>): ResultEnvelope<ChatResponse> {
+  const assistant = envelope.data?.assistant_message;
+  const cards = Array.isArray(assistant?.cards) ? assistant.cards : [];
+  const hasCodeArtifact = cards.some((card) => card?.type === 'editor');
+
+  if (!assistant || !hasCodeArtifact) return envelope;
+
+  const displayText = 'I displayed the code in the chat. Are there any needed revisions?';
+  assistant.content = displayText;
+
+  const writableAssistant = assistant as unknown as Record<string, unknown>;
+  writableAssistant.text = displayText;
+  writableAssistant.speech_text = displayText;
+  writableAssistant.speechText = displayText;
+  writableAssistant.tts_text = displayText;
+  writableAssistant.ttsText = displayText;
+  writableAssistant.audio_text = displayText;
+  writableAssistant.audioText = displayText;
+
+  return envelope;
+}
+
 export async function sendChat(message: string, attachments: AttachmentReference[] = [], session_id?: string, timeoutMs = CHAT_TIMEOUT_MS) {
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
@@ -409,5 +431,6 @@ export async function sendChat(message: string, attachments: AttachmentReference
   if (!response.ok) throw new Error('Chat request failed');
   return response.json() as Promise<ResultEnvelope<ChatResponse>>;
 }
+
 
 
