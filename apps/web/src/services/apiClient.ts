@@ -1,7 +1,7 @@
 ﻿import type { AttachmentReference, Capability, ChatResponse, FileEntry, FileRead, IntegrationStatus, PatchProposal, ResultEnvelope, SessionDetail, SessionSummary, TeamSeat } from '../types/contracts';
 
 const API = '';
-export const CHAT_TIMEOUT_MS = 45000;
+export const CHAT_TIMEOUT_MS = 180000;
 
 async function getJson<T>(path: string): Promise<T> {
   const response = await fetch(`${API}${path}`);
@@ -409,4 +409,5 @@ export async function sendChat(message: string, attachments: AttachmentReference
   if (!response.ok) throw new Error('Chat request failed');
   return response.json() as Promise<ResultEnvelope<ChatResponse>>;
 }
+
 
