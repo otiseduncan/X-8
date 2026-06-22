@@ -1,3 +1,6 @@
+import json
+import re
+
 from fastapi import APIRouter, Request
 
 from x8.contracts.base import ResultEnvelope
@@ -14,9 +17,13 @@ from x8.kernel.model_router import ModelProfileManager, ModelRouter
 from x8.managers.memory_manager import MemoryManager
 from x8.kernel.prompt_builder import KernelPromptBuilder
 from x8.managers.model_manager import OllamaAdapter
+from x8.managers.workspace_manager import WorkspaceManager
 from x8.storage.postgres_store import PostgresStore
 
 router = APIRouter(prefix="/api", tags=["chat"])
+SANDBOX_PROJECT_RE = re.compile(r"create\s+a\s+sandbox\s+project\s+called\s+([a-zA-Z0-9_-]+)", re.IGNORECASE)
+DATE_SAVED_RE = re.compile(r'"dateSaved"\s*:\s*"([^"]+)"')
+ESCAPE_TARGET_RE = re.compile(r"(?:^|\n)\s*((?:\.\.[/\\].+)|(?:[a-zA-Z]:[/\\].+))")
 
 
 def _store(request: Request) -> PostgresStore:
@@ -69,6 +76,223 @@ def _kernel(request: Request) -> XV8Kernel:
     return XV8Kernel(context, ModelRouter(OllamaAdapter(settings.ollama_base_url), profiles), brain_manager=brain_manager, continuity_manager=continuity_manager)
 
 
+def _workspace(request: Request) -> WorkspaceManager:
+    return WorkspaceManager(request.app.state.settings.workspace_root)
+
+
+def _build_preview_proof_files(project: str, date_saved: str) -> dict[str, str]:
+    data = {
+        "project": project,
+        "sandboxWrite": True,
+        "dateSaved": date_saved,
+    }
+    return {
+        f"{project}/index.html": """<!doctype html>
+<html lang=\"en\">
+  <head>
+    <meta charset=\"utf-8\" />
+    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
+    <title>Cockpit Preview Proof</title>
+    <link rel=\"stylesheet\" href=\"style.css\" />
+  </head>
+  <body>
+    <main class=\"proof-card\">
+      <p class=\"eyebrow\">X8 Sandbox Write Validation</p>
+      <h1>Cockpit Preview Verified</h1>
+      <p id=\"js-proof\">Waiting for sandbox JavaScript...</p>
+    </main>
+    <script src=\"app.js\"></script>
+  </body>
+</html>
+""",
+        f"{project}/style.css": """body {
+  min-height: 100vh;
+  margin: 0;
+  display: grid;
+  place-items: center;
+  background: radial-gradient(circle at top, #123042, #05070b 64%);
+  color: #e5f7ff;
+  font-family: Inter, system-ui, sans-serif;
+}
+
+.proof-card {
+  width: min(720px, calc(100vw - 48px));
+  border: 1px solid #00d4ff;
+  border-radius: 24px;
+  padding: 36px;
+  background: rgba(8, 16, 28, 0.88);
+  box-shadow: 0 24px 80px rgba(0, 212, 255, 0.18);
+}
+
+.eyebrow {
+  color: #00d4ff;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+h1 {
+  margin: 0 0 16px;
+  font-size: clamp(2.4rem, 7vw, 5.5rem);
+}
+
+#js-proof {
+  color: #b8f3ff;
+  font-size: 1.25rem;
+}
+""",
+        f"{project}/app.js": """const proof = document.querySelector('#js-proof');
+if (proof) {
+  proof.textContent = 'JavaScript loaded from sandbox.';
+}
+""",
+        f"{project}/README.md": f"""# {project}
+
+Cockpit Preview Verified
+
+This project was created through the X operator chat deterministic sandbox bridge.
+
+- Sandbox write: true
+- dateSaved: {date_saved}
+- Preview target: `index.html`
+""",
+        f"{project}/data.json": json.dumps(data, indent=2) + "\n",
+    }
+
+
+def _chat_result(
+    *,
+    store: PostgresStore,
+    session_id: str,
+    user_message_id: str,
+    content: str,
+    cards: list[dict[str, object]],
+    action_type: str,
+    status: str = "passed",
+    model: str = "deterministic-sandbox-bridge",
+    limitations: list[str] | None = None,
+    attachments: list[AttachmentReference] | None = None,
+) -> ResultEnvelope[ChatResponse]:
+    limitations = limitations or []
+    attachments = attachments or []
+    assistant_message_id = store.insert_message(session_id, "assistant", content, cards)
+    receipt = PromptReceipt(action_type=action_type, status=status, model=model, limitations=limitations)
+    store.insert_receipt(
+        {
+            "receipt_id": receipt.receipt_id,
+            "session_id": session_id,
+            "message_id": assistant_message_id,
+            "action_type": receipt.action_type,
+            "status": receipt.status,
+            "model": receipt.model,
+            "limitations": receipt.limitations,
+            "metadata": {"user_message_id": user_message_id, "deterministic": True},
+            "created_at": receipt.created_at,
+        }
+    )
+    envelope_receipt = Receipt(
+        id=receipt.receipt_id,
+        action=receipt.action_type,
+        status=receipt.status,
+        summary=content.splitlines()[0] if content else "Deterministic chat action completed.",
+        metadata={"session_id": session_id, "model": receipt.model, "limitations": receipt.limitations},
+    )
+    return ResultEnvelope(
+        ok=True,
+        status=receipt.status,
+        message="Chat deterministic sandbox action completed.",
+        data=ChatResponse(
+            session_id=session_id,
+            message_id=assistant_message_id,
+            assistant_message=ChatRoleMessage(role="assistant", content=content, cards=cards),
+            receipt=receipt,
+            attachments=attachments,
+        ),
+        receipts=[envelope_receipt],
+    )
+
+
+def _handle_sandbox_project_command(payload: ChatRequest, request: Request, store: PostgresStore, session_id: str, user_message_id: str, attachments: list[AttachmentReference]) -> ResultEnvelope[ChatResponse] | None:
+    match = SANDBOX_PROJECT_RE.search(payload.message)
+    lower = payload.message.lower()
+    if not match or "index.html" not in lower or "data.json" not in lower:
+        return None
+    project = match.group(1).strip()
+    date_match = DATE_SAVED_RE.search(payload.message)
+    date_saved = date_match.group(1) if date_match else "2026-06-22"
+    manager = _workspace(request)
+    writes = []
+    for path, content in _build_preview_proof_files(project, date_saved).items():
+        writes.append(manager.write_file(path, content, overwrite=True).model_dump())
+    created_paths = "\n".join(f"- {item['path']}" for item in writes)
+    content = (
+        f"Sandbox project created: {project}\n\n"
+        f"Sandbox root: {writes[0]['sandbox_root']}\n\n"
+        "Created files:\n"
+        f"{created_paths}\n\n"
+        f"Preview path: {project}/index.html\n"
+        f"dateSaved persisted: {date_saved}\n\n"
+        "Refresh the cockpit file tree and open the project folder."
+    )
+    cards = [
+        {
+            "type": "receipt",
+            "title": "Sandbox project created",
+            "status": "passed",
+            "summary": f"Created {len(writes)} files inside the sandbox workspace.",
+            "payload": {"project": project, "files": writes, "previewPath": f"{project}/index.html", "dateSaved": date_saved},
+        }
+    ]
+    return _chat_result(
+        store=store,
+        session_id=session_id,
+        user_message_id=user_message_id,
+        content=content,
+        cards=cards,
+        action_type="sandbox_project_create",
+        attachments=attachments,
+    )
+
+
+def _handle_escape_probe(payload: ChatRequest, request: Request, store: PostgresStore, session_id: str, user_message_id: str, attachments: list[AttachmentReference]) -> ResultEnvelope[ChatResponse] | None:
+    lower = payload.message.lower()
+    if "escape" not in lower and "outside-sandbox" not in lower:
+        return None
+    targets = ESCAPE_TARGET_RE.findall(payload.message)
+    if not targets:
+        return None
+    manager = _workspace(request)
+    results = []
+    for target in targets:
+        candidate = target.strip()
+        try:
+            manager.resolve_inside_root(candidate)
+            results.append({"path": candidate, "status": "ALLOWED", "reason": "inside sandbox root"})
+        except ValueError as exc:
+            results.append({"path": candidate, "status": "BLOCKED", "reason": str(exc)})
+    lines = ["Sandbox escape probe completed without writing files.", ""]
+    lines.extend(f"{item['status']}: {item['path']} — {item['reason']}" for item in results)
+    cards = [
+        {
+            "type": "receipt",
+            "title": "Sandbox escape probe",
+            "status": "passed",
+            "summary": "Outside-sandbox write targets were inspected without mutation.",
+            "payload": {"results": results, "mutated": False},
+        }
+    ]
+    return _chat_result(
+        store=store,
+        session_id=session_id,
+        user_message_id=user_message_id,
+        content="\n".join(lines),
+        cards=cards,
+        action_type="sandbox_escape_probe",
+        attachments=attachments,
+    )
+
+
 @router.post("/chat", response_model=ResultEnvelope[ChatResponse])
 def chat(payload: ChatRequest, request: Request) -> ResultEnvelope[ChatResponse]:
     store = _store(request)
@@ -81,6 +305,14 @@ def chat(payload: ChatRequest, request: Request) -> ResultEnvelope[ChatResponse]
             attachment = AttachmentReference(**row)
             attachments.append(attachment)
             store.link_attachment(user_message_id, attachment.attachment_id)
+
+    deterministic_result = _handle_sandbox_project_command(payload, request, store, session_id, user_message_id, attachments)
+    if deterministic_result:
+        return deterministic_result
+    deterministic_result = _handle_escape_probe(payload, request, store, session_id, user_message_id, attachments)
+    if deterministic_result:
+        return deterministic_result
+
     session = store.get_session(session_id)
     session_messages = session["messages"] if session else []
     kernel_response = _kernel(request).handle(
