@@ -231,6 +231,23 @@ export function loadModelStatus() {
   return getJson<ResultEnvelope<Record<string, unknown>>>('/api/models/status');
 }
 
+export function loadMemoryStatus() {
+  return getJson<ResultEnvelope<Record<string, unknown>>>('/api/brain/status');
+}
+
+export function loadBrainStatus() {
+  return getJson<ResultEnvelope<Record<string, unknown>>>('/api/brain/status');
+}
+
+export function loadReceipts(): Promise<ResultEnvelope<Record<string, unknown>[]>> {
+  return Promise.resolve({
+    ok: true,
+    status: 'ready',
+    data: [],
+    message: 'Receipt list endpoint is not wired; using session receipts when sessions load.'
+  });
+}
+
 export async function sendChat(prompt: string, attachment_ids?: string[], opts?: { signal?: AbortSignal }) {
   const response = await fetch('/api/chat', {
     method: 'POST',
