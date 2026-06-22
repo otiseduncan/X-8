@@ -153,6 +153,7 @@ services:
       - "${X8_PROJECTS_HOST_ROOT:-./runtime/projects}:/projects"
       - "X:/XV7/xv7:/imports/x7:ro"
       - "X:/X-V-6.1:/imports/x6:ro"
+    profiles: ["test"]
 
   web-tests:
     build:
@@ -160,6 +161,7 @@ services:
       dockerfile: docker/web/Dockerfile
       target: test
     command: ["npm", "test", "--", "--run"]
+    profiles: ["test"]
 
   e2e-tests:
     build:
@@ -169,6 +171,7 @@ services:
     depends_on:
       - x8-api
       - x8-web
+    profiles: ["test"]
 
   e2e-fast-tests:
     build:
@@ -184,6 +187,7 @@ services:
     depends_on:
       - x8-api
       - x8-web
+    profiles: ["test"]
 
   e2e-brain-tests:
     build:
@@ -199,6 +203,7 @@ services:
     depends_on:
       - x8-api
       - x8-web
+    profiles: ["test"]
 
   e2e-self-build-tests:
     build:
@@ -214,12 +219,14 @@ services:
     depends_on:
       - x8-api
       - x8-web
+    profiles: ["test"]
 
   architecture-guard:
     build:
       context: .
       dockerfile: docker/architecture-guard/Dockerfile
     command: ["python", "scripts/architecture_guard.py"]
+    profiles: ["guard"]
 
 volumes:
   x8-postgres-data:
