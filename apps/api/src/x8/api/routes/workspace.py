@@ -1,5 +1,6 @@
 from pydantic import BaseModel
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, Response
 
 from x8.contracts.base import ResultEnvelope
 from x8.contracts.receipts import Receipt
@@ -78,6 +79,31 @@ def read(payload: ReadRequest, request: Request) -> ResultEnvelope[FileRead]:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     receipt = Receipt(action="workspace.read_file", status="completed", summary=f"Opened {payload.path} from selected project without approval.")
     return ResultEnvelope(ok=True, status="implemented", data=data, message="File read completed.", receipts=[receipt])
+
+
+@router.get("/workspace/preview")
+def preview(path: str, request: Request, project_id: str | None = None):
+    try:
+        target = workspace_manager(request, project_id).resolve_inside_root(path)
+    except (FileNotFoundError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not target.is_file():
+        raise HTTPException(status_code=404, detail="Preview target is not a file.")
+    suffix = target.suffix.lower()
+    if suffix in {".png", ".jpg", ".jpeg", ".webp", ".gif", ".ico"}:
+        return FileResponse(str(target))
+    content = target.read_text(encoding="utf-8")
+    if suffix in {".html", ".htm"}:
+        return HTMLResponse(content)
+    if suffix == ".svg":
+        return Response(content, media_type="image/svg+xml")
+    if suffix == ".json":
+        return Response(content, media_type="application/json")
+    if suffix == ".css":
+        return Response(content, media_type="text/css")
+    if suffix in {".js", ".mjs", ".ts", ".tsx", ".jsx"}:
+        return Response(content, media_type="text/javascript")
+    return PlainTextResponse(content)
 
 
 @router.post("/repo/propose-update", response_model=ResultEnvelope[PatchProposal])
