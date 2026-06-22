@@ -1,4 +1,4 @@
-import { Activity, Check, Code2, ExternalLink, FileText, FolderOpen, GitBranch, Plus, RefreshCcw, Save, Server, ShieldCheck, TerminalSquare, XCircle } from 'lucide-react';
+import { Activity, Code2, ExternalLink, FileText, FolderOpen, GitBranch, Plus, RefreshCcw, Save, ShieldCheck, TerminalSquare, XCircle } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { CodeEditor } from '../components/cockpit/CodeEditor';
 import { StatusPill } from '../components/ui/StatusPill';
@@ -48,14 +48,6 @@ function statusText(value: unknown, fallback = 'unknown') {
 
 function countChangedFiles(status: Record<string, unknown>) {
   return Array.isArray(status.changed_files) ? status.changed_files.length : 0;
-}
-
-function formatRecord(value: Record<string, unknown>) {
-  try {
-    return JSON.stringify(value, null, 2);
-  } catch {
-    return 'Unable to format status record.';
-  }
 }
 
 async function getProjects() {
