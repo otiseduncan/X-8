@@ -27,6 +27,7 @@ def build_adapter(settings):
         "fallback_adapter": fallback,
         "fallback_model": settings.fallback_chat_model,
         "timeout_seconds": float(config["timeout"]),
+        "model_aliases": str(config["model_aliases"]),
     }
     kwargs["se" + "cret"] = str(config["se" + "cret"])
     return BrainBridgeAdapter(**kwargs)
