@@ -4,6 +4,7 @@ import { StatusPill } from '../components/ui/StatusPill';
 import { loadBridgeStatus, loadDockerPresets, loadGitHubOpsAuthStatus, loadGitHubOpsStatus, loadGitHubStatus, openProjectPowerShell } from '../services/apiClient';
 import type { FileEntry, FileRead, PatchProposal, ResultEnvelope } from '../types/contracts';
 import './cockpitWindow.css';
+import './cockpitLayoutOverrides.css';
 
 const DEFAULT_PATH = 'README.md';
 
