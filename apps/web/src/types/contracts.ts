@@ -39,6 +39,16 @@ export interface FileRead {
   line_count: number;
 }
 
+export interface FileWrite {
+  path: string;
+  absolute_path: string;
+  sandbox_root: string;
+  bytes_written: number;
+  line_count: number;
+  mutated: boolean;
+  blocked_reason?: string | null;
+}
+
 export interface PatchProposal {
   path: string;
   diff: string;
