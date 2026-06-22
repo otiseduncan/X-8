@@ -64,7 +64,17 @@ def bridge_config() -> dict[str, str | float]:
 class BrainBridgeAdapter:
     provider_name = "openwebui"
 
-    def __init__(self, *, base_url: str, secret: str, default_model: str, system_prompt: str, fallback_adapter: Any | None = None, fallback_model: str = "", timeout_seconds: float = 120.0) -> None:
+    def __init__(
+        self,
+        *,
+        base_url: str,
+        secret: str,
+        default_model: str,
+        system_prompt: str,
+        fallback_adapter: Any | None = None,
+        fallback_model: str = "",
+        timeout_seconds: float = 120.0,
+    ) -> None:
         self.base_url = base_url.rstrip("/")
         self.secret = secret.strip()
         self.default_model = default_model.strip()
@@ -73,6 +83,7 @@ class BrainBridgeAdapter:
         self.fallback_model = fallback_model
         self.timeout_seconds = timeout_seconds
         self.last_generation_result = BridgeResult(ok=False)
+        self.last_model_discovery_note = ""
 
     def _headers(self) -> dict[str, str]:
         headers = {"Content-Type": "application/json", "Accept": "application/json"}
@@ -117,6 +128,20 @@ class BrainBridgeAdapter:
                     return nested.strip()[:500]
         return ""
 
+    def _looks_like_model_name(self, value: str) -> bool:
+        name = value.strip()
+        if not name or len(name) > 160:
+            return False
+        lowered = name.lower()
+        if name in {"model", "models", "list", "object", "data", "user", "assistant", "system"}:
+            return False
+        if lowered in {"id", "name", "title", "description", "created", "owned_by"}:
+            return False
+        if "\n" in name or "\r" in name or " " in name:
+            return False
+        model_markers = (":", "/", "gpt", "qwen", "llama", "mistral", "gemma", "deepseek", "phi", "coder", "embed", "nomic")
+        return any(marker in lowered for marker in model_markers)
+
     def _extract_models(self, payload: dict[str, Any] | list[Any]) -> list[str]:
         models: list[str] = []
         seen: set[str] = set()
@@ -125,11 +150,7 @@ class BrainBridgeAdapter:
             if not isinstance(value, str):
                 return
             name = value.strip()
-            if not name or len(name) > 160:
-                return
-            if "\n" in name or "\r" in name:
-                return
-            if name in {"model", "models", "list", "object", "data"}:
+            if not self._looks_like_model_name(name):
                 return
             if name not in seen:
                 seen.add(name)
@@ -150,7 +171,13 @@ class BrainBridgeAdapter:
             if not isinstance(value, dict):
                 return
 
-            for key in ("id", "name", "model", "model_name"):
+            # Some OpenWebUI versions return model maps like
+            # {"data": {"qwen3:14b": {...}}} rather than a flat list.
+            if parent_key in {"data", "models", "model", "model_info", "model_infos", "items", "results"}:
+                for possible_model_key in value.keys():
+                    add(possible_model_key)
+
+            for key in ("id", "name", "model", "model_name", "title"):
                 add(value.get(key))
 
             for key in ("data", "models", "items", "results", "model_infos", "model_info"):
@@ -167,20 +194,39 @@ class BrainBridgeAdapter:
         walk(payload)
         return models
 
+    def _payload_has_success_shape(self, payload: dict[str, Any] | list[Any]) -> bool:
+        if isinstance(payload, list):
+            return True
+        if not isinstance(payload, dict):
+            return False
+        if self._payload_error(payload):
+            return False
+        # OpenWebUI often returns {"data": ...} even when the nested model
+        # catalog is hidden from API users. Treat this as a reachable provider
+        # and let a real completion call validate the configured model.
+        return any(key in payload for key in ("data", "models", "items", "results"))
+
     def models(self) -> tuple[bool, list[str], str]:
         if not self.base_url:
             return self._fallback_models("Brain bridge base URL is not configured.")
         errors: list[str] = []
+        reachable_sparse_paths: list[str] = []
         for path in ("/api/models", "/api/v1/models", "/v1/models", "/ollama/api/tags"):
             try:
                 payload = self._json(path, timeout=8.0)
                 models = self._extract_models(payload)
                 if models:
+                    self.last_model_discovery_note = f"models discovered from {path}"
                     return True, models, ""
                 payload_error = self._payload_error(payload)
+                if not payload_error and self._payload_has_success_shape(payload):
+                    reachable_sparse_paths.append(path)
                 errors.append(f"{path}: {payload_error or 'no models returned'}")
             except (urllib.error.URLError, TimeoutError, ValueError, OSError) as exc:
                 errors.append(f"{path}: {self._error(exc)}")
+        if reachable_sparse_paths and self.default_model:
+            self.last_model_discovery_note = "OpenWebUI reachable but model catalog is sparse; using configured default model."
+            return True, [self.default_model], self.last_model_discovery_note
         return self._fallback_models("; ".join(errors) or "Brain bridge model list unavailable.")
 
     def _fallback_models(self, reason: str) -> tuple[bool, list[str], str]:
