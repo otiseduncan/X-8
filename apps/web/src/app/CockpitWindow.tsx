@@ -7,6 +7,7 @@ import './cockpitWindow.css';
 type EditorView = 'code' | 'preview';
 
 const VIEWABLE_EXTENSIONS = ['.html', '.htm', '.md', '.markdown', '.json', '.svg', '.png', '.jpg', '.jpeg', '.webp', '.gif'];
+const LOCAL_LAYOUT = '.editorPanel{grid-column:2/3;grid-row:1/3}.statusPanel{grid-column:3/4;grid-row:1/2}.diffPanel{grid-column:3/4;grid-row:2/3}.editorToolbar{display:flex;gap:10px;flex-wrap:wrap;border-bottom:1px solid rgba(0,212,255,.1);padding:8px 10px}.editorPanel .codeMirrorShell,.editorPreview{flex:1;min-height:0;overflow:hidden}.editorPreview{display:flex;background:rgba(5,7,13,.82)}.editorPreview iframe{width:100%;flex:1;min-height:0;border:0;background:white}.markdownPreview{flex:1;overflow:auto;padding:18px 22px;color:#e2e8f0;line-height:1.6}.primary,.ghost{display:inline-flex;align-items:center;justify-content:center;min-height:36px;border-radius:8px;cursor:pointer;font-weight:800;gap:8px;padding:0 12px}.primary{border:1px solid rgba(0,212,255,.45);background:linear-gradient(135deg,#22d3ee,#0ea5e9);color:#03131d}.ghost{border:1px solid rgba(0,212,255,.22);background:rgba(0,212,255,.08);color:#dff7ff}.statusBadge{border:1px solid rgba(0,212,255,.2);border-radius:999px;background:rgba(0,212,255,.08);color:#dbeafe;font-size:.76rem;font-weight:800;padding:6px 10px}';
 
 function extensionOf(path: string) { const match = path.toLowerCase().match(/\.[^.]+$/); return match?.[0] ?? ''; }
 function canPreview(path: string) { return VIEWABLE_EXTENSIONS.includes(extensionOf(path)); }
@@ -50,6 +51,7 @@ export function CockpitWindow() {
 
   return (
     <main className="cockpitWindow" aria-label="X8 Native Operator Cockpit">
+      <style>{LOCAL_LAYOUT}</style>
       <header className="cockpitTopbar"><div className="cockpitBrand"><div className="cockpitMark">X</div><div><p className="cockpitEyebrow">Operator cockpit</p><h1>Xoduz Builder Surface</h1></div></div><div className="projectSwitcher"><label><span>Editor mode</span><select value={view} onChange={(event) => setView(event.target.value as EditorView)}><option value="code">Code</option><option value="preview">Preview</option></select></label></div><div className="cockpitStatusStrip"><span className="statusBadge good">sandbox scoped</span><span className="statusBadge">preview enabled</span></div><div className="cockpitTopActions"><button className="primary" type="button" onClick={() => void refreshFiles()}>Refresh</button></div></header>
       <div className="projectBar"><strong>Status</strong><span>{status}</span></div>
       <section className="cockpitGrid">
