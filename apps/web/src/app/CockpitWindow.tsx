@@ -2,7 +2,7 @@ import { Activity, Code2, ExternalLink, FileText, FolderOpen, GitBranch, Plus, R
 import { useEffect, useMemo, useState } from 'react';
 import { CodeEditor } from '../components/cockpit/CodeEditor';
 import { StatusPill } from '../components/ui/StatusPill';
-import { loadBridgeStatus, loadDockerPresets, loadGitHubOpsAuthStatus, loadGitHubOpsStatus, loadGitHubStatus } from '../services/apiClient';
+import { loadBridgeStatus, loadDockerPresets, loadGitHubOpsAuthStatus, loadGitHubOpsStatus, loadGitHubStatus, openProjectPowerShell } from '../services/apiClient';
 import type { FileEntry, FileRead, PatchProposal, ResultEnvelope } from '../types/contracts';
 import './cockpitWindow.css';
 
@@ -18,10 +18,11 @@ interface ProjectRoot {
   kind: string;
   exists: boolean;
   current?: boolean;
+  terminal_path?: string | null;
 }
 
 const DRAWER_TABS: { id: UtilityTab; label: string }[] = [
-  { id: 'terminal', label: 'Terminal' },
+  { id: 'terminal', label: 'Commands' },
   { id: 'logs', label: 'Logs' },
   { id: 'tests', label: 'Tests' },
   { id: 'git', label: 'Git' },
@@ -132,10 +133,11 @@ export function CockpitWindow() {
       projectClosed && 'No project is currently open.',
       dirtyDraft && `Unsaved editor draft: ${selectedPath || 'no file selected'}.`,
       dirtyDraft && !proposalMatchesDraft && 'Save is blocked until the current draft has a reviewed diff proposal.',
+      selectedProject && !selectedProject.terminal_path && 'PowerShell host path is not configured for the selected project.',
       !dockerPresets.length && 'Docker presets are not loaded or the API did not return any presets.'
     ];
     return lines.filter((item): item is string => Boolean(item));
-  }, [bridgeStatus, dirtyDraft, dockerPresets.length, projectClosed, proposalMatchesDraft, selectedPath]);
+  }, [bridgeStatus, dirtyDraft, dockerPresets.length, projectClosed, proposalMatchesDraft, selectedPath, selectedProject]);
 
   const gitSummary = useMemo(() => {
     const changedFiles = Array.isArray(githubOps.changed_files) ? githubOps.changed_files : [];
@@ -151,9 +153,9 @@ export function CockpitWindow() {
 
   const testSummary = useMemo(() => {
     return [
-      'Safe test commands are staged here, but live terminal execution is not wired in this UI slice.',
+      'Safe test commands are staged here, but live command execution is not wired in this UI slice.',
       '',
-      'Recommended host commands:',
+      'Recommended host PowerShell commands:',
       'docker compose run --rm web-tests',
       'docker compose run --rm api-tests',
       'docker compose run --rm architecture-guard'
@@ -185,7 +187,7 @@ export function CockpitWindow() {
   function queueSafeCommand(command: string) {
     setDrawerTab('terminal');
     setDrawerMode((current) => (current === 'closed' ? 'peek' : current));
-    log(`Terminal command queued but not executed: ${command}. Live protected command execution is a follow-up bridge slice.`);
+    log(`Command shortcut recorded, not executed: ${command}. Use Open PowerShell for a real host terminal.`);
   }
 
   async function initializeCockpit() {
@@ -358,6 +360,22 @@ export function CockpitWindow() {
     }
   }
 
+  async function openPowerShellForProject() {
+    if (projectClosed || !selectedProjectId) return;
+    setBusy(true);
+    try {
+      const response = await openProjectPowerShell(selectedProjectId);
+      const data = response.data || {};
+      log(statusText(data.message, 'PowerShell launch request completed.'));
+      if (data.command) log(`PowerShell command: ${String(data.command)}`);
+      if (data.fallback_reason) log(`PowerShell fallback: ${String(data.fallback_reason)}`);
+    } catch {
+      log('PowerShell launch request failed. Check x8-api and local bridge logs.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function openChat() {
     window.open('/', 'x8-chat', 'noopener,noreferrer,width=1180,height=900');
   }
@@ -373,7 +391,7 @@ export function CockpitWindow() {
               </button>
             ))}
           </div>
-          <pre className="cockpitPre drawerPre">Terminal drawer ready. Live shell execution is intentionally not enabled in this slice. Safe command buttons record the intended command without running it.\n\nRecent operation log:\n{operationLog.join('\n')}</pre>
+          <pre className="cockpitPre drawerPre">Command drawer ready. Use the PowerShell button in the top bar to request a real Windows PowerShell terminal for the selected project. These shortcuts only record intended commands until protected command execution is wired.\n\nRecent operation log:\n{operationLog.join('\n')}</pre>
         </div>
       );
     }
@@ -423,7 +441,7 @@ export function CockpitWindow() {
         </div>
         <div className="cockpitTopActions">
           <button className="ghost" type="button" onClick={openChat}><ExternalLink size={16} /> Chat</button>
-          <button className="ghost" type="button" onClick={() => openDrawer('terminal', drawerOpen ? drawerMode : 'peek')}><TerminalSquare size={16} /> Terminal</button>
+          <button className="ghost" type="button" onClick={() => void openPowerShellForProject()} disabled={busy || projectClosed}><TerminalSquare size={16} /> PowerShell</button>
           <button className="primary" type="button" onClick={() => void refreshCockpit()} disabled={busy}><RefreshCcw size={16} /> Refresh</button>
         </div>
       </header>
@@ -475,6 +493,7 @@ export function CockpitWindow() {
           <div className="statusCards">
             <div className="statusCard"><strong>Project</strong><span>{selectedProject?.name || 'closed'}</span></div>
             <div className="statusCard"><strong>Project root</strong><span>{selectedProject?.root || 'none'}</span></div>
+            <div className="statusCard"><strong>PowerShell path</strong><span>{selectedProject?.terminal_path || 'configure host path'}</span></div>
             <div className="statusCard"><strong>Token configured</strong><span>{statusText(githubAuth.token_configured, 'false')}</span></div>
             <div className="statusCard"><strong>Owner</strong><span>{statusText(githubAuth.owner, 'not configured')}</span></div>
             <div className="statusCard"><strong>Branch</strong><span>{statusText(githubOps.branch, 'not a repo')}</span></div>
@@ -501,7 +520,7 @@ export function CockpitWindow() {
             ))}
           </div>
           <div className="utilitySummary">
-            <span>Terminal: {drawerOpen ? drawerMode : 'closed'}</span>
+            <span>Drawer: {drawerOpen ? drawerMode : 'closed'}</span>
             <span>Git: {changedCount} changed</span>
             <span>Problems: {problemLines.length}</span>
           </div>
