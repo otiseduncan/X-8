@@ -15,9 +15,18 @@ class LocalBridgeStatus(BaseModel):
     last_failure_reason: str | None = None
 
 
+class PowerShellOpenResult(BaseModel):
+    requested_path: str
+    command: str
+    launched: bool
+    supported: bool
+    message: str
+    fallback_reason: str | None = None
+
+
 class LocalBridgeAdapter:
     name = "local_bridge"
-    version = "0.1.0"
+    version = "0.2.0"
 
     def __init__(self, url: str, token: str, approved_roots: str) -> None:
         self.url = url
@@ -50,4 +59,22 @@ class LocalBridgeAdapter:
             approved_roots=self.approved_roots,
             last_failure_at=datetime.now(),
             last_failure_reason=failure if configured else "Local bridge token not configured",
+        )
+
+    def open_powershell(self, path: str) -> PowerShellOpenResult:
+        command = f"powershell.exe -NoExit -Command \"Set-Location -LiteralPath '{path.replace("'", "''")}'\""
+        try:
+            response = httpx.post(f"{self.url.rstrip('/')}/tools/open-powershell", json={"path": path}, timeout=5)
+            if response.status_code < 500:
+                return PowerShellOpenResult(**response.json())
+            failure = f"Bridge returned HTTP {response.status_code}"
+        except Exception as exc:
+            failure = str(exc)
+        return PowerShellOpenResult(
+            requested_path=path,
+            command=command,
+            launched=False,
+            supported=False,
+            message="PowerShell could not be launched through the local bridge.",
+            fallback_reason=failure,
         )
