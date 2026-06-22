@@ -1,3 +1,4 @@
+import base64
 import json
 import os
 import shutil
@@ -89,24 +90,38 @@ def _resolve_under(root: Path, rel_path: str) -> Path:
     return target
 
 
+def _github_basic_auth_header(token: str) -> str:
+    encoded = base64.b64encode(f"x-access-token:{token}".encode("utf-8")).decode("ascii")
+    return "AUTH" + "ORIZATION: basic " + encoded
+
+
+def _redact_token(value: str, token: str) -> str:
+    if not token:
+        return value
+    token_basic = _github_basic_auth_header(token).split("basic ", 1)[-1]
+    return value.replace(token, "[redacted]").replace(token_basic, "[redacted-basic]")
+
+
 def _run_git(args: list[str], cwd: Path, token: str = "", timeout: int = 60) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
     env["GIT_TERMINAL_PROMPT"] = "0"
+    env["GCM_INTERACTIVE"] = "Never"
     if token:
-        env["GIT_CONFIG_COUNT"] = "1"
-        env["GIT_CONFIG_KEY_0"] = "http.https://github.com/.extraheader"
-        env["GIT_CONFIG_VALUE_0"] = "AUTH" + "ORIZATION: bearer " + token
+        env["GIT_CONFIG_COUNT"] = "3"
+        env["GIT_CONFIG_KEY_0"] = "credential.helper"
+        env["GIT_CONFIG_VALUE_0"] = ""
+        env["GIT_CONFIG_KEY_1"] = "http.https://github.com/.extraheader"
+        env["GIT_CONFIG_VALUE_1"] = _github_basic_auth_header(token)
+        env["GIT_CONFIG_KEY_2"] = "url.https://github.com/.insteadOf"
+        env["GIT_CONFIG_VALUE_2"] = "git@github.com:"
     return subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, timeout=timeout, check=False, env=env)
 
 
 def _run_checked(args: list[str], cwd: Path, token: str = "", timeout: int = 60) -> dict[str, object]:
     result = _run_git(args, cwd, token=token, timeout=timeout)
-    stdout = result.stdout.strip()
-    stderr = result.stderr.strip()
-    if token:
-        stdout = stdout.replace(token, "[redacted]")
-        stderr = stderr.replace(token, "[redacted]")
-    return {"cmd": "git " + " ".join(args), "returncode": result.returncode, "stdout": stdout, "stderr": stderr}
+    stdout = _redact_token(result.stdout.strip(), token)
+    stderr = _redact_token(result.stderr.strip(), token)
+    return {"cmd": "git " + " ".join(args), "auth": "github-token" if token else "none", "returncode": result.returncode, "stdout": stdout, "stderr": stderr}
 
 
 def _ensure_ok(record: dict[str, object]) -> None:
@@ -202,7 +217,7 @@ def github_ops_proof_lab(payload: GitHubProofLabRequest, request: Request) -> Re
     if not payload.approved:
         return _blocked("Approval required before GitHub proof lab writes.", {"repo_name": repo_name})
     if not repo_name.startswith("x8-git-proof"):
-        return _blocked("Proof lab is restricted to dedicated repositories named x8-git-proof*." , {"repo_name": repo_name})
+        return _blocked("Proof lab is restricted to dedicated repositories named x8-git-proof*.", {"repo_name": repo_name})
     if not settings.github_token:
         return _blocked("GitHub token is not configured in the X8 runtime.", {"repo_name": repo_name})
 
