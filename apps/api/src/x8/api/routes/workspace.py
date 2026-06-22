@@ -30,7 +30,12 @@ class UpdateRequest(ProjectScopedRequest):
 
 def project_registry(request: Request) -> ProjectRegistryManager:
     settings = request.app.state.settings
-    return ProjectRegistryManager(settings.workspace_root, settings.approved_project_roots)
+    return ProjectRegistryManager(
+        settings.workspace_root,
+        settings.approved_project_roots,
+        workspace_host_root=settings.workspace_host_root,
+        projects_host_root=settings.projects_host_root,
+    )
 
 
 def workspace_manager(request: Request, project_id: str | None = None) -> WorkspaceManager:
