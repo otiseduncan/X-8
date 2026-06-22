@@ -89,4 +89,4 @@ class Settings(BaseSettings):
     github_repo: str = Field("X-8", validation_alias=AliasChoices("X8_GITHUB_REPO", "GITHUB_REPO"))
     github_default_branch: str = Field("main", validation_alias=AliasChoices("X8_GITHUB_DEFAULT_BRANCH", "GITHUB_DEFAULT_BRANCH"))
     github_default_visibility: str = Field("private", validation_alias=AliasChoices("X8_GITHUB_DEFAULT_VISIBILITY", "GITHUB_DEFAULT_VISIBILITY"))
-    cors_origins: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
+    cors_origins: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:6022", "http://127.0.0.1:6022"]
