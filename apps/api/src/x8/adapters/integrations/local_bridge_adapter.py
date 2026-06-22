@@ -33,6 +33,11 @@ class LocalBridgeAdapter:
         self.token = token
         self.approved_roots = [root.strip() for root in approved_roots.split(";") if root.strip()]
 
+    @staticmethod
+    def powershell_command(path: str) -> str:
+        escaped = path.replace("'", "''")
+        return f"powershell.exe -NoExit -Command \"Set-Location -LiteralPath '{escaped}'\""
+
     def status(self) -> LocalBridgeStatus:
         configured = bool(self.url and self.token)
         try:
@@ -62,7 +67,7 @@ class LocalBridgeAdapter:
         )
 
     def open_powershell(self, path: str) -> PowerShellOpenResult:
-        command = f"powershell.exe -NoExit -Command \"Set-Location -LiteralPath '{path.replace("'", "''")}'\""
+        command = self.powershell_command(path)
         try:
             response = httpx.post(f"{self.url.rstrip('/')}/tools/open-powershell", json={"path": path}, timeout=5)
             if response.status_code < 500:
