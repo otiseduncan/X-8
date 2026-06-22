@@ -20,16 +20,20 @@ function textFromPayload(payload: unknown): string {
   if (!payload || typeof payload !== 'object') return String(payload || 'No response payload returned.');
   const root = payload as Record<string, unknown>;
   const data = root.data && typeof root.data === 'object' ? (root.data as Record<string, unknown>) : root;
+  const assistant = data.assistant_message && typeof data.assistant_message === 'object' ? (data.assistant_message as Record<string, unknown>) : undefined;
+  const visible = data.visible && typeof data.visible === 'object' ? (data.visible as Record<string, unknown>) : undefined;
 
   const candidates = [
+    assistant?.content,
+    assistant?.text,
     data.text,
     data.answer,
     data.response,
     data.message,
     data.content,
     data.output,
-    data.visible && typeof data.visible === 'object' ? (data.visible as Record<string, unknown>).text : undefined,
-    data.visible && typeof data.visible === 'object' ? (data.visible as Record<string, unknown>).content : undefined,
+    visible?.text,
+    visible?.content,
     root.message,
     root.status
   ];
@@ -50,11 +54,26 @@ async function getJson<T>(url: string): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-async function sendPrompt(prompt: string) {
+async function getJsonWithRetry<T>(url: string, attempts = 3, delayMs = 700): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      return await getJson<T>(url);
+    } catch (error) {
+      lastError = error;
+      if (attempt < attempts - 1) {
+        await new Promise((resolve) => window.setTimeout(resolve, delayMs));
+      }
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(`${url} unavailable`);
+}
+
+async function sendMessage(message: string) {
   const response = await fetch('/api/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ prompt })
+    body: JSON.stringify({ message, attachments: [] })
   });
 
   const payload = await response.json().catch(() => ({ status: response.statusText }));
@@ -90,17 +109,19 @@ export function App() {
   }, [avatarState]);
 
   useEffect(() => {
-    getJson<Record<string, unknown>>('/api/health')
+    getJsonWithRetry<Record<string, unknown>>('/api/health')
       .then((health) => setRuntimeStatus(`API ${String(health.status || 'ok')}`))
       .catch(() => {
         setRuntimeStatus('API unavailable');
         setAvatarState('error');
       });
 
-    getJson<Record<string, unknown>>('/api/models/status')
+    getJsonWithRetry<Record<string, unknown>>('/api/models/status')
       .then((model) => {
         const data = model.data && typeof model.data === 'object' ? (model.data as Record<string, unknown>) : model;
-        setModelStatus(`${String(data.selected_model || data.model || 'model')} / ${String(model.status || 'ready')}`);
+        const selectedModel = String(data.selected_model || data.default_chat_model || data.model || 'model');
+        const readiness = data.model_ready === false ? 'unavailable' : String(model.status || 'ready');
+        setModelStatus(`${selectedModel} / ${readiness}`);
       })
       .catch(() => setModelStatus('model status unavailable'));
   }, []);
@@ -136,16 +157,16 @@ export function App() {
 
   async function submit(event?: FormEvent) {
     event?.preventDefault();
-    const prompt = entry.trim();
-    if (!prompt || busy) return;
+    const message = entry.trim();
+    if (!message || busy) return;
 
     setEntry('');
-    append({ role: 'user', text: prompt });
+    append({ role: 'user', text: message });
     setBusy(true);
     setAvatarState('thinking');
 
     try {
-      const payload = await sendPrompt(prompt);
+      const payload = await sendMessage(message);
       append({ role: 'assistant', text: textFromPayload(payload) });
       flashAvatar('responded');
     } catch (error) {
@@ -258,8 +279,8 @@ const styles: Record<string, CSSProperties> = {
   workspace: {
     minHeight: 0,
     display: 'grid',
-    gridTemplateColumns: 'minmax(260px, 340px) minmax(0, 1fr)',
-    gap: 16
+    gridTemplateColumns: '340px minmax(0, 1fr)',
+    gap: 18
   },
   avatarRail: {
     minWidth: 0,
