@@ -1,5 +1,9 @@
 .cockpitWindow {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  height: 100vh;
   min-height: 100vh;
+  overflow: hidden;
   padding: 14px;
   color: var(--color-text);
   background:
@@ -29,7 +33,12 @@
 .panelHeader,
 .editorActions,
 .fileToolRow,
-.doneLine {
+.doneLine,
+.utilityRail,
+.utilityTabs,
+.utilitySummary,
+.utilityControls,
+.safeCommandGrid {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -122,9 +131,8 @@
 .cockpitGrid {
   display: grid;
   grid-template-columns: 260px minmax(420px, 1.25fr) minmax(320px, 0.82fr);
-  grid-template-rows: minmax(360px, 1fr) minmax(210px, 0.66fr);
+  grid-template-rows: minmax(0, 1fr) minmax(190px, 0.46fr);
   gap: 12px;
-  height: calc(100vh - 156px);
   margin-top: 12px;
   min-height: 0;
 }
@@ -143,9 +151,7 @@
 .editorPanel,
 .diffPanel,
 .statusPanel,
-.previewPanel,
-.terminalPanel,
-.bridgePanel {
+.previewPanel {
   display: flex;
   flex-direction: column;
 }
@@ -169,25 +175,10 @@
   grid-row: 1 / 2;
 }
 
-.previewPanel,
-.terminalPanel,
-.bridgePanel {
-  min-height: 0;
-}
-
 .previewPanel {
   grid-column: 3 / 4;
   grid-row: 2 / 3;
-}
-
-.terminalPanel {
-  grid-column: 1 / 2;
-  grid-row: 3 / 4;
-  display: none;
-}
-
-.bridgePanel {
-  display: none;
+  min-height: 0;
 }
 
 .panelHeader {
@@ -366,8 +357,7 @@
   background: white;
 }
 
-.emptyPreview,
-.bridgePanel p {
+.emptyPreview {
   color: var(--color-muted);
   line-height: 1.52;
   padding: 14px;
@@ -384,22 +374,112 @@
   font-weight: 800;
 }
 
+.cockpitUtilityDrawer {
+  display: grid;
+  grid-template-rows: 38px minmax(0, 1fr);
+  min-height: 38px;
+  margin-top: 12px;
+  overflow: hidden;
+  border: 1px solid rgba(0, 212, 255, 0.18);
+  border-radius: 12px;
+  background: rgba(5, 7, 13, 0.92);
+  box-shadow: 0 -16px 34px rgba(0, 0, 0, 0.26), inset 0 2px 0 rgba(0, 212, 255, 0.12);
+}
+
+.cockpitUtilityDrawer.closed {
+  height: 38px;
+}
+
+.cockpitUtilityDrawer.peek {
+  height: 220px;
+}
+
+.cockpitUtilityDrawer.open {
+  height: min(38vh, 360px);
+}
+
+.cockpitUtilityDrawer.max {
+  height: min(72vh, 680px);
+}
+
+.utilityRail {
+  min-width: 0;
+  justify-content: space-between;
+  border-bottom: 1px solid rgba(0, 212, 255, 0.12);
+  padding: 0 10px;
+}
+
+.utilityTabs {
+  flex-wrap: wrap;
+}
+
+.utilityTab {
+  min-height: 28px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-muted);
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 800;
+  padding: 0 10px;
+}
+
+.utilityTab.active,
+.utilityTab:hover {
+  border-color: rgba(0, 212, 255, 0.24);
+  background: rgba(0, 212, 255, 0.1);
+  color: var(--color-text);
+}
+
+.utilitySummary {
+  min-width: 0;
+  color: var(--color-muted);
+  font-size: 0.75rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.utilityControls {
+  justify-content: flex-end;
+}
+
+.utilityContent {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.utilityBodyGrid {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  height: 100%;
+  min-height: 0;
+}
+
+.safeCommandGrid {
+  align-content: start;
+  align-items: stretch;
+  flex-direction: column;
+  gap: 8px;
+  overflow: auto;
+  padding: 10px;
+}
+
+.safeCommandGrid button {
+  justify-content: flex-start;
+  width: 100%;
+}
+
+.drawerPre {
+  height: 100%;
+  border-left: 1px solid rgba(0, 212, 255, 0.12);
+}
+
 @media (min-width: 1280px) {
   .cockpitGrid {
     grid-template-columns: 270px minmax(480px, 1.18fr) minmax(360px, 0.82fr);
-    grid-template-rows: minmax(390px, 1fr) minmax(220px, 0.58fr) minmax(170px, 0.42fr);
-  }
-
-  .terminalPanel {
-    display: flex;
-    grid-column: 1 / 2;
-    grid-row: 3 / 4;
-  }
-
-  .bridgePanel {
-    display: flex;
-    grid-column: 2 / 4;
-    grid-row: 3 / 4;
+    grid-template-rows: minmax(0, 1fr) minmax(200px, 0.48fr);
   }
 }
 
@@ -413,10 +493,15 @@
   .projectSwitcher {
     justify-content: flex-start;
   }
+
+  .utilitySummary {
+    display: none;
+  }
 }
 
 @media (max-width: 1100px) {
   .cockpitWindow {
+    height: auto;
     overflow: auto;
   }
 
@@ -431,12 +516,40 @@
   .editorPanel,
   .diffPanel,
   .statusPanel,
-  .previewPanel,
-  .terminalPanel,
-  .bridgePanel {
+  .previewPanel {
     display: flex;
     grid-column: auto;
     grid-row: auto;
     min-height: 260px;
+  }
+
+  .cockpitUtilityDrawer.closed,
+  .cockpitUtilityDrawer.peek,
+  .cockpitUtilityDrawer.open,
+  .cockpitUtilityDrawer.max {
+    height: auto;
+    min-height: 220px;
+  }
+
+  .cockpitUtilityDrawer.closed .utilityContent {
+    display: none;
+  }
+
+  .utilityRail,
+  .utilityBodyGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .utilityRail {
+    align-items: flex-start;
+    display: grid;
+    gap: 8px;
+    min-height: auto;
+    padding: 8px 10px;
+  }
+
+  .drawerPre {
+    border-left: 0;
+    border-top: 1px solid rgba(0, 212, 255, 0.12);
   }
 }
