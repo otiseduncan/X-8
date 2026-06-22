@@ -1,3 +1,4 @@
+import os
 import re
 from datetime import datetime, timezone
 
@@ -52,7 +53,7 @@ class XV8Kernel:
         brain_result = self._brain_command_result(request, lane)
         continuity_result = self._continuity_command_result(request, lane)
         command_result = brain_result if brain_result and brain_result.handled else continuity_result
-        deterministic = (command_result.message, command_result.status if command_result.status != "approval_required" else "passed", getattr(command_result, "limitations", [])) if command_result and command_result.handled else self._deterministic_response(request, lane, context.context_bundle)
+        deterministic = (command_result.message, command_result.status if command_result.status != "approval_required" else "passed", getattr(command_result, "limitations", [])) if command_result and command_result.handled else self._deterministic_response(request, lane, context.context_bundle, selection)
         deterministic_used = deterministic is not None
         content, status, limitations = deterministic or self._respond(selection, context.prompt)
         model_status.selected_model = selection.selected_model
@@ -123,7 +124,7 @@ class XV8Kernel:
             return content, "passed", []
         return UNAVAILABLE, "unavailable", [reason or "Model returned an empty response."]
 
-    def _deterministic_response(self, request: KernelRequest, lane: str, bundle) -> tuple[str, str, list[str]] | None:
+    def _deterministic_response(self, request: KernelRequest, lane: str, bundle, selection=None) -> tuple[str, str, list[str]] | None:
         lower = request.user_message.lower().strip()
         if "currently working on" in lower or "what are we working on" in lower or "current task" in lower:
             recent = [item for item in bundle.session_context if item.strip()][-4:]
@@ -135,10 +136,10 @@ class XV8Kernel:
                 return "Brain continuity is unavailable right now.", "unavailable", ["Brain continuity manager unavailable."]
             if not self.brain_manager and lane != "brain_continuity":
                 return "Brain memory is unavailable right now.", "unavailable", ["Brain manager unavailable."]
-        if lower in {"hi", "hi xv8", "hello", "hello xv8", "hey", "hey xv8", "good morning", "good afternoon", "good evening"}:
-            return "Hello. I'm XV8.", "passed", []
+        if lower in {"hi", "hi xv8", "hi xoduz", "hello", "hello xv8", "hello xoduz", "hey", "hey xv8", "hey xoduz", "good morning", "good afternoon", "good evening"}:
+            return "Hello. I'm Xoduz, pronounced Exodus.", "passed", []
         if "what is your name" in lower or lower in {"who are you", "who are you?"}:
-            return "My name is XV8.", "passed", []
+            return self._identity_response(selection), "passed", []
         if "say github" in lower:
             return "GitHub.", "passed", []
         if lane == "github_status":
@@ -161,6 +162,18 @@ class XV8Kernel:
                 return "I can access the uploaded attachment text included in this turn:\n" + "\n".join(f"- {item}" for item in bundle.attachments), "passed", []
             return "An attachment was referenced, but no extracted attachment text is available in this turn.", "passed", bundle.limitations
         return None
+
+    def _identity_response(self, selection=None) -> str:
+        model = getattr(selection, "selected_model", "") or os.getenv("OPENWEBUI_MODEL") or os.getenv("X8_DEFAULT_CHAT_MODEL") or "the selected local model"
+        provider = (os.getenv("X8_CHAT_PROVIDER") or os.getenv("X8_MODEL_PROVIDER") or "").strip().lower()
+        mode = (os.getenv("X8_OLLAMA_MODE") or os.getenv("X8_MODEL_MODE") or "").strip().lower()
+        base_url = (os.getenv("OPENWEBUI_BASE_URL") or os.getenv("X8_OPEN_WEBUI_BASE_URL") or os.getenv("X8_OPENWEBUI_BASE_URL") or "").rstrip("/")
+        if provider in {"openwebui", "owui", "brainbridge"} or "openwebui" in mode or base_url:
+            return (
+                "My name is Xoduz, pronounced Exodus. I am the XV8 local assistant. "
+                f"This runtime is configured to route chat through X8 to OpenWebUI at /api/chat/completions, using {model} on the Ollama backend."
+            )
+        return f"My name is Xoduz, pronounced Exodus. I am the XV8 local assistant using {model}."
 
     def _brain_command_result(self, request: KernelRequest, lane: str):
         if lane == "brain_continuity" or not lane.startswith("brain_") or not self.brain_manager:
