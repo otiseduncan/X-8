@@ -1,4 +1,3 @@
-import { Activity, Code2, ExternalLink, FileText, FolderOpen, GitBranch, Plus, RefreshCcw, Save, ShieldCheck, TerminalSquare, XCircle } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { CodeEditor } from '../components/cockpit/CodeEditor';
 import { StatusPill } from '../components/ui/StatusPill';
@@ -8,7 +7,7 @@ import './cockpitWindow.css';
 
 const DEFAULT_PATH = 'README.md';
 
-type UtilityTab = 'terminal' | 'logs' | 'tests' | 'git' | 'problems';
+type UtilityTab = 'commands' | 'logs' | 'tests' | 'git' | 'problems';
 type DrawerMode = 'closed' | 'peek' | 'open' | 'max';
 
 interface ProjectRoot {
@@ -22,7 +21,7 @@ interface ProjectRoot {
 }
 
 const DRAWER_TABS: { id: UtilityTab; label: string }[] = [
-  { id: 'terminal', label: 'Commands' },
+  { id: 'commands', label: 'Commands' },
   { id: 'logs', label: 'Logs' },
   { id: 'tests', label: 'Tests' },
   { id: 'git', label: 'Git' },
@@ -34,7 +33,7 @@ const SAFE_COMMANDS = [
   { label: 'git diff', command: 'git diff --stat' },
   { label: 'web tests', command: 'docker compose run --rm web-tests' },
   { label: 'api tests', command: 'docker compose run --rm api-tests' },
-  { label: 'docker ps', command: 'docker compose ps' },
+  { label: 'architecture guard', command: 'docker compose run --rm architecture-guard' },
   { label: 'logs', command: 'docker compose logs --tail=120 x8-api x8-cockpit' }
 ];
 
@@ -111,7 +110,7 @@ export function CockpitWindow() {
   const [busy, setBusy] = useState(false);
   const [filter, setFilter] = useState('');
   const [previewHtml, setPreviewHtml] = useState('');
-  const [drawerTab, setDrawerTab] = useState<UtilityTab>('terminal');
+  const [drawerTab, setDrawerTab] = useState<UtilityTab>('commands');
   const [drawerMode, setDrawerMode] = useState<DrawerMode>('closed');
 
   const selectedProject = projects.find((project) => project.id === selectedProjectId) || null;
@@ -120,6 +119,7 @@ export function CockpitWindow() {
   const proposalMatchesDraft = Boolean(proposal && proposal.proposed_content === code);
   const changedCount = countChangedFiles(githubOps);
   const drawerOpen = drawerMode !== 'closed';
+
   const filteredFiles = useMemo(() => {
     const needle = filter.trim().toLowerCase();
     const fileList = files.filter((item) => item.kind === 'file');
@@ -141,14 +141,13 @@ export function CockpitWindow() {
 
   const gitSummary = useMemo(() => {
     const changedFiles = Array.isArray(githubOps.changed_files) ? githubOps.changed_files : [];
-    const lines = [
+    return [
       `Branch: ${statusText(githubOps.branch, 'not a repo')}`,
       `Remote: ${statusText(githubOps.remote_origin_url, 'none')}`,
       `Dirty: ${statusText(githubOps.dirty, 'false')}`,
       `Changed files: ${changedFiles.length}`,
       ...changedFiles.map((file) => `- ${String(file)}`)
-    ];
-    return lines.join('\n');
+    ].join('\n');
   }, [githubOps]);
 
   const testSummary = useMemo(() => {
@@ -185,9 +184,9 @@ export function CockpitWindow() {
   }
 
   function queueSafeCommand(command: string) {
-    setDrawerTab('terminal');
+    setDrawerTab('commands');
     setDrawerMode((current) => (current === 'closed' ? 'peek' : current));
-    log(`Command shortcut recorded, not executed: ${command}. Use Open PowerShell for a real host terminal.`);
+    log(`Command shortcut recorded, not executed: ${command}. Use PowerShell for a real host terminal.`);
   }
 
   async function initializeCockpit() {
@@ -258,7 +257,6 @@ export function CockpitWindow() {
   }
 
   async function openFile(path: string, announce = true, projectId = selectedProjectId) {
-    if (!path || !projectId) return;
     setBusy(true);
     try {
       const response = await readProjectFile(projectId, path);
@@ -381,7 +379,7 @@ export function CockpitWindow() {
   }
 
   function renderDrawerBody() {
-    if (drawerTab === 'terminal') {
+    if (drawerTab === 'commands') {
       return (
         <div className="utilityBodyGrid">
           <div className="safeCommandGrid" aria-label="Safe command shortcuts">
@@ -391,19 +389,13 @@ export function CockpitWindow() {
               </button>
             ))}
           </div>
-          <pre className="cockpitPre drawerPre">Command drawer ready. Use the PowerShell button in the top bar to request a real Windows PowerShell terminal for the selected project. These shortcuts only record intended commands until protected command execution is wired.\n\nRecent operation log:\n{operationLog.join('\n')}</pre>
+          <pre className="cockpitPre drawerPre">Command drawer ready. Use the PowerShell button in the top bar to request a real Windows PowerShell terminal for the selected project. These shortcuts only record intended commands until protected command execution is wired.{'\n\n'}Recent operation log:{'\n'}{operationLog.join('\n')}</pre>
         </div>
       );
     }
-    if (drawerTab === 'logs') {
-      return <pre className="cockpitPre drawerPre">{operationLog.join('\n')}</pre>;
-    }
-    if (drawerTab === 'tests') {
-      return <pre className="cockpitPre drawerPre">{testSummary}</pre>;
-    }
-    if (drawerTab === 'git') {
-      return <pre className="cockpitPre drawerPre">{gitSummary}</pre>;
-    }
+    if (drawerTab === 'logs') return <pre className="cockpitPre drawerPre">{operationLog.join('\n')}</pre>;
+    if (drawerTab === 'tests') return <pre className="cockpitPre drawerPre">{testSummary}</pre>;
+    if (drawerTab === 'git') return <pre className="cockpitPre drawerPre">{gitSummary}</pre>;
     return <pre className="cockpitPre drawerPre">{problemLines.length ? problemLines.join('\n') : 'No cockpit problems detected from the current UI status cards.'}</pre>;
   }
 
@@ -429,8 +421,8 @@ export function CockpitWindow() {
               ))}
             </select>
           </label>
-          <button className="ghost" type="button" onClick={explainOpenProject} disabled={busy}><FolderOpen size={16} /> Open Project</button>
-          <button className="ghost" type="button" onClick={closeProject} disabled={busy || projectClosed}><XCircle size={16} /> Close</button>
+          <button className="ghost" type="button" onClick={explainOpenProject} disabled={busy}>Open Project</button>
+          <button className="ghost" type="button" onClick={closeProject} disabled={busy || projectClosed}>Close</button>
         </div>
         <div className="cockpitStatusStrip">
           <StatusPill label={`Bridge ${bridgeStatus}`} status={bridgeStatus} />
@@ -440,9 +432,10 @@ export function CockpitWindow() {
           <StatusPill label={proposalMatchesDraft ? 'diff reviewed' : 'diff needed'} status={proposalMatchesDraft ? 'ready' : 'warning'} />
         </div>
         <div className="cockpitTopActions">
-          <button className="ghost" type="button" onClick={openChat}><ExternalLink size={16} /> Chat</button>
-          <button className="ghost" type="button" onClick={() => void openPowerShellForProject()} disabled={busy || projectClosed}><TerminalSquare size={16} /> PowerShell</button>
-          <button className="primary" type="button" onClick={() => void refreshCockpit()} disabled={busy}><RefreshCcw size={16} /> Refresh</button>
+          <button className="ghost" type="button" onClick={openChat}>Chat</button>
+          <button className="ghost" type="button" onClick={() => void openPowerShellForProject()} disabled={busy || projectClosed}>PowerShell</button>
+          <button className="ghost" type="button" onClick={() => openDrawer('commands', drawerOpen ? drawerMode : 'peek')}>Commands</button>
+          <button className="primary" type="button" onClick={() => void refreshCockpit()} disabled={busy}>Refresh</button>
         </div>
       </header>
 
@@ -454,10 +447,10 @@ export function CockpitWindow() {
 
       <section className="cockpitGrid">
         <aside className="cockpitPanel fileExplorer">
-          <div className="panelHeader"><FileText size={17} /><span>Project Files</span></div>
+          <div className="panelHeader"><span>Project Files</span></div>
           <div className="fileToolRow">
-            <button className="ghost compact" type="button" onClick={explainNewFile} disabled={busy || projectClosed}><Plus size={14} /> New File</button>
-            <button className="ghost compact" type="button" onClick={explainNewFile} disabled={busy || projectClosed}><FolderOpen size={14} /> New Folder</button>
+            <button className="ghost compact" type="button" onClick={explainNewFile} disabled={busy || projectClosed}>New File</button>
+            <button className="ghost compact" type="button" onClick={explainNewFile} disabled={busy || projectClosed}>New Folder</button>
           </div>
           <input className="cockpitSearch" value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="Filter files..." disabled={projectClosed} />
           <div className="fileScroll">
@@ -472,24 +465,24 @@ export function CockpitWindow() {
 
         <section className="cockpitPanel editorPanel">
           <div className="panelHeader split">
-            <span><Code2 size={17} /> {selectedPath || 'No file selected'}</span>
+            <span>{selectedPath || 'No file selected'}</span>
             <span className="muted">edit here, save by reviewing a diff first</span>
           </div>
           <CodeEditor path={selectedPath || 'closed.txt'} value={code} onChange={setCode} />
           <div className="editorActions">
             <button className="ghost" type="button" onClick={() => void openFile(selectedPath)} disabled={busy || projectClosed || !selectedPath}>Reload file</button>
             <button className="primary" type="button" onClick={() => void proposeCurrentDraft()} disabled={busy || projectClosed || !dirtyDraft || !selectedPath}>Propose diff</button>
-            <button className="danger" type="button" onClick={() => void applyApprovedDraft()} disabled={busy || projectClosed || !proposalMatchesDraft}><Save size={16} /> Save reviewed draft</button>
+            <button className="danger" type="button" onClick={() => void applyApprovedDraft()} disabled={busy || projectClosed || !proposalMatchesDraft}>Save reviewed draft</button>
           </div>
         </section>
 
         <section className="cockpitPanel diffPanel">
-          <div className="panelHeader"><GitBranch size={17} /><span>Guarded Diff</span></div>
+          <div className="panelHeader"><span>Guarded Diff</span></div>
           <pre className="cockpitPre diffText">{proposal?.diff || 'No diff proposal yet. Edit a draft and click Propose diff. No repository mutation happens here.'}</pre>
         </section>
 
         <section className="cockpitPanel statusPanel">
-          <div className="panelHeader"><ShieldCheck size={17} /><span>Operation Cards</span></div>
+          <div className="panelHeader"><span>Operation Cards</span></div>
           <div className="statusCards">
             <div className="statusCard"><strong>Project</strong><span>{selectedProject?.name || 'closed'}</span></div>
             <div className="statusCard"><strong>Project root</strong><span>{selectedProject?.root || 'none'}</span></div>
@@ -505,7 +498,7 @@ export function CockpitWindow() {
         </section>
 
         <section className="cockpitPanel previewPanel">
-          <div className="panelHeader"><Activity size={17} /><span>Preview / Proof</span></div>
+          <div className="panelHeader"><span>Preview / Proof</span></div>
           {previewHtml ? <iframe title="HTML preview" srcDoc={previewHtml} sandbox="allow-same-origin" /> : <div className="emptyPreview">Open an HTML file to preview it here. App preview routing can be wired into this lane next.</div>}
         </section>
       </section>
