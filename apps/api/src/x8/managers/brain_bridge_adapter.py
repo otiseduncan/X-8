@@ -75,7 +75,7 @@ class BrainBridgeAdapter:
         self.last_generation_result = BridgeResult(ok=False)
 
     def _headers(self) -> dict[str, str]:
-        headers = {"Content-Type": "application/json"}
+        headers = {"Content-Type": "application/json", "Accept": "application/json"}
         if self.secret:
             headers["Authorization"] = "Bearer " + self.secret
         return headers
@@ -84,7 +84,16 @@ class BrainBridgeAdapter:
         payload = json.dumps(body).encode("utf-8") if body is not None else None
         request = urllib.request.Request(f"{self.base_url}{path}", data=payload, headers=self._headers(), method=method)
         with urllib.request.urlopen(request, timeout=timeout) as response:
-            return json.loads(response.read().decode("utf-8"))
+            raw = response.read().decode("utf-8", errors="replace")
+            status = getattr(response, "status", "")
+            content_type = response.headers.get("content-type", "") if getattr(response, "headers", None) else ""
+            if not raw.strip():
+                raise ValueError(f"HTTP {status} empty response from {path}")
+            try:
+                return json.loads(raw)
+            except json.JSONDecodeError as exc:
+                preview = " ".join(raw[:600].split())
+                raise ValueError(f"HTTP {status} non-JSON response from {path} ({content_type}): {preview}") from exc
 
     def _error(self, exc: BaseException) -> str:
         if isinstance(exc, urllib.error.HTTPError):
@@ -95,36 +104,82 @@ class BrainBridgeAdapter:
             return f"HTTP {exc.code} {exc.reason}. {detail}".strip()
         return str(exc)
 
+    def _payload_error(self, payload: dict[str, Any] | list[Any]) -> str:
+        if not isinstance(payload, dict):
+            return ""
+        for key in ("detail", "error", "message"):
+            value = payload.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()[:500]
+            if isinstance(value, dict):
+                nested = value.get("message") or value.get("detail") or value.get("code")
+                if isinstance(nested, str) and nested.strip():
+                    return nested.strip()[:500]
+        return ""
+
     def _extract_models(self, payload: dict[str, Any] | list[Any]) -> list[str]:
-        if isinstance(payload, list):
-            values = payload
-        elif isinstance(payload.get("data"), list):
-            values = payload["data"]
-        elif isinstance(payload.get("models"), list):
-            values = payload["models"]
-        else:
-            values = []
         models: list[str] = []
-        for item in values:
-            if isinstance(item, str) and item:
-                models.append(item)
-            elif isinstance(item, dict):
-                name = item.get("id") or item.get("name") or item.get("model")
-                if isinstance(name, str) and name:
-                    models.append(name)
+        seen: set[str] = set()
+
+        def add(value: Any) -> None:
+            if not isinstance(value, str):
+                return
+            name = value.strip()
+            if not name or len(name) > 160:
+                return
+            if "\n" in name or "\r" in name:
+                return
+            if name in {"model", "models", "list", "object", "data"}:
+                return
+            if name not in seen:
+                seen.add(name)
+                models.append(name)
+
+        def walk(value: Any, parent_key: str = "") -> None:
+            if isinstance(value, str):
+                if parent_key in {"id", "name", "model", "model_name", "title"}:
+                    add(value)
+                return
+            if isinstance(value, list):
+                for item in value:
+                    if isinstance(item, str):
+                        add(item)
+                    else:
+                        walk(item, parent_key)
+                return
+            if not isinstance(value, dict):
+                return
+
+            for key in ("id", "name", "model", "model_name"):
+                add(value.get(key))
+
+            for key in ("data", "models", "items", "results", "model_infos", "model_info"):
+                if key in value:
+                    walk(value[key], key)
+
+            # OpenWebUI and OpenAI-compatible APIs have changed response shapes
+            # across versions. Walk nested dict/list values conservatively so a
+            # payload like {"data": {"models": [...]}} is still recognized.
+            for key, nested in value.items():
+                if isinstance(nested, (dict, list)):
+                    walk(nested, key)
+
+        walk(payload)
         return models
 
     def models(self) -> tuple[bool, list[str], str]:
         if not self.base_url:
             return self._fallback_models("Brain bridge base URL is not configured.")
         errors: list[str] = []
-        for path in ("/api/models", "/v1/models"):
+        for path in ("/api/models", "/api/v1/models", "/v1/models", "/ollama/api/tags"):
             try:
-                models = self._extract_models(self._json(path, timeout=8.0))
+                payload = self._json(path, timeout=8.0)
+                models = self._extract_models(payload)
                 if models:
                     return True, models, ""
-                errors.append(f"{path}: no models returned")
-            except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError) as exc:
+                payload_error = self._payload_error(payload)
+                errors.append(f"{path}: {payload_error or 'no models returned'}")
+            except (urllib.error.URLError, TimeoutError, ValueError, OSError) as exc:
                 errors.append(f"{path}: {self._error(exc)}")
         return self._fallback_models("; ".join(errors) or "Brain bridge model list unavailable.")
 
@@ -168,7 +223,7 @@ class BrainBridgeAdapter:
         if self.base_url and selected_model:
             body = {"model": selected_model, "messages": self._messages(prompt), "stream": False}
             errors: list[str] = []
-            for path in ("/api/chat/completions", "/v1/chat/completions"):
+            for path in ("/api/chat/completions", "/api/v1/chat/completions", "/v1/chat/completions"):
                 try:
                     payload = self._json(path, method="POST", body=body, timeout=effective_timeout)
                     content = self._content(payload)
@@ -177,8 +232,9 @@ class BrainBridgeAdapter:
                         result = BridgeResult(ok=True, content=content, model=selected_model, timeout_seconds=effective_timeout, total_generation_ms=elapsed_ms)
                         self.last_generation_result = result
                         return result
-                    errors.append(f"{path}: empty response")
-                except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError) as exc:
+                    payload_error = self._payload_error(payload)
+                    errors.append(f"{path}: {payload_error or 'empty response'}")
+                except (urllib.error.URLError, TimeoutError, ValueError, OSError) as exc:
                     errors.append(f"{path}: {self._error(exc)}")
             primary_reason = "; ".join(errors) or "Brain bridge completion failed."
         else:
