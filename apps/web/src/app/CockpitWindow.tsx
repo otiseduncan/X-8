@@ -8,6 +8,9 @@ import './cockpitWindow.css';
 
 const DEFAULT_PATH = 'README.md';
 
+type UtilityTab = 'terminal' | 'logs' | 'tests' | 'git' | 'problems';
+type DrawerMode = 'closed' | 'peek' | 'open' | 'max';
+
 interface ProjectRoot {
   id: string;
   name: string;
@@ -16,6 +19,23 @@ interface ProjectRoot {
   exists: boolean;
   current?: boolean;
 }
+
+const DRAWER_TABS: { id: UtilityTab; label: string }[] = [
+  { id: 'terminal', label: 'Terminal' },
+  { id: 'logs', label: 'Logs' },
+  { id: 'tests', label: 'Tests' },
+  { id: 'git', label: 'Git' },
+  { id: 'problems', label: 'Problems' }
+];
+
+const SAFE_COMMANDS = [
+  { label: 'git status', command: 'git status --short --branch' },
+  { label: 'git diff', command: 'git diff --stat' },
+  { label: 'web tests', command: 'docker compose run --rm web-tests' },
+  { label: 'api tests', command: 'docker compose run --rm api-tests' },
+  { label: 'docker ps', command: 'docker compose ps' },
+  { label: 'logs', command: 'docker compose logs --tail=120 x8-api x8-cockpit' }
+];
 
 function nowStamp() {
   return new Date().toLocaleTimeString();
@@ -28,6 +48,14 @@ function statusText(value: unknown, fallback = 'unknown') {
 
 function countChangedFiles(status: Record<string, unknown>) {
   return Array.isArray(status.changed_files) ? status.changed_files.length : 0;
+}
+
+function formatRecord(value: Record<string, unknown>) {
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return 'Unable to format status record.';
+  }
 }
 
 async function getProjects() {
@@ -90,12 +118,15 @@ export function CockpitWindow() {
   const [busy, setBusy] = useState(false);
   const [filter, setFilter] = useState('');
   const [previewHtml, setPreviewHtml] = useState('');
+  const [drawerTab, setDrawerTab] = useState<UtilityTab>('terminal');
+  const [drawerMode, setDrawerMode] = useState<DrawerMode>('closed');
 
   const selectedProject = projects.find((project) => project.id === selectedProjectId) || null;
   const projectClosed = !selectedProjectId;
   const dirtyDraft = code !== savedCode;
   const proposalMatchesDraft = Boolean(proposal && proposal.proposed_content === code);
   const changedCount = countChangedFiles(githubOps);
+  const drawerOpen = drawerMode !== 'closed';
   const filteredFiles = useMemo(() => {
     const needle = filter.trim().toLowerCase();
     const fileList = files.filter((item) => item.kind === 'file');
@@ -103,12 +134,66 @@ export function CockpitWindow() {
     return fileList.filter((item) => item.path.toLowerCase().includes(needle)).slice(0, 180);
   }, [files, filter]);
 
+  const problemLines = useMemo(() => {
+    const lines = [
+      bridgeStatus !== 'reachable' && `Bridge status is ${bridgeStatus}. Some local operations may be unavailable.`,
+      projectClosed && 'No project is currently open.',
+      dirtyDraft && `Unsaved editor draft: ${selectedPath || 'no file selected'}.`,
+      dirtyDraft && !proposalMatchesDraft && 'Save is blocked until the current draft has a reviewed diff proposal.',
+      !dockerPresets.length && 'Docker presets are not loaded or the API did not return any presets.'
+    ];
+    return lines.filter((item): item is string => Boolean(item));
+  }, [bridgeStatus, dirtyDraft, dockerPresets.length, projectClosed, proposalMatchesDraft, selectedPath]);
+
+  const gitSummary = useMemo(() => {
+    const changedFiles = Array.isArray(githubOps.changed_files) ? githubOps.changed_files : [];
+    const lines = [
+      `Branch: ${statusText(githubOps.branch, 'not a repo')}`,
+      `Remote: ${statusText(githubOps.remote_origin_url, 'none')}`,
+      `Dirty: ${statusText(githubOps.dirty, 'false')}`,
+      `Changed files: ${changedFiles.length}`,
+      ...changedFiles.map((file) => `- ${String(file)}`)
+    ];
+    return lines.join('\n');
+  }, [githubOps]);
+
+  const testSummary = useMemo(() => {
+    return [
+      'Safe test commands are staged here, but live terminal execution is not wired in this UI slice.',
+      '',
+      'Recommended host commands:',
+      'docker compose run --rm web-tests',
+      'docker compose run --rm api-tests',
+      'docker compose run --rm architecture-guard'
+    ].join('\n');
+  }, []);
+
   useEffect(() => {
     void initializeCockpit();
   }, []);
 
   function log(message: string) {
     setOperationLog((current) => [`[${nowStamp()}] ${message}`, ...current].slice(0, 80));
+  }
+
+  function openDrawer(tab: UtilityTab, mode: DrawerMode = 'peek') {
+    setDrawerTab(tab);
+    setDrawerMode(mode);
+  }
+
+  function cycleDrawerHeight() {
+    setDrawerMode((current) => {
+      if (current === 'closed') return 'peek';
+      if (current === 'peek') return 'open';
+      if (current === 'open') return 'max';
+      return 'peek';
+    });
+  }
+
+  function queueSafeCommand(command: string) {
+    setDrawerTab('terminal');
+    setDrawerMode((current) => (current === 'closed' ? 'peek' : current));
+    log(`Terminal command queued but not executed: ${command}. Live protected command execution is a follow-up bridge slice.`);
   }
 
   async function initializeCockpit() {
@@ -285,6 +370,33 @@ export function CockpitWindow() {
     window.open('/', 'x8-chat', 'noopener,noreferrer,width=1180,height=900');
   }
 
+  function renderDrawerBody() {
+    if (drawerTab === 'terminal') {
+      return (
+        <div className="utilityBodyGrid">
+          <div className="safeCommandGrid" aria-label="Safe command shortcuts">
+            {SAFE_COMMANDS.map((item) => (
+              <button key={item.command} className="ghost compact" type="button" onClick={() => queueSafeCommand(item.command)}>
+                {item.label}
+              </button>
+            ))}
+          </div>
+          <pre className="cockpitPre drawerPre">Terminal drawer ready. Live shell execution is intentionally not enabled in this slice. Safe command buttons record the intended command without running it.\n\nRecent operation log:\n{operationLog.join('\n')}</pre>
+        </div>
+      );
+    }
+    if (drawerTab === 'logs') {
+      return <pre className="cockpitPre drawerPre">{operationLog.join('\n')}</pre>;
+    }
+    if (drawerTab === 'tests') {
+      return <pre className="cockpitPre drawerPre">{testSummary}</pre>;
+    }
+    if (drawerTab === 'git') {
+      return <pre className="cockpitPre drawerPre">{gitSummary}</pre>;
+    }
+    return <pre className="cockpitPre drawerPre">{problemLines.length ? problemLines.join('\n') : 'No cockpit problems detected from the current UI status cards.'}</pre>;
+  }
+
   return (
     <main className="cockpitWindow" aria-label="X8 Native Operator Cockpit">
       <header className="cockpitTopbar">
@@ -319,6 +431,7 @@ export function CockpitWindow() {
         </div>
         <div className="cockpitTopActions">
           <button className="ghost" type="button" onClick={openChat}><ExternalLink size={16} /> Chat</button>
+          <button className="ghost" type="button" onClick={() => openDrawer('terminal', drawerOpen ? drawerMode : 'peek')}><TerminalSquare size={16} /> Terminal</button>
           <button className="primary" type="button" onClick={() => void refreshCockpit()} disabled={busy}><RefreshCcw size={16} /> Refresh</button>
         </div>
       </header>
@@ -376,6 +489,7 @@ export function CockpitWindow() {
             <div className="statusCard"><strong>Remote</strong><span>{statusText(githubOps.remote_origin_url, 'none')}</span></div>
             <div className="statusCard"><strong>Dirty</strong><span>{statusText(githubOps.dirty, 'false')}</span></div>
             <div className="statusCard"><strong>Docker presets</strong><span>{dockerPresets.length ? dockerPresets.join(', ') : 'none loaded'}</span></div>
+            <div className="statusCard"><strong>Project manager</strong><span>Approved roots only. Mount folders under /projects or configure X8_APPROVED_PROJECT_ROOTS.</span></div>
           </div>
         </section>
 
@@ -383,18 +497,28 @@ export function CockpitWindow() {
           <div className="panelHeader"><Activity size={17} /><span>Preview / Proof</span></div>
           {previewHtml ? <iframe title="HTML preview" srcDoc={previewHtml} sandbox="allow-same-origin" /> : <div className="emptyPreview">Open an HTML file to preview it here. App preview routing can be wired into this lane next.</div>}
         </section>
+      </section>
 
-        <section className="cockpitPanel terminalPanel">
-          <div className="panelHeader"><TerminalSquare size={17} /><span>Operation Log</span></div>
-          <pre className="cockpitPre">{operationLog.join('\n')}</pre>
-        </section>
-
-        <section className="cockpitPanel bridgePanel">
-          <div className="panelHeader"><Server size={17} /><span>Project Manager Rule</span></div>
-          <p>The cockpit can switch only between approved project roots: the default X-8 workspace, roots configured in X8_APPROVED_PROJECT_ROOTS, or mounted folders under /projects.</p>
-          <p className="muted">Open Project does not browse the whole host drive. Mount a project folder into /projects or register an approved root, then refresh.</p>
-          <div className="doneLine"><Check size={15} /> Select project, edit drafts, review diff, approve before write.</div>
-        </section>
+      <section className={`cockpitUtilityDrawer ${drawerMode}`} aria-label="Cockpit utility drawer" aria-expanded={drawerOpen}>
+        <div className="utilityRail">
+          <div className="utilityTabs" role="tablist" aria-label="Utility drawer tabs">
+            {DRAWER_TABS.map((tab) => (
+              <button key={tab.id} className={drawerTab === tab.id ? 'utilityTab active' : 'utilityTab'} type="button" onClick={() => openDrawer(tab.id, drawerOpen ? drawerMode : 'peek')}>
+                {tab.label}
+              </button>
+            ))}
+          </div>
+          <div className="utilitySummary">
+            <span>Terminal: {drawerOpen ? drawerMode : 'closed'}</span>
+            <span>Git: {changedCount} changed</span>
+            <span>Problems: {problemLines.length}</span>
+          </div>
+          <div className="utilityControls">
+            <button className="ghost compact" type="button" onClick={cycleDrawerHeight}>{drawerMode === 'closed' ? 'Peek' : drawerMode === 'max' ? 'Reduce' : 'Grow'}</button>
+            <button className="ghost compact" type="button" onClick={() => setDrawerMode(drawerOpen ? 'closed' : 'peek')}>{drawerOpen ? 'Hide' : 'Show'}</button>
+          </div>
+        </div>
+        {drawerOpen && <div className="utilityContent">{renderDrawerBody()}</div>}
       </section>
     </main>
   );
