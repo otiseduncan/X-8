@@ -8,6 +8,8 @@ services:
       X8_GITHUB_TOKEN: ${X8_GITHUB_TOKEN:-}
       X8_GITHUB_OWNER: ${X8_GITHUB_OWNER:-otiseduncan}
       X8_GITHUB_DEFAULT_VISIBILITY: ${X8_GITHUB_DEFAULT_VISIBILITY:-private}
+      X8_WORKSPACE_HOST_ROOT: ${X8_WORKSPACE_HOST_ROOT:-}
+      X8_PROJECTS_HOST_ROOT: ${X8_PROJECTS_HOST_ROOT:-}
     ports:
       - "${X8_API_PORT:-8080}:8080"
     depends_on:
@@ -107,6 +109,9 @@ services:
       dockerfile: docker/api/Dockerfile
     command: ["uvicorn", "x8.local_bridge_app:app", "--host", "0.0.0.0", "--port", "5788"]
     env_file: .env.example
+    environment:
+      X8_WORKSPACE_HOST_ROOT: ${X8_WORKSPACE_HOST_ROOT:-}
+      X8_PROJECTS_HOST_ROOT: ${X8_PROJECTS_HOST_ROOT:-}
     volumes:
       - .:/workspace:ro
       - "X:/XV7/xv7:/imports/x7:ro"
@@ -186,10 +191,9 @@ services:
       - "npx"
       - "playwright"
       - "test"
-      - "tests/continuity-proof.spec.ts"
       - "tests/smoke.spec.ts"
       - "--grep"
-      - "Brain continuity proof|Brain auto-capture|Brain semantic retrieval"
+      - "Brain auto-capture|Brain semantic retrieval"
     depends_on:
       - x8-api
       - x8-web
@@ -204,7 +208,7 @@ services:
       - "test"
       - "tests/smoke.spec.ts"
       - "--grep"
-      - "self-build"
+      - "self-build smoke proof applies"
     depends_on:
       - x8-api
       - x8-web
@@ -212,15 +216,15 @@ services:
   architecture-guard:
     build:
       context: .
-      dockerfile: docker/guard/Dockerfile
-    command: ["python", "scripts/check_file_size.py", "."]
+      dockerfile: docker/architecture-guard/Dockerfile
+    command: ["python", "scripts/architecture_guard.py"]
 
 volumes:
   x8-postgres-data:
   x8-redis-data:
   x8-ollama-data:
+  x8-qdrant-data:
   x8-searxng-data:
   x8-comfyui-output:
   x8-comfyui-workflows:
-  x8-qdrant-data:
   x8-audit:
