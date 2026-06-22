@@ -48,6 +48,8 @@ class Settings(BaseSettings):
     attachment_allowed_extensions: str = ".txt,.md,.json,.yaml,.yml,.csv,.log,.py,.js,.ts,.tsx,.jsx,.html,.css,.png,.jpg,.jpeg,.webp,.pdf"
     knowledge_root: str = "/app/knowledge"
     workspace_root: str = "/workspace"
+    workspace_host_root: str = ""
+    projects_host_root: str = ""
     local_bridge_url: str = "http://x8-local-bridge:5788"
     local_bridge_token: str = ""
     approved_project_roots: str = ""
