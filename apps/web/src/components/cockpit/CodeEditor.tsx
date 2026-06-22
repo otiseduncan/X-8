@@ -19,7 +19,7 @@ export function CodeEditor({ path, value, onChange }: { path: string; value: str
     <div className="codeMirrorShell">
       <CodeMirror
         value={value}
-        height="318px"
+        height="100%"
         theme="dark"
         extensions={[languageFor(path)].flat()}
         basicSetup={{ lineNumbers: true, foldGutter: true, highlightActiveLine: true }}
