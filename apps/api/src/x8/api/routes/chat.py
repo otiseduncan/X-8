@@ -80,6 +80,11 @@ def _workspace(request: Request) -> WorkspaceManager:
     return WorkspaceManager(request.app.state.settings.workspace_root)
 
 
+def _host_sandbox_root(request: Request) -> str:
+    settings = request.app.state.settings
+    return settings.projects_host_root or settings.workspace_host_root or "UNSET"
+
+
 def _build_preview_proof_files(project: str, date_saved: str) -> dict[str, str]:
     data = {
         "project": project,
@@ -199,9 +204,9 @@ def _chat_result(
         metadata={"session_id": session_id, "model": receipt.model, "limitations": receipt.limitations},
     )
     return ResultEnvelope(
-        ok=True,
-        status=receipt.status,
-        message="Chat deterministic sandbox action completed.",
+        ok=status == "passed",
+        status=status,
+        message="Chat deterministic sandbox action completed." if status == "passed" else "Chat deterministic sandbox action failed.",
         data=ChatResponse(
             session_id=session_id,
             message_id=assistant_message_id,
@@ -222,26 +227,61 @@ def _handle_sandbox_project_command(payload: ChatRequest, request: Request, stor
     date_match = DATE_SAVED_RE.search(payload.message)
     date_saved = date_match.group(1) if date_match else "2026-06-22"
     manager = _workspace(request)
+    requested_files = _build_preview_proof_files(project, date_saved)
     writes = []
-    for path, content in _build_preview_proof_files(project, date_saved).items():
-        writes.append(manager.write_file(path, content, overwrite=True).model_dump())
-    created_paths = "\n".join(f"- {item['path']}" for item in writes)
+    verification_failures = []
+
+    for path, expected_content in requested_files.items():
+        try:
+            write = manager.write_file(path, expected_content, overwrite=True)
+            readback = manager.read_file(path, max_chars=len(expected_content) + 1000)
+            verified = readback.content == expected_content
+            write_payload = write.model_dump()
+            write_payload["verified"] = verified
+            write_payload["readback_line_count"] = readback.line_count
+            writes.append(write_payload)
+            if not verified:
+                verification_failures.append(f"{path}: readback mismatch")
+        except Exception as exc:
+            verification_failures.append(f"{path}: {exc}")
+
+    if verification_failures:
+        content = (
+            f"Sandbox project write FAILED: {project}\n\n"
+            f"Container sandbox root: {manager.root}\n"
+            f"Configured host sandbox root: {_host_sandbox_root(request)}\n\n"
+            "No success receipt was issued because these files were not verified on disk:\n"
+            + "\n".join(f"- {failure}" for failure in verification_failures)
+        )
+        return _chat_result(
+            store=store,
+            session_id=session_id,
+            user_message_id=user_message_id,
+            content=content,
+            cards=[{"type": "receipt", "title": "Sandbox project write failed", "status": "failed", "payload": {"project": project, "failures": verification_failures, "files": writes}}],
+            action_type="sandbox_project_create",
+            status="failed",
+            attachments=attachments,
+        )
+
+    created_paths = "\n".join(f"- {item['path']} -> {item['absolute_path']} [verified]" for item in writes)
     content = (
-        f"Sandbox project created: {project}\n\n"
-        f"Sandbox root: {writes[0]['sandbox_root']}\n\n"
-        "Created files:\n"
+        f"Sandbox project created and verified: {project}\n\n"
+        f"Container sandbox root: {writes[0]['sandbox_root']}\n"
+        f"Configured host sandbox root: {_host_sandbox_root(request)}\n\n"
+        "Created and read back from disk:\n"
         f"{created_paths}\n\n"
         f"Preview path: {project}/index.html\n"
         f"dateSaved persisted: {date_saved}\n\n"
-        "Refresh the cockpit file tree and open the project folder."
+        "Refresh the cockpit file tree and open the project folder. If the configured host sandbox root is not X:/xoduz-sandbox, fix X8_PROJECTS_HOST_ROOT before trusting this proof."
     )
     cards = [
         {
             "type": "receipt",
-            "title": "Sandbox project created",
+            "title": "Sandbox project created and verified",
             "status": "passed",
-            "summary": f"Created {len(writes)} files inside the sandbox workspace.",
-            "payload": {"project": project, "files": writes, "previewPath": f"{project}/index.html", "dateSaved": date_saved},
+            "summary": f"Created and verified {len(writes)} files inside the sandbox workspace.",
+            "payload": {"project": project, "files": writes, "previewPath": f"{project}/index.html", "dateSaved": date_saved, "hostSandboxRoot": _host_sandbox_root(request)},
         }
     ]
     return _chat_result(
