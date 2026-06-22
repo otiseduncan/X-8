@@ -83,6 +83,16 @@ export function loadBridgeStatus() {
   return getJson<ResultEnvelope<Record<string, unknown>>>('/api/local-bridge/status');
 }
 
+export async function openProjectPowerShell(projectId: string) {
+  const response = await fetch('/api/local-bridge/open-powershell', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ project_id: projectId })
+  });
+  if (!response.ok) throw new Error('PowerShell launch request failed');
+  return response.json() as Promise<ResultEnvelope<Record<string, unknown>>>;
+}
+
 export function loadConfigImportStatus() {
   return getJson<ResultEnvelope<Record<string, unknown>>>('/api/config-import/legacy/status');
 }
@@ -221,142 +231,13 @@ export function loadModelStatus() {
   return getJson<ResultEnvelope<Record<string, unknown>>>('/api/models/status');
 }
 
-export function loadMemoryStatus() {
-  return getJson<ResultEnvelope<Record<string, unknown>>>('/api/memory/status');
-}
-
-export function loadBrainStatus() {
-  return getJson<ResultEnvelope<Record<string, unknown>>>('/api/brain/status');
-}
-
-export function loadContinuityStatus() {
-  return getJson<ResultEnvelope<Record<string, unknown>>>('/api/brain/continuity/status');
-}
-
-export function loadContinuityRecords(params: Record<string, string> = {}) {
-  const query = new URLSearchParams(params);
-  return getJson<ResultEnvelope<Array<Record<string, unknown>>>>(`/api/brain/continuity/records${query.toString() ? `?${query}` : ''}`);
-}
-
-export async function createContinuityTask(summary: string) {
-  const response = await fetch('/api/brain/continuity/tasks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ summary }) });
-  if (!response.ok) throw new Error('Continuity task create failed');
-  return response.json() as Promise<ResultEnvelope<Record<string, unknown>>>;
-}
-
-export async function updateContinuityRecord(id: string, patch: Record<string, unknown>) {
-  const response = await fetch(`/api/brain/continuity/records/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch) });
-  if (!response.ok) throw new Error('Continuity record update failed');
-  return response.json() as Promise<ResultEnvelope<Record<string, unknown>>>;
-}
-
-export async function createContinuityHandoff() {
-  const response = await fetch('/api/brain/continuity/handoff', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
-  if (!response.ok) throw new Error('Continuity handoff failed');
-  return response.json() as Promise<ResultEnvelope<Record<string, unknown>>>;
-}
-
-export function loadBrainMemories(params: Record<string, string> = {}) {
-  const query = new URLSearchParams(params);
-  return getJson<ResultEnvelope<Array<Record<string, unknown>>>>(`/api/brain/memories${query.toString() ? `?${query}` : ''}`);
-}
-
-export function loadBrainCandidates(params: Record<string, string> = {}) {
-  const query = new URLSearchParams(params);
-  return getJson<ResultEnvelope<Array<Record<string, unknown>>>>(`/api/brain/candidates${query.toString() ? `?${query}` : ''}`);
-}
-
-export function loadBrainEvents(params: Record<string, string> = {}) {
-  const query = new URLSearchParams(params);
-  return getJson<ResultEnvelope<Array<Record<string, unknown>>>>(`/api/brain/events${query.toString() ? `?${query}` : ''}`);
-}
-
-export function loadBrainEmbeddingStatus() {
-  return getJson<ResultEnvelope<Record<string, unknown>>>('/api/brain/embedding-status');
-}
-
-export async function reindexBrainMemories() {
-  const response = await fetch('/api/brain/reindex', { method: 'POST' });
-  if (!response.ok) throw new Error('Brain memory reindex failed');
-  return response.json() as Promise<ResultEnvelope<Record<string, unknown>>>;
-}
-
-export async function toggleBrainAutoCapture(enabled: boolean) {
-  const response = await fetch('/api/brain/auto-capture/toggle', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled }) });
-  if (!response.ok) throw new Error('Brain auto-capture toggle failed');
-  return response.json() as Promise<ResultEnvelope<Record<string, unknown>>>;
-}
-
-export async function updateBrainMemory(id: string, patch: Record<string, unknown>) {
-  const response = await fetch(`/api/brain/memories/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch) });
-  if (!response.ok) throw new Error('Brain memory update failed');
-  return response.json() as Promise<ResultEnvelope<Record<string, unknown>>>;
-}
-
-export async function deleteBrainMemory(id: string) {
-  const response = await fetch(`/api/brain/memories/${id}`, { method: 'DELETE' });
-  if (!response.ok) throw new Error('Brain memory delete failed');
-  return response.json() as Promise<ResultEnvelope<Record<string, unknown>>>;
-}
-
-export async function approveBrainMemory(id: string) {
-  const response = await fetch(`/api/brain/memories/${id}/approve`, { method: 'POST' });
-  if (!response.ok) throw new Error('Brain memory approve failed');
-  return response.json() as Promise<ResultEnvelope<Record<string, unknown>>>;
-}
-
-export async function rejectBrainMemory(id: string) {
-  const response = await fetch(`/api/brain/memories/${id}/reject`, { method: 'POST' });
-  if (!response.ok) throw new Error('Brain memory reject failed');
-  return response.json() as Promise<ResultEnvelope<Record<string, unknown>>>;
-}
-
-export async function reactivateBrainMemory(id: string) {
-  const response = await fetch(`/api/brain/memories/${id}/reactivate`, { method: 'POST' });
-  if (!response.ok) throw new Error('Brain memory reactivate failed');
-  return response.json() as Promise<ResultEnvelope<Record<string, unknown>>>;
-}
-
-export async function retrieveBrainMemory(query: string) {
-  const response = await fetch('/api/brain/retrieve', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query }) });
-  if (!response.ok) throw new Error('Brain memory retrieve failed');
-  return response.json() as Promise<ResultEnvelope<Record<string, unknown>>>;
-}
-
-export async function updateBrainFocus(focus: string) {
-  const response = await fetch('/api/brain/focus', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ focus }) });
-  if (!response.ok) throw new Error('Brain focus update failed');
-  return response.json() as Promise<ResultEnvelope<Record<string, unknown>>>;
-}
-
-export function loadMemoryRecords() {
-  return getJson<ResultEnvelope<Array<Record<string, unknown>>>>('/api/memory/records');
-}
-
-export function loadReceipts() {
-  return getJson<ResultEnvelope<Array<Record<string, unknown>>>>('/api/receipts');
-}
-
-export async function sendChat(message: string, attachments: AttachmentReference[] = [], session_id?: string, timeoutMs = CHAT_TIMEOUT_MS) {
-  const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+export async function sendChat(prompt: string, attachment_ids?: string[], opts?: { signal?: AbortSignal }) {
   const response = await fetch('/api/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    signal: controller.signal,
-    body: JSON.stringify({
-      message,
-      session_id,
-      attachments: attachments
-        .filter((attachment) => attachment.attachment_id && attachment.status !== 'blocked' && attachment.status !== 'failed')
-        .map((attachment) => ({
-          attachment_id: attachment.attachment_id,
-          filename: attachment.filename,
-          mime_type: attachment.mime_type,
-          size_bytes: attachment.size_bytes
-        }))
-    })
-  }).finally(() => window.clearTimeout(timeout));
+    body: JSON.stringify({ prompt, attachment_ids }),
+    signal: opts?.signal
+  });
   if (!response.ok) throw new Error('Chat request failed');
   return response.json() as Promise<ResultEnvelope<ChatResponse>>;
 }
