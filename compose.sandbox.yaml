@@ -1,0 +1,38 @@
+# Runtime sandbox override for Otis' Windows X drive.
+# Use with:
+#   docker compose -f compose.yaml -f compose.sandbox.yaml up --build --force-recreate
+#
+# This file makes the /projects container path an explicit bind mount to:
+#   X:\xoduz-sandbox
+# so operator chat and cockpit writes can be verified in Windows Explorer.
+
+services:
+  x8-api:
+    environment:
+      X8_WORKSPACE_ROOT: /projects
+      X8_WORKSPACE_HOST_ROOT: X:/xoduz-sandbox
+      X8_PROJECTS_HOST_ROOT: X:/xoduz-sandbox
+    volumes:
+      - type: bind
+        source: X:/xoduz-sandbox
+        target: /projects
+
+  x8-local-bridge:
+    environment:
+      X8_WORKSPACE_ROOT: /projects
+      X8_WORKSPACE_HOST_ROOT: X:/xoduz-sandbox
+      X8_PROJECTS_HOST_ROOT: X:/xoduz-sandbox
+    volumes:
+      - type: bind
+        source: X:/xoduz-sandbox
+        target: /projects
+
+  api-tests:
+    environment:
+      X8_WORKSPACE_ROOT: /projects
+      X8_WORKSPACE_HOST_ROOT: X:/xoduz-sandbox
+      X8_PROJECTS_HOST_ROOT: X:/xoduz-sandbox
+    volumes:
+      - type: bind
+        source: X:/xoduz-sandbox
+        target: /projects
