@@ -256,20 +256,46 @@ class BrainBridgeAdapter:
                     return message["content"].strip()
                 if isinstance(first.get("text"), str):
                     return first["text"].strip()
+        message_value = payload.get("message")
+        if isinstance(message_value, dict):
+            content = message_value.get("content")
+            if isinstance(content, str) and content.strip():
+                return content.strip()
+        data_value = payload.get("data")
+        if isinstance(data_value, dict):
+            nested = self._content(data_value)
+            if nested:
+                return nested
         for key in ("response", "content", "message", "text"):
             value = payload.get(key)
             if isinstance(value, str) and value.strip():
                 return value.strip()
         return ""
 
+    def _completion_attempts(self, model: str, prompt: str) -> list[tuple[str, dict[str, Any]]]:
+        messages = self._messages(prompt)
+        openai_body = {"model": model, "messages": messages, "stream": False}
+        ollama_chat_body = {"model": model, "messages": messages, "stream": False}
+        ollama_generate_body: dict[str, Any] = {"model": model, "prompt": prompt, "stream": False}
+        if self.system_prompt:
+            ollama_generate_body["system"] = self.system_prompt
+        return [
+            ("/api/chat/completions", openai_body),
+            ("/api/v1/chat/completions", openai_body),
+            ("/v1/chat/completions", openai_body),
+            ("/ollama/api/chat", ollama_chat_body),
+            ("/api/chat", ollama_chat_body),
+            ("/ollama/api/generate", ollama_generate_body),
+            ("/api/generate", ollama_generate_body),
+        ]
+
     def generate_with_metrics(self, model: str, prompt: str, timeout_seconds: float | None = None) -> BridgeResult:
         selected_model = model or self.default_model
         effective_timeout = float(timeout_seconds if timeout_seconds is not None else self.timeout_seconds)
         started = time.perf_counter()
         if self.base_url and selected_model:
-            body = {"model": selected_model, "messages": self._messages(prompt), "stream": False}
             errors: list[str] = []
-            for path in ("/api/chat/completions", "/api/v1/chat/completions", "/v1/chat/completions"):
+            for path, body in self._completion_attempts(selected_model, prompt):
                 try:
                     payload = self._json(path, method="POST", body=body, timeout=effective_timeout)
                     content = self._content(payload)
