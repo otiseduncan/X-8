@@ -20,6 +20,7 @@ services:
     volumes:
       - ./knowledge:/app/knowledge:ro
       - .:/workspace
+      - "${X8_PROJECTS_HOST_ROOT:-./runtime/projects}:/projects"
       - "X:/XV7/xv7:/imports/x7:ro"
       - "X:/X-V-6.1:/imports/x6:ro"
       - /var/run/docker.sock:/var/run/docker.sock
@@ -142,6 +143,7 @@ services:
     volumes:
       - ./apps/api/tests:/app/tests:ro
       - .:/workspace
+      - "${X8_PROJECTS_HOST_ROOT:-./runtime/projects}:/projects"
       - "X:/XV7/xv7:/imports/x7:ro"
       - "X:/X-V-6.1:/imports/x6:ro"
 
