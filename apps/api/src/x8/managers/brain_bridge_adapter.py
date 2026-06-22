@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 import urllib.error
 import urllib.request
@@ -35,6 +36,12 @@ def env_first(*names: str, default: str = "") -> str:
     return default
 
 
+def split_env_list(value: str) -> list[str]:
+    if not value:
+        return []
+    return [item.strip() for item in re.split(r"[;,]", value) if item.strip()]
+
+
 def bridge_config() -> dict[str, str | float]:
     suffix = "API" + "_KEY"
     timeout_raw = env_first("X8_OPEN_WEBUI_TIMEOUT_SECONDS", "X8_OPENWEBUI_TIMEOUT_SECONDS", "OPENWEBUI_TIMEOUT_SECONDS", default="120")
@@ -47,6 +54,7 @@ def bridge_config() -> dict[str, str | float]:
         "base_url": env_first("X8_OPEN_WEBUI_BASE_URL", "X8_OPENWEBUI_BASE_URL", "OPENWEBUI_BASE_URL"),
         "secret": env_first("X8_OPEN_WEBUI_" + suffix, "X8_OPENWEBUI_" + suffix, "OPENWEBUI_" + suffix),
         "model": env_first("X8_OPEN_WEBUI_MODEL", "X8_OPENWEBUI_MODEL", "OPENWEBUI_MODEL"),
+        "model_aliases": env_first("X8_OPEN_WEBUI_MODEL_ALIASES", "X8_OPENWEBUI_MODEL_ALIASES", "OPENWEBUI_MODEL_ALIASES"),
         "timeout": timeout,
         "system_prompt": env_first(
             "X8_OPEN_WEBUI_SYSTEM_PROMPT",
@@ -74,10 +82,12 @@ class BrainBridgeAdapter:
         fallback_adapter: Any | None = None,
         fallback_model: str = "",
         timeout_seconds: float = 120.0,
+        model_aliases: str = "",
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.secret = secret.strip()
         self.default_model = default_model.strip()
+        self.model_aliases = split_env_list(model_aliases)
         self.system_prompt = system_prompt.strip()
         self.fallback_adapter = fallback_adapter
         self.fallback_model = fallback_model
@@ -206,6 +216,22 @@ class BrainBridgeAdapter:
         # and let a real completion call validate the configured model.
         return any(key in payload for key in ("data", "models", "items", "results"))
 
+    def _candidate_models(self, selected_model: str) -> list[str]:
+        candidates: list[str] = []
+        seen: set[str] = set()
+
+        def add(value: str) -> None:
+            name = (value or "").strip()
+            if name and name not in seen:
+                seen.add(name)
+                candidates.append(name)
+
+        add(selected_model)
+        add(self.default_model)
+        for alias in self.model_aliases:
+            add(alias)
+        return candidates
+
     def models(self) -> tuple[bool, list[str], str]:
         if not self.base_url:
             return self._fallback_models("Brain bridge base URL is not configured.")
@@ -224,9 +250,10 @@ class BrainBridgeAdapter:
                 errors.append(f"{path}: {payload_error or 'no models returned'}")
             except (urllib.error.URLError, TimeoutError, ValueError, OSError) as exc:
                 errors.append(f"{path}: {self._error(exc)}")
-        if reachable_sparse_paths and self.default_model:
-            self.last_model_discovery_note = "OpenWebUI reachable but model catalog is sparse; using configured default model."
-            return True, [self.default_model], self.last_model_discovery_note
+        sparse_candidates = self._candidate_models(self.default_model)
+        if reachable_sparse_paths and sparse_candidates:
+            self.last_model_discovery_note = "OpenWebUI reachable but model catalog is sparse; using configured model candidates."
+            return True, sparse_candidates, self.last_model_discovery_note
         return self._fallback_models("; ".join(errors) or "Brain bridge model list unavailable.")
 
     def _fallback_models(self, reason: str) -> tuple[bool, list[str], str]:
@@ -295,20 +322,23 @@ class BrainBridgeAdapter:
         started = time.perf_counter()
         if self.base_url and selected_model:
             errors: list[str] = []
-            for path, body in self._completion_attempts(selected_model, prompt):
-                try:
-                    payload = self._json(path, method="POST", body=body, timeout=effective_timeout)
-                    content = self._content(payload)
-                    elapsed_ms = int((time.perf_counter() - started) * 1000)
-                    if content:
-                        result = BridgeResult(ok=True, content=content, model=selected_model, timeout_seconds=effective_timeout, total_generation_ms=elapsed_ms)
-                        self.last_generation_result = result
-                        return result
-                    payload_error = self._payload_error(payload)
-                    errors.append(f"{path}: {payload_error or 'empty response'}")
-                except (urllib.error.URLError, TimeoutError, ValueError, OSError) as exc:
-                    errors.append(f"{path}: {self._error(exc)}")
+            for candidate_model in self._candidate_models(selected_model):
+                for path, body in self._completion_attempts(candidate_model, prompt):
+                    try:
+                        payload = self._json(path, method="POST", body=body, timeout=effective_timeout)
+                        content = self._content(payload)
+                        elapsed_ms = int((time.perf_counter() - started) * 1000)
+                        if content:
+                            result = BridgeResult(ok=True, content=content, model=candidate_model, timeout_seconds=effective_timeout, total_generation_ms=elapsed_ms)
+                            self.last_generation_result = result
+                            return result
+                        payload_error = self._payload_error(payload)
+                        errors.append(f"{candidate_model} {path}: {payload_error or 'empty response'}")
+                    except (urllib.error.URLError, TimeoutError, ValueError, OSError) as exc:
+                        errors.append(f"{candidate_model} {path}: {self._error(exc)}")
             primary_reason = "; ".join(errors) or "Brain bridge completion failed."
+            if "Model not found" in primary_reason or "was not found" in primary_reason:
+                primary_reason += " Configure OPENWEBUI_MODEL or OPENWEBUI_MODEL_ALIASES with an exact model ID visible to OpenWebUI, or connect OpenWebUI to the Ollama backend that has the model."
         else:
             primary_reason = "Brain bridge base URL or model is not configured."
         result = self._fallback_generate(prompt, selected_model, effective_timeout, primary_reason)
