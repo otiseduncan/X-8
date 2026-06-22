@@ -1,0 +1,5 @@
+services:
+  x8-api:
+    env_file:
+      - path: .env
+        required: false
