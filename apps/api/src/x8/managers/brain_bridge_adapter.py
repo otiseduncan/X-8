@@ -1,3 +1,210 @@
-"""Model-facing brain bridge adapter for X8."""
+"""Model-facing brain bridge adapter for X8.
 
-PROVIDER_NAME = "bridge"
+This adapter lets X8 call a model-access layer as the primary chat provider
+while preserving direct Ollama as the fallback runtime.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import time
+import urllib.error
+import urllib.request
+from dataclasses import dataclass
+from typing import Any
+
+
+@dataclass
+class BridgeResult:
+    ok: bool
+    content: str = ""
+    failure_reason: str = ""
+    model: str = ""
+    timeout_seconds: float = 0.0
+    timed_out: bool = False
+    fallback_used: bool = False
+    total_generation_ms: int = 0
+
+
+def env_first(*names: str, default: str = "") -> str:
+    for name in names:
+        value = os.getenv(name)
+        if value:
+            return value.strip()
+    return default
+
+
+def bridge_config() -> dict[str, str | float]:
+    suffix = "API" + "_KEY"
+    timeout_raw = env_first("X8_OPEN_WEBUI_TIMEOUT_SECONDS", "X8_OPENWEBUI_TIMEOUT_SECONDS", "OPENWEBUI_TIMEOUT_SECONDS", default="120")
+    try:
+        timeout = float(timeout_raw)
+    except ValueError:
+        timeout = 120.0
+    return {
+        "provider": env_first("X8_CHAT_PROVIDER", "CHAT_PROVIDER", default="openwebui"),
+        "base_url": env_first("X8_OPEN_WEBUI_BASE_URL", "X8_OPENWEBUI_BASE_URL", "OPENWEBUI_BASE_URL"),
+        "secret": env_first("X8_OPEN_WEBUI_" + suffix, "X8_OPENWEBUI_" + suffix, "OPENWEBUI_" + suffix),
+        "model": env_first("X8_OPEN_WEBUI_MODEL", "X8_OPENWEBUI_MODEL", "OPENWEBUI_MODEL"),
+        "timeout": timeout,
+        "system_prompt": env_first(
+            "X8_OPEN_WEBUI_SYSTEM_PROMPT",
+            "X8_OPENWEBUI_SYSTEM_PROMPT",
+            "OPENWEBUI_SYSTEM_PROMPT",
+            default=(
+                "You are Xoduz, pronounced Exodus, the model-facing intelligence layer for X8. "
+                "Use supplied X8 context only when directly relevant. Be direct, practical, and honest. "
+                "X8 handles tools, file writes, project roots, Git, Docker, PowerShell, memory records, and safety gates."
+            ),
+        ),
+    }
+
+
+class BrainBridgeAdapter:
+    provider_name = "openwebui"
+
+    def __init__(self, *, base_url: str, secret: str, default_model: str, system_prompt: str, fallback_adapter: Any | None = None, fallback_model: str = "", timeout_seconds: float = 120.0) -> None:
+        self.base_url = base_url.rstrip("/")
+        self.secret = secret.strip()
+        self.default_model = default_model.strip()
+        self.system_prompt = system_prompt.strip()
+        self.fallback_adapter = fallback_adapter
+        self.fallback_model = fallback_model
+        self.timeout_seconds = timeout_seconds
+        self.last_generation_result = BridgeResult(ok=False)
+
+    def _headers(self) -> dict[str, str]:
+        headers = {"Content-Type": "application/json"}
+        if self.secret:
+            headers["Authorization"] = "Bearer " + self.secret
+        return headers
+
+    def _json(self, path: str, *, method: str = "GET", body: dict[str, Any] | None = None, timeout: float = 8.0) -> dict[str, Any] | list[Any]:
+        payload = json.dumps(body).encode("utf-8") if body is not None else None
+        request = urllib.request.Request(f"{self.base_url}{path}", data=payload, headers=self._headers(), method=method)
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return json.loads(response.read().decode("utf-8"))
+
+    def _error(self, exc: BaseException) -> str:
+        if isinstance(exc, urllib.error.HTTPError):
+            try:
+                detail = exc.read().decode("utf-8", errors="replace")[:500]
+            except Exception:
+                detail = ""
+            return f"HTTP {exc.code} {exc.reason}. {detail}".strip()
+        return str(exc)
+
+    def _extract_models(self, payload: dict[str, Any] | list[Any]) -> list[str]:
+        if isinstance(payload, list):
+            values = payload
+        elif isinstance(payload.get("data"), list):
+            values = payload["data"]
+        elif isinstance(payload.get("models"), list):
+            values = payload["models"]
+        else:
+            values = []
+        models: list[str] = []
+        for item in values:
+            if isinstance(item, str) and item:
+                models.append(item)
+            elif isinstance(item, dict):
+                name = item.get("id") or item.get("name") or item.get("model")
+                if isinstance(name, str) and name:
+                    models.append(name)
+        return models
+
+    def models(self) -> tuple[bool, list[str], str]:
+        if not self.base_url:
+            return self._fallback_models("Brain bridge base URL is not configured.")
+        errors: list[str] = []
+        for path in ("/api/models", "/v1/models"):
+            try:
+                models = self._extract_models(self._json(path, timeout=8.0))
+                if models:
+                    return True, models, ""
+                errors.append(f"{path}: no models returned")
+            except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError) as exc:
+                errors.append(f"{path}: {self._error(exc)}")
+        return self._fallback_models("; ".join(errors) or "Brain bridge model list unavailable.")
+
+    def _fallback_models(self, reason: str) -> tuple[bool, list[str], str]:
+        if not self.fallback_adapter:
+            return False, [], reason
+        ok, models, fallback_reason = self.fallback_adapter.models()
+        if ok:
+            return True, models, f"Brain bridge unavailable ({reason}); using direct Ollama fallback."
+        return False, [], f"Brain bridge unavailable ({reason}); fallback unavailable ({fallback_reason})."
+
+    def _messages(self, prompt: str) -> list[dict[str, str]]:
+        messages: list[dict[str, str]] = []
+        if self.system_prompt:
+            messages.append({"role": "system", "content": self.system_prompt})
+        messages.append({"role": "user", "content": prompt})
+        return messages
+
+    def _content(self, payload: dict[str, Any] | list[Any]) -> str:
+        if not isinstance(payload, dict):
+            return ""
+        choices = payload.get("choices")
+        if isinstance(choices, list) and choices:
+            first = choices[0]
+            if isinstance(first, dict):
+                message = first.get("message")
+                if isinstance(message, dict) and isinstance(message.get("content"), str):
+                    return message["content"].strip()
+                if isinstance(first.get("text"), str):
+                    return first["text"].strip()
+        for key in ("response", "content", "message", "text"):
+            value = payload.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        return ""
+
+    def generate_with_metrics(self, model: str, prompt: str, timeout_seconds: float | None = None) -> BridgeResult:
+        selected_model = model or self.default_model
+        effective_timeout = float(timeout_seconds if timeout_seconds is not None else self.timeout_seconds)
+        started = time.perf_counter()
+        if self.base_url and selected_model:
+            body = {"model": selected_model, "messages": self._messages(prompt), "stream": False}
+            errors: list[str] = []
+            for path in ("/api/chat/completions", "/v1/chat/completions"):
+                try:
+                    payload = self._json(path, method="POST", body=body, timeout=effective_timeout)
+                    content = self._content(payload)
+                    elapsed_ms = int((time.perf_counter() - started) * 1000)
+                    if content:
+                        result = BridgeResult(ok=True, content=content, model=selected_model, timeout_seconds=effective_timeout, total_generation_ms=elapsed_ms)
+                        self.last_generation_result = result
+                        return result
+                    errors.append(f"{path}: empty response")
+                except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError) as exc:
+                    errors.append(f"{path}: {self._error(exc)}")
+            primary_reason = "; ".join(errors) or "Brain bridge completion failed."
+        else:
+            primary_reason = "Brain bridge base URL or model is not configured."
+        result = self._fallback_generate(prompt, selected_model, effective_timeout, primary_reason)
+        self.last_generation_result = result
+        return result
+
+    def _fallback_generate(self, prompt: str, selected_model: str, timeout: float, reason: str) -> BridgeResult:
+        if not self.fallback_adapter:
+            return BridgeResult(ok=False, failure_reason=reason, model=selected_model, timeout_seconds=timeout)
+        fallback_model = self.fallback_model or selected_model
+        fallback = self.fallback_adapter.generate_with_metrics(fallback_model, prompt, timeout_seconds=timeout)
+        result = BridgeResult(
+            ok=fallback.ok,
+            content=fallback.content,
+            failure_reason=(f"Brain bridge primary failed: {reason}" + (f" Fallback: {fallback.failure_reason}" if fallback.failure_reason else "")),
+            model=fallback.model or fallback_model,
+            timeout_seconds=fallback.timeout_seconds,
+            timed_out=fallback.timed_out,
+            fallback_used=True,
+            total_generation_ms=fallback.total_generation_ms,
+        )
+        return result
+
+    def generate(self, model: str, prompt: str) -> tuple[bool, str, str]:
+        result = self.generate_with_metrics(model or self.default_model, prompt)
+        self.last_generation_result = result
+        return result.ok and bool(result.content), result.content, result.failure_reason
