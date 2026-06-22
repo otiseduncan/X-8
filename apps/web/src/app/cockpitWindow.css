@@ -10,7 +10,7 @@
 
 .cockpitTopbar {
   display: grid;
-  grid-template-columns: minmax(260px, 1fr) auto auto;
+  grid-template-columns: minmax(230px, 0.8fr) minmax(340px, 1.05fr) auto auto;
   gap: 14px;
   align-items: center;
   min-height: 68px;
@@ -24,8 +24,11 @@
 .cockpitBrand,
 .cockpitTopActions,
 .cockpitStatusStrip,
+.projectSwitcher,
+.projectBar,
 .panelHeader,
 .editorActions,
+.fileToolRow,
 .doneLine {
   display: flex;
   align-items: center;
@@ -59,6 +62,54 @@
   font-size: 1.22rem;
 }
 
+.projectSwitcher {
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.projectSwitcher label {
+  display: grid;
+  min-width: 190px;
+  gap: 4px;
+}
+
+.projectSwitcher label span {
+  color: var(--color-muted);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.projectSwitcher select {
+  min-height: 36px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: rgba(5, 7, 13, 0.82);
+  color: var(--color-text);
+  padding: 0 10px;
+}
+
+.projectBar {
+  min-height: 38px;
+  margin-top: 10px;
+  border: 1px solid rgba(0, 212, 255, 0.16);
+  border-radius: 10px;
+  background: rgba(5, 7, 13, 0.55);
+  padding: 0 12px;
+}
+
+.projectBar strong {
+  color: var(--color-primary);
+}
+
+.projectBar span {
+  color: var(--color-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .cockpitStatusStrip {
   flex-wrap: wrap;
   justify-content: center;
@@ -71,9 +122,9 @@
 .cockpitGrid {
   display: grid;
   grid-template-columns: 260px minmax(420px, 1.25fr) minmax(320px, 0.82fr);
-  grid-template-rows: minmax(370px, 1fr) minmax(220px, 0.66fr);
+  grid-template-rows: minmax(360px, 1fr) minmax(210px, 0.66fr);
   gap: 12px;
-  height: calc(100vh - 108px);
+  height: calc(100vh - 156px);
   margin-top: 12px;
   min-height: 0;
 }
@@ -169,6 +220,12 @@
   font-weight: 500;
 }
 
+.fileToolRow {
+  flex-wrap: wrap;
+  border-bottom: 1px solid rgba(0, 212, 255, 0.1);
+  padding: 8px 10px 0;
+}
+
 .cockpitSearch {
   width: calc(100% - 20px);
   min-height: 36px;
@@ -242,12 +299,18 @@
   color: #ffd6df;
   cursor: pointer;
   font-weight: 700;
+  gap: 8px;
   padding: 0 12px;
 }
 
 .danger:disabled {
   cursor: not-allowed;
   opacity: 0.5;
+}
+
+.compact {
+  min-height: 30px;
+  padding: 0 9px;
 }
 
 .cockpitPre {
@@ -310,6 +373,11 @@
   padding: 14px;
 }
 
+.emptyPreview.small {
+  font-size: 0.82rem;
+  padding: 10px 0;
+}
+
 .doneLine {
   margin: auto 14px 14px;
   color: var(--color-success);
@@ -319,7 +387,7 @@
 @media (min-width: 1280px) {
   .cockpitGrid {
     grid-template-columns: 270px minmax(480px, 1.18fr) minmax(360px, 0.82fr);
-    grid-template-rows: minmax(400px, 1fr) minmax(230px, 0.58fr) minmax(170px, 0.42fr);
+    grid-template-rows: minmax(390px, 1fr) minmax(220px, 0.58fr) minmax(170px, 0.42fr);
   }
 
   .terminalPanel {
@@ -332,6 +400,18 @@
     display: flex;
     grid-column: 2 / 4;
     grid-row: 3 / 4;
+  }
+}
+
+@media (max-width: 1240px) {
+  .cockpitTopbar {
+    grid-template-columns: 1fr;
+  }
+
+  .cockpitStatusStrip,
+  .cockpitTopActions,
+  .projectSwitcher {
+    justify-content: flex-start;
   }
 }
 
