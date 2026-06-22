@@ -97,8 +97,9 @@ def open_powershell(payload: OpenPowerShellRequest) -> dict[str, object]:
         raise HTTPException(status_code=404, detail="PowerShell target folder does not exist.")
 
     try:
+        escaped_target = str(target).replace("'", "''")
         subprocess.Popen(
-            ["powershell.exe", "-NoExit", "-Command", f"Set-Location -LiteralPath '{str(target).replace("'", "''")}'"],
+            ["powershell.exe", "-NoExit", "-Command", f"Set-Location -LiteralPath '{escaped_target}'"],
             cwd=str(target),
             creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0),
         )
