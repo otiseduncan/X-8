@@ -145,6 +145,8 @@ class XV8Kernel:
         if lane == "github_status":
             return "GitHub status loaded without mutation.", "passed", []
         if lane == "github_create_repo":
+            if "proof" in lower or "x8-git-proof" in lower:
+                return "GitHub proof lab approval is ready. No GitHub operation has run. Use the Approve or Deny popup to continue.", "passed", []
             return "GitHub repo creation requires approval before any write.", "passed", []
         if lane == "github_push":
             return "Push preview loaded. No push occurred.", "passed", []
@@ -193,7 +195,22 @@ class XV8Kernel:
             cards.append(ResponseCard(type="receipt", title="GitHub Ops status", status="ready", summary="Local git and GitHub auth status should be loaded through GitHub Ops without mutation.", payload={"provider": "github_ops", "operation": "status", "read_only": True, "github_write_ran": False}))
         if lane == "github_create_repo":
             repo = self._parse_github_repo_request(request.user_message)
-            cards.append(ResponseCard(type="approval", title="GitHub create-repo", status="pending_click", summary="GitHub create-repo requires explicit approval. No GitHub write has run.", payload={"provider": "github_ops", "operation": "create-repo", "repo_name": repo["repo_name"], "owner": repo["owner"], "visibility": repo["visibility"], "approval_required": True, "apply_safe": True, "github_write_ran": False, "local_repo_mutation": False, "code_push": False}))
+            if self._is_github_proof_request(request.user_message, repo["repo_name"]):
+                repo_name = repo["repo_name"] if repo["repo_name"].startswith("x8-git-proof") else "x8-git-proof-lab"
+                owner = repo["owner"] or os.getenv("X8_GITHUB_OWNER") or "otisduncan"
+                host_root = os.getenv("X8_PROJECTS_HOST_ROOT") or os.getenv("X8_WORKSPACE_HOST_ROOT") or "X:/xoduz-sandbox"
+                actions = [
+                    "create sandbox proof files",
+                    "initialize git and commit roundTrip 1",
+                    "create or reuse the dedicated proof repo",
+                    "push main to GitHub",
+                    "clone validation copy inside the sandbox",
+                    "commit and push roundTrip 2",
+                    "pull validation copy and verify proof.json",
+                ]
+                cards.append(ResponseCard(type="approval", title="GitHub Write Approval Required", status="pending_click", summary="Create the dedicated GitHub proof lab and run push/pull only after approval.", payload={"provider": "github_ops", "operation": "github-proof-lab", "repo_name": repo_name, "owner": owner, "visibility": repo["visibility"], "project_path": repo_name, "validation_path": f"{repo_name}-pull-validation", "host_sandbox_root": host_root, "github_repo": f"{owner}/{repo_name}", "endpoint": "/api/github/ops/proof-lab", "actions": actions, "approval_required": True, "github_write_ran": False, "local_repo_mutation": False}))
+            else:
+                cards.append(ResponseCard(type="approval", title="GitHub create-repo", status="pending_click", summary="GitHub create-repo requires explicit approval. No GitHub write has run.", payload={"provider": "github_ops", "operation": "create-repo", "repo_name": repo["repo_name"], "owner": repo["owner"], "visibility": repo["visibility"], "approval_required": True, "apply_safe": True, "github_write_ran": False, "local_repo_mutation": False, "code_push": False}))
         if lane == "github_push":
             cards.append(ResponseCard(type="receipt", title="GitHub push preview", status="preview", summary="Push preview loaded without pushing.", payload={"provider": "github_ops", "operation": "push-preview", "github_write_ran": False}))
             cards.append(ResponseCard(type="approval", title="Push this repo", status="pending_click", summary="Push this repo requires explicit approval. No GitHub write has run.", payload={"provider": "github_ops", "operation": "push", "approval_required": True, "apply_safe": True, "github_write_ran": False, "local_repo_mutation": False, "code_push": False}))
@@ -220,3 +237,7 @@ class XV8Kernel:
         repo_name = (quoted.group(1) if quoted else named.group(1) if named else "xv8-lab-repo").strip()
         visibility = "public" if re.search(r"\bpublic\b", message, flags=re.IGNORECASE) else "private"
         return {"repo_name": repo_name, "owner": owner.group(1) if owner else "", "visibility": visibility}
+
+    def _is_github_proof_request(self, message: str, repo_name: str) -> bool:
+        lower = message.lower()
+        return repo_name.startswith("x8-git-proof") or ("github" in lower and "proof" in lower and ("push" in lower or "pull" in lower or "repo" in lower))
