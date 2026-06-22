@@ -8,8 +8,8 @@ services:
       X8_GITHUB_TOKEN: ${X8_GITHUB_TOKEN:-}
       X8_GITHUB_OWNER: ${X8_GITHUB_OWNER:-otiseduncan}
       X8_GITHUB_DEFAULT_VISIBILITY: ${X8_GITHUB_DEFAULT_VISIBILITY:-private}
-      X8_WORKSPACE_HOST_ROOT: ${X8_WORKSPACE_HOST_ROOT:-}
-      X8_PROJECTS_HOST_ROOT: ${X8_PROJECTS_HOST_ROOT:-}
+      X8_WORKSPACE_HOST_ROOT: ${X8_WORKSPACE_HOST_ROOT:-../xoduz-sandbox}
+      X8_PROJECTS_HOST_ROOT: ${X8_PROJECTS_HOST_ROOT:-../xoduz-sandbox}
       X8_LOCAL_BRIDGE_URL: ${X8_LOCAL_BRIDGE_URL:-http://x8-local-bridge:5788}
       X8_LOCAL_BRIDGE_TOKEN: ${X8_LOCAL_BRIDGE_TOKEN:-}
     ports:
@@ -24,7 +24,7 @@ services:
     volumes:
       - ./knowledge:/app/knowledge:ro
       - .:/workspace
-      - "${X8_PROJECTS_HOST_ROOT:-./runtime/projects}:/projects"
+      - "${X8_PROJECTS_HOST_ROOT:-../xoduz-sandbox}:/projects"
       - "X:/XV7/xv7:/imports/x7:ro"
       - "X:/X-V-6.1:/imports/x6:ro"
       - /var/run/docker.sock:/var/run/docker.sock
@@ -112,8 +112,8 @@ services:
     command: ["uvicorn", "x8.local_bridge_app:app", "--host", "0.0.0.0", "--port", "5788"]
     env_file: .env.example
     environment:
-      X8_WORKSPACE_HOST_ROOT: ${X8_WORKSPACE_HOST_ROOT:-}
-      X8_PROJECTS_HOST_ROOT: ${X8_PROJECTS_HOST_ROOT:-}
+      X8_WORKSPACE_HOST_ROOT: ${X8_WORKSPACE_HOST_ROOT:-../xoduz-sandbox}
+      X8_PROJECTS_HOST_ROOT: ${X8_PROJECTS_HOST_ROOT:-../xoduz-sandbox}
     volumes:
       - .:/workspace:ro
       - "X:/XV7/xv7:/imports/x7:ro"
@@ -150,7 +150,7 @@ services:
     volumes:
       - ./apps/api/tests:/app/tests:ro
       - .:/workspace
-      - "${X8_PROJECTS_HOST_ROOT:-./runtime/projects}:/projects"
+      - "${X8_PROJECTS_HOST_ROOT:-../xoduz-sandbox}:/projects"
       - "X:/XV7/xv7:/imports/x7:ro"
       - "X:/X-V-6.1:/imports/x6:ro"
     profiles: ["test"]
