@@ -50,6 +50,10 @@ function countChangedFiles(status: Record<string, unknown>) {
   return Array.isArray(status.changed_files) ? status.changed_files.length : 0;
 }
 
+function isPreviewableHtml(path: string) {
+  return /\.html?$/i.test(path);
+}
+
 async function getProjects() {
   const response = await fetch('/api/projects');
   if (!response.ok) throw new Error('Project registry failed');
@@ -109,7 +113,6 @@ export function CockpitWindow() {
   const [operationLog, setOperationLog] = useState<string[]>([`[${nowStamp()}] Cockpit opened. No mutation has run.`]);
   const [busy, setBusy] = useState(false);
   const [filter, setFilter] = useState('');
-  const [previewHtml, setPreviewHtml] = useState('');
   const [drawerTab, setDrawerTab] = useState<UtilityTab>('commands');
   const [drawerMode, setDrawerMode] = useState<DrawerMode>('closed');
 
@@ -119,6 +122,7 @@ export function CockpitWindow() {
   const proposalMatchesDraft = Boolean(proposal && proposal.proposed_content === code);
   const changedCount = countChangedFiles(githubOps);
   const drawerOpen = drawerMode !== 'closed';
+  const htmlSelected = isPreviewableHtml(selectedPath);
 
   const filteredFiles = useMemo(() => {
     const needle = filter.trim().toLowerCase();
@@ -251,7 +255,6 @@ export function CockpitWindow() {
       setCode('');
       setSavedCode('');
       setProposal(null);
-      setPreviewHtml('');
       log(`Project ${projectId} has no readable files in the current file limit.`);
     }
   }
@@ -263,7 +266,6 @@ export function CockpitWindow() {
       setCode(response.data.content);
       setSavedCode(response.data.content);
       setProposal(null);
-      setPreviewHtml(path.endsWith('.html') ? response.data.content : '');
       if (announce) log(`Opened ${path} from ${selectedProject?.name || projectId}. No write has run.`);
     } catch {
       setCode('File could not be loaded from the selected approved project.');
@@ -283,7 +285,6 @@ export function CockpitWindow() {
     setCode('');
     setSavedCode('');
     setProposal(null);
-    setPreviewHtml('');
     await refreshProjectFiles(projectId, DEFAULT_PATH);
     const project = projects.find((item) => item.id === projectId);
     log(`Switched cockpit project to ${project?.name || projectId}.`);
@@ -297,7 +298,6 @@ export function CockpitWindow() {
     setCode('');
     setSavedCode('');
     setProposal(null);
-    setPreviewHtml('');
     log('Closed the current cockpit project. No files were changed.');
   }
 
@@ -306,7 +306,7 @@ export function CockpitWindow() {
   }
 
   function explainNewFile() {
-    log('New File/New Folder is queued for the next protected file-operation slice. Current slice modifies existing files only.');
+    log('New File/New Folder still routes through the guarded diff writer. Operator-chat file creation should target an approved mounted sandbox project.');
   }
 
   async function proposeCurrentDraft() {
@@ -345,7 +345,6 @@ export function CockpitWindow() {
       if (response.data.mutated) {
         setSavedCode(proposal.proposed_content);
         setCode(proposal.proposed_content);
-        setPreviewHtml(selectedPath.endsWith('.html') ? proposal.proposed_content : '');
         log(`Applied approved change to ${selectedPath} inside ${selectedProject?.name || selectedProjectId}.`);
       } else {
         log(`Apply endpoint returned without mutation for ${selectedPath}.`);
@@ -376,6 +375,12 @@ export function CockpitWindow() {
 
   function openChat() {
     window.open('/', 'x8-chat', 'noopener,noreferrer,width=1180,height=900');
+  }
+
+  function openChatPreview() {
+    const query = new URLSearchParams({ view: 'preview', project_id: selectedProjectId, path: selectedPath || '' });
+    window.open(`/?${query}`, 'x8-chat', 'noopener,noreferrer,width=1280,height=920');
+    log(htmlSelected ? `Sent ${selectedPath} to chat preview.` : 'Opened chat preview. Select an HTML file there to render.');
   }
 
   function renderDrawerBody() {
@@ -433,6 +438,7 @@ export function CockpitWindow() {
         </div>
         <div className="cockpitTopActions">
           <button className="ghost" type="button" onClick={openChat}>Chat</button>
+          <button className="ghost" type="button" onClick={openChatPreview} disabled={busy || projectClosed}>Preview in Chat</button>
           <button className="ghost" type="button" onClick={() => void openPowerShellForProject()} disabled={busy || projectClosed}>PowerShell</button>
           <button className="ghost" type="button" onClick={() => openDrawer('commands', drawerOpen ? drawerMode : 'peek')}>Commands</button>
           <button className="primary" type="button" onClick={() => void refreshCockpit()} disabled={busy}>Refresh</button>
@@ -466,19 +472,15 @@ export function CockpitWindow() {
         <section className="cockpitPanel editorPanel">
           <div className="panelHeader split">
             <span>{selectedPath || 'No file selected'}</span>
-            <span className="muted">edit here, save by reviewing a diff first</span>
+            <span className="muted">edit here, review diff, preview HTML in chat</span>
           </div>
           <CodeEditor path={selectedPath || 'closed.txt'} value={code} onChange={setCode} />
           <div className="editorActions">
             <button className="ghost" type="button" onClick={() => void openFile(selectedPath)} disabled={busy || projectClosed || !selectedPath}>Reload file</button>
+            <button className="ghost" type="button" onClick={openChatPreview} disabled={busy || projectClosed || !selectedPath}>Preview</button>
             <button className="primary" type="button" onClick={() => void proposeCurrentDraft()} disabled={busy || projectClosed || !dirtyDraft || !selectedPath}>Propose diff</button>
             <button className="danger" type="button" onClick={() => void applyApprovedDraft()} disabled={busy || projectClosed || !proposalMatchesDraft}>Save reviewed draft</button>
           </div>
-        </section>
-
-        <section className="cockpitPanel diffPanel">
-          <div className="panelHeader"><span>Guarded Diff</span></div>
-          <pre className="cockpitPre diffText">{proposal?.diff || 'No diff proposal yet. Edit a draft and click Propose diff. No repository mutation happens here.'}</pre>
         </section>
 
         <section className="cockpitPanel statusPanel">
@@ -497,9 +499,9 @@ export function CockpitWindow() {
           </div>
         </section>
 
-        <section className="cockpitPanel previewPanel">
-          <div className="panelHeader"><span>Preview / Proof</span></div>
-          {previewHtml ? <iframe title="HTML preview" srcDoc={previewHtml} sandbox="allow-same-origin" /> : <div className="emptyPreview">Open an HTML file to preview it here. App preview routing can be wired into this lane next.</div>}
+        <section className="cockpitPanel diffPanel">
+          <div className="panelHeader"><span>Guarded Diff</span></div>
+          <pre className="cockpitPre diffText">{proposal?.diff || 'No diff proposal yet. Edit a draft and click Propose diff. No repository mutation happens here.'}</pre>
         </section>
       </section>
 
