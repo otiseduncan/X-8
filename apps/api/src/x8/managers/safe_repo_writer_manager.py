@@ -21,7 +21,7 @@ class PatchProposal(BaseModel):
 
 class SafeRepoWriterManager:
     name = "safe_repo_writer"
-    version = "0.2.0"
+    version = "0.2.1"
 
     def __init__(self, workspace: WorkspaceManager) -> None:
         self.workspace = workspace
@@ -73,8 +73,7 @@ class SafeRepoWriterManager:
             proposal.receipt.status = "blocked"
             proposal.receipt.summary = "Write queued for click approval; no files were changed."
             return proposal
-        target = self.workspace.resolve_inside_root(path)
-        target.write_text(proposed_content, encoding="utf-8")
+        self.workspace.write_file(path, proposed_content, overwrite=True)
         proposal.mutated = True
         proposal.receipt.status = "applied"
         proposal.receipt.summary = "Approved update written inside workspace root."
