@@ -38,6 +38,7 @@ export function CockpitWindow() {
   const [previewHtml, setPreviewHtml] = useState('');
 
   const dirtyDraft = code !== savedCode;
+  const proposalMatchesDraft = Boolean(proposal && proposal.proposed_content === code);
   const changedCount = countChangedFiles(githubOps);
   const filteredFiles = useMemo(() => {
     const needle = filter.trim().toLowerCase();
@@ -92,7 +93,7 @@ export function CockpitWindow() {
       setSavedCode(response.data.content);
       setProposal(null);
       setPreviewHtml(path.endsWith('.html') ? response.data.content : '');
-      if (announce) log(`Opened ${path} read-only into cockpit editor.`);
+      if (announce) log(`Opened ${path} into editable cockpit draft. No write has run.`);
     } catch {
       setCode('File could not be loaded from the configured workspace root.');
       setSavedCode('');
@@ -107,7 +108,7 @@ export function CockpitWindow() {
     try {
       const response = await proposeUpdate(selectedPath, code);
       setProposal(response.data);
-      log(`Prepared guarded diff for ${selectedPath}. No write has run.`);
+      log(`Prepared guarded diff for ${selectedPath}. Review this exact draft before applying.`);
     } catch {
       log(`Diff proposal failed for ${selectedPath}. No write ran.`);
     } finally {
@@ -116,17 +117,27 @@ export function CockpitWindow() {
   }
 
   async function applyApprovedDraft() {
-    const approved = window.confirm(`Apply the approved cockpit draft to ${selectedPath}?`);
+    if (!proposal) {
+      log(`Apply blocked for ${selectedPath}: no reviewed diff exists.`);
+      return;
+    }
+    if (!proposalMatchesDraft) {
+      log(`Apply blocked for ${selectedPath}: editor changed after diff proposal. Propose a fresh diff first.`);
+      return;
+    }
+    const approved = window.confirm(`Apply the reviewed cockpit draft to ${selectedPath}?`);
     if (!approved) {
       log(`Apply cancelled for ${selectedPath}.`);
       return;
     }
     setBusy(true);
     try {
-      const response = await applyUpdate(selectedPath, code, true);
+      const response = await applyUpdate(selectedPath, proposal.proposed_content, true);
       setProposal(response.data);
       if (response.data.mutated) {
-        setSavedCode(code);
+        setSavedCode(proposal.proposed_content);
+        setCode(proposal.proposed_content);
+        setPreviewHtml(selectedPath.endsWith('.html') ? proposal.proposed_content : '');
         log(`Applied approved change to ${selectedPath}.`);
       } else {
         log(`Apply endpoint returned without mutation for ${selectedPath}.`);
@@ -158,6 +169,7 @@ export function CockpitWindow() {
           <StatusPill label={`GitHub ${githubStatus}`} status={githubStatus} />
           <StatusPill label={`${changedCount} changed`} status={changedCount ? 'warning' : 'ready'} />
           <StatusPill label={dirtyDraft ? 'draft dirty' : 'draft clean'} status={dirtyDraft ? 'warning' : 'ready'} />
+          <StatusPill label={proposalMatchesDraft ? 'diff reviewed' : 'diff needed'} status={proposalMatchesDraft ? 'ready' : 'warning'} />
         </div>
         <div className="cockpitTopActions">
           <button className="ghost" type="button" onClick={openChat}><ExternalLink size={16} /> Chat</button>
@@ -181,13 +193,13 @@ export function CockpitWindow() {
         <section className="cockpitPanel editorPanel">
           <div className="panelHeader split">
             <span><Code2 size={17} /> {selectedPath}</span>
-            <span className="muted">typing is draft-only until approved</span>
+            <span className="muted">edit here, review diff, then apply approved write</span>
           </div>
           <CodeEditor path={selectedPath} value={code} onChange={setCode} />
           <div className="editorActions">
             <button className="ghost" type="button" onClick={() => void openFile(selectedPath)} disabled={busy}>Reload file</button>
             <button className="primary" type="button" onClick={() => void proposeCurrentDraft()} disabled={busy || !dirtyDraft}>Propose diff</button>
-            <button className="danger" type="button" onClick={() => void applyApprovedDraft()} disabled={busy || !proposal}>Apply approved</button>
+            <button className="danger" type="button" onClick={() => void applyApprovedDraft()} disabled={busy || !proposalMatchesDraft}>Apply approved save</button>
           </div>
         </section>
 
@@ -222,7 +234,7 @@ export function CockpitWindow() {
           <div className="panelHeader"><Server size={17} /><span>Rollback Rule</span></div>
           <p>The mirror path is not the primary operator surface. This cockpit uses structured API state, guarded drafts, diffs, receipts, and approvals instead of screen pixels.</p>
           <p className="muted">Live shell/terminal streaming should be added later behind protected local bridge gates.</p>
-          <div className="doneLine"><Check size={15} /> View first, draft second, approve before write.</div>
+          <div className="doneLine"><Check size={15} /> Edit drafts, review diff, approve before write.</div>
         </section>
       </section>
     </main>
