@@ -6,22 +6,57 @@ import type { AvatarRuntimeState } from './AssistantComponents';
 type ChatRole = 'assistant' | 'user' | 'system';
 type PreviewMode = 'code' | 'preview';
 
+type ChatCard = {
+  type?: string;
+  title?: string;
+  status?: string;
+  summary?: string;
+  payload?: Record<string, unknown>;
+};
+
 interface ChatMessage {
   id: string;
   role: ChatRole;
   text: string;
   createdAt: string;
+  cards?: ChatCard[];
+}
+
+interface PendingApproval {
+  id: string;
+  title: string;
+  summary: string;
+  payload: Record<string, unknown>;
 }
 
 function nowId() {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
+function dataFromPayload(payload: unknown): Record<string, unknown> {
+  if (!payload || typeof payload !== 'object') return {};
+  const root = payload as Record<string, unknown>;
+  return root.data && typeof root.data === 'object' ? (root.data as Record<string, unknown>) : root;
+}
+
+function assistantFromPayload(payload: unknown): Record<string, unknown> | undefined {
+  const data = dataFromPayload(payload);
+  return data.assistant_message && typeof data.assistant_message === 'object' ? (data.assistant_message as Record<string, unknown>) : undefined;
+}
+
+function cardsFromPayload(payload: unknown): ChatCard[] {
+  const assistant = assistantFromPayload(payload);
+  const data = dataFromPayload(payload);
+  const cards = assistant?.cards || data.cards;
+  if (!Array.isArray(cards)) return [];
+  return cards.filter((card): card is ChatCard => Boolean(card && typeof card === 'object')) as ChatCard[];
+}
+
 function textFromPayload(payload: unknown): string {
   if (!payload || typeof payload !== 'object') return String(payload || 'No response payload returned.');
   const root = payload as Record<string, unknown>;
-  const data = root.data && typeof root.data === 'object' ? (root.data as Record<string, unknown>) : root;
-  const assistant = data.assistant_message && typeof data.assistant_message === 'object' ? (data.assistant_message as Record<string, unknown>) : undefined;
+  const data = dataFromPayload(payload);
+  const assistant = assistantFromPayload(payload);
   const visible = data.visible && typeof data.visible === 'object' ? (data.visible as Record<string, unknown>) : undefined;
   const candidates = [assistant?.content, assistant?.text, data.text, data.answer, data.response, data.message, data.content, data.output, visible?.text, visible?.content, root.message, root.status];
   const direct = candidates.find((item) => typeof item === 'string' && item.trim().length > 0);
@@ -31,6 +66,42 @@ function textFromPayload(payload: unknown): string {
   } catch {
     return 'Response could not be displayed.';
   }
+}
+
+function approvalFromCards(cards: ChatCard[]): PendingApproval | null {
+  const card = cards.find((item) => item.type === 'approval' && item.payload?.operation === 'github-proof-lab');
+  if (!card || !card.payload) return null;
+  return {
+    id: nowId(),
+    title: card.title || 'Approval required',
+    summary: card.summary || 'This operation needs operator approval.',
+    payload: card.payload
+  };
+}
+
+function proofResultText(payload: unknown): string {
+  const root = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {};
+  const data = root.data && typeof root.data === 'object' ? (root.data as Record<string, unknown>) : root;
+  if (data.status === 'blocked' || data.status === 'failed') return String(data.reason || root.message || 'Approved GitHub proof failed.');
+  const finalProof = data.final_proof_json && typeof data.final_proof_json === 'object' ? JSON.stringify(data.final_proof_json, null, 2) : String(data.final_proof_json || '');
+  return [
+    'GitHub proof execution finished.',
+    '',
+    `Repository: ${String(data.github_repo_url || '')}`,
+    `Project path: ${String(data.project_absolute_path || '')}`,
+    `Pull validation path: ${String(data.validation_absolute_path || '')}`,
+    `First commit: ${String(data.first_commit_sha || '')}`,
+    `Second commit: ${String(data.second_commit_sha || '')}`,
+    '',
+    'Project status after second push:',
+    String(data.project_status_after_second_push || ''),
+    '',
+    'Validation status after pull:',
+    String(data.validation_status_after_pull || ''),
+    '',
+    'Final proof.json from validation clone:',
+    finalProof
+  ].join('\n');
 }
 
 async function getJson<T>(url: string): Promise<T> {
@@ -63,6 +134,24 @@ async function sendMessage(message: string) {
   return payload;
 }
 
+async function approveGitHubProof(payload: Record<string, unknown>) {
+  const response = await fetch('/api/github/ops/proof-lab', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      approved: true,
+      repo_name: payload.repo_name || 'x8-git-proof-lab',
+      owner: payload.owner,
+      visibility: payload.visibility,
+      project_path: payload.project_path,
+      validation_path: payload.validation_path
+    })
+  });
+  const body = await response.json().catch(() => ({ status: response.statusText }));
+  if (!response.ok) throw new Error(textFromPayload(body));
+  return body;
+}
+
 async function readWorkspaceFile(path: string) {
   const response = await fetch('/api/workspace/read', {
     method: 'POST',
@@ -85,6 +174,7 @@ export function App() {
   const avatarResetRef = useRef<number | null>(null);
   const [entry, setEntry] = useState('');
   const [busy, setBusy] = useState(false);
+  const [approvalBusy, setApprovalBusy] = useState(false);
   const [runtimeStatus, setRuntimeStatus] = useState('checking runtime');
   const [modelStatus, setModelStatus] = useState('checking model');
   const [avatarState, setAvatarState] = useState<AvatarRuntimeState>('idle');
@@ -93,11 +183,12 @@ export function App() {
   const [previewPath, setPreviewPath] = useState('index.html');
   const [previewCode, setPreviewCode] = useState('Open a sandbox file to view its code here.');
   const [previewStamp, setPreviewStamp] = useState(Date.now());
+  const [pendingApproval, setPendingApproval] = useState<PendingApproval | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([
     { id: 'welcome', role: 'assistant', text: 'Ready. Exodus avatar restored. Ask me what you want to build, inspect, search, preview, or fix.', createdAt: new Date().toISOString() }
   ]);
 
-  const canSend = useMemo(() => entry.trim().length > 0 && !busy, [busy, entry]);
+  const canSend = useMemo(() => entry.trim().length > 0 && !busy && !approvalBusy, [approvalBusy, busy, entry]);
   const avatarCaption = useMemo(() => {
     if (avatarState === 'thinking') return 'Thinking through the request';
     if (avatarState === 'responded') return 'Response ready';
@@ -137,14 +228,17 @@ export function App() {
   async function submit(event?: FormEvent) {
     event?.preventDefault();
     const message = entry.trim();
-    if (!message || busy) return;
+    if (!message || busy || approvalBusy) return;
     setEntry('');
     append({ role: 'user', text: message });
     setBusy(true);
     setAvatarState('thinking');
     try {
       const payload = await sendMessage(message);
-      append({ role: 'assistant', text: textFromPayload(payload) });
+      const cards = cardsFromPayload(payload);
+      append({ role: 'assistant', text: textFromPayload(payload), cards });
+      const approval = approvalFromCards(cards);
+      if (approval) setPendingApproval(approval);
       flashAvatar('responded');
     } catch (error) {
       append({ role: 'system', text: error instanceof Error ? error.message : 'Chat request failed.' });
@@ -153,6 +247,30 @@ export function App() {
       setBusy(false);
       window.setTimeout(() => entryRef.current?.focus(), 0);
     }
+  }
+
+  async function approvePending() {
+    if (!pendingApproval || approvalBusy) return;
+    setApprovalBusy(true);
+    setAvatarState('thinking');
+    append({ role: 'system', text: `APPROVED: ${pendingApproval.title}` });
+    try {
+      const result = await approveGitHubProof(pendingApproval.payload);
+      append({ role: 'assistant', text: proofResultText(result) });
+      setPendingApproval(null);
+      flashAvatar('responded');
+    } catch (error) {
+      append({ role: 'system', text: error instanceof Error ? error.message : 'Approved operation failed.' });
+      flashAvatar('error');
+    } finally {
+      setApprovalBusy(false);
+    }
+  }
+
+  function denyPending() {
+    if (!pendingApproval) return;
+    append({ role: 'system', text: `DENIED: ${pendingApproval.title}. No GitHub write was approved.` });
+    setPendingApproval(null);
   }
 
   function openCockpit() {
@@ -192,7 +310,7 @@ export function App() {
               <p style={styles.avatarCaption}>{avatarCaption}</p>
             </div>
           </div>
-          <div style={styles.avatarStatusGrid}><span style={styles.statusChip}>Chat: {busy ? 'working' : 'ready'}</span><span style={styles.statusChip}>Runtime: {runtimeStatus}</span></div>
+          <div style={styles.avatarStatusGrid}><span style={styles.statusChip}>Chat: {busy || approvalBusy ? 'working' : 'ready'}</span><span style={styles.statusChip}>Runtime: {runtimeStatus}</span></div>
         </aside>
 
         <section style={styles.chatPane}>
@@ -201,9 +319,15 @@ export function App() {
               <article key={message.id} style={{ ...styles.message, ...(message.role === 'user' ? styles.userMessage : message.role === 'system' ? styles.systemMessage : styles.assistantMessage) }}>
                 <div style={styles.messageMeta}>{message.role} · {new Date(message.createdAt).toLocaleTimeString()}</div>
                 <pre style={styles.messageText}>{message.text}</pre>
+                {message.cards?.map((card, index) => (
+                  <div key={`${message.id}-card-${index}`} style={styles.inlineCard}>
+                    <strong>{card.title || card.type || 'Card'}</strong>
+                    <span>{card.summary || card.status || ''}</span>
+                  </div>
+                ))}
               </article>
             ))}
-            {busy && <article style={{ ...styles.message, ...styles.assistantMessage }}><div style={styles.messageMeta}>assistant</div><pre style={styles.messageText}>Thinking…</pre></article>}
+            {(busy || approvalBusy) && <article style={{ ...styles.message, ...styles.assistantMessage }}><div style={styles.messageMeta}>assistant</div><pre style={styles.messageText}>Working…</pre></article>}
           </section>
 
           <form style={styles.composer} onSubmit={(event) => void submit(event)}>
@@ -221,6 +345,27 @@ export function App() {
           </aside>
         )}
       </section>
+
+      {pendingApproval && (
+        <div style={styles.approvalOverlay} role="dialog" aria-modal="true" aria-label="GitHub approval required">
+          <section style={styles.approvalDialog}>
+            <p style={styles.kicker}>Operator Approval</p>
+            <h2 style={styles.approvalTitle}>{pendingApproval.title}</h2>
+            <p style={styles.subtitle}>{pendingApproval.summary}</p>
+            <div style={styles.approvalGrid}>
+              <span>Repository</span><strong>{String(pendingApproval.payload.github_repo || pendingApproval.payload.repo_name || '')}</strong>
+              <span>Sandbox source</span><strong>{String(pendingApproval.payload.host_sandbox_root || '')}\{String(pendingApproval.payload.project_path || '')}</strong>
+              <span>Validation clone</span><strong>{String(pendingApproval.payload.host_sandbox_root || '')}\{String(pendingApproval.payload.validation_path || '')}</strong>
+            </div>
+            <pre style={styles.approvalActions}>{Array.isArray(pendingApproval.payload.actions) ? pendingApproval.payload.actions.map((item) => `- ${String(item)}`).join('\n') : ''}</pre>
+            <p style={styles.warningText}>{String(pendingApproval.payload.warning || 'No GitHub write has run yet.')}</p>
+            <div style={styles.approvalButtons}>
+              <button style={styles.denyButton} type="button" onClick={denyPending} disabled={approvalBusy}>Deny</button>
+              <button style={styles.approveButton} type="button" onClick={() => void approvePending()} disabled={approvalBusy}>{approvalBusy ? 'Running…' : 'Approve'}</button>
+            </div>
+          </section>
+        </div>
+      )}
     </main>
   );
 }
@@ -251,6 +396,7 @@ const styles: Record<string, CSSProperties> = {
   systemMessage: { alignSelf: 'center', background: 'rgba(127, 29, 29, 0.34)' },
   messageMeta: { marginBottom: 8, color: '#93c5fd', fontSize: 12, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em' },
   messageText: { margin: 0, whiteSpace: 'pre-wrap', fontFamily: 'inherit', lineHeight: 1.48 },
+  inlineCard: { display: 'grid', gap: 4, marginTop: 10, border: '1px solid rgba(125, 211, 252, 0.22)', borderRadius: 12, padding: 10, background: 'rgba(14, 165, 233, 0.08)', color: '#dbeafe' },
   composer: { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 10, border: '1px solid rgba(255,255,255,0.12)', borderRadius: 18, padding: 12, background: 'rgba(5, 7, 13, 0.9)' },
   textarea: { minHeight: 74, resize: 'vertical', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 14, padding: 12, outline: 'none', color: '#f8fafc', background: 'rgba(15, 23, 42, 0.96)', font: 'inherit' },
   primaryButton: { border: 0, borderRadius: 14, padding: '0 22px', color: '#04111f', background: 'linear-gradient(135deg, #7dd3fc, #22d3ee)', fontWeight: 900, cursor: 'pointer' },
@@ -266,5 +412,14 @@ const styles: Record<string, CSSProperties> = {
   previewBody: { minHeight: 0, overflow: 'hidden', borderTop: '1px solid rgba(125, 211, 252, 0.12)' },
   previewFrame: { width: '100%', height: '100%', border: 0, background: '#ffffff' },
   previewCode: { height: '100%', margin: 0, overflow: 'auto', whiteSpace: 'pre-wrap', padding: 12, color: '#dbeafe', fontFamily: 'Cascadia Code, Consolas, monospace', fontSize: 12, background: 'rgba(2, 6, 23, 0.9)' },
-  closeButton: { border: '1px solid rgba(125, 211, 252, 0.2)', borderRadius: 999, color: '#dbeafe', background: 'transparent', padding: '6px 9px', cursor: 'pointer' }
+  closeButton: { border: '1px solid rgba(125, 211, 252, 0.2)', borderRadius: 999, color: '#dbeafe', background: 'transparent', padding: '6px 9px', cursor: 'pointer' },
+  approvalOverlay: { position: 'fixed', inset: 0, zIndex: 50, display: 'grid', placeItems: 'center', padding: 24, background: 'rgba(2, 6, 23, 0.76)', backdropFilter: 'blur(10px)' },
+  approvalDialog: { width: 'min(720px, calc(100vw - 42px))', display: 'grid', gap: 14, border: '1px solid rgba(34, 211, 238, 0.42)', borderRadius: 22, padding: 22, background: 'linear-gradient(180deg, rgba(15, 23, 42, 0.98), rgba(3, 7, 18, 0.98))', boxShadow: '0 30px 90px rgba(0,0,0,0.48), 0 0 40px rgba(34, 211, 238, 0.14)' },
+  approvalTitle: { margin: 0, fontSize: 28 },
+  approvalGrid: { display: 'grid', gridTemplateColumns: '160px minmax(0, 1fr)', gap: 8, border: '1px solid rgba(125, 211, 252, 0.16)', borderRadius: 14, padding: 12, color: '#cbd5e1' },
+  approvalActions: { margin: 0, maxHeight: 170, overflow: 'auto', border: '1px solid rgba(125, 211, 252, 0.16)', borderRadius: 14, padding: 12, color: '#dbeafe', background: 'rgba(2, 6, 23, 0.68)' },
+  warningText: { margin: 0, color: '#fde68a', lineHeight: 1.45 },
+  approvalButtons: { display: 'flex', justifyContent: 'flex-end', gap: 10 },
+  denyButton: { border: '1px solid rgba(248, 113, 113, 0.45)', borderRadius: 12, padding: '10px 16px', color: '#fecaca', background: 'rgba(127, 29, 29, 0.35)', fontWeight: 900, cursor: 'pointer' },
+  approveButton: { border: 0, borderRadius: 12, padding: '10px 18px', color: '#04111f', background: 'linear-gradient(135deg, #86efac, #22d3ee)', fontWeight: 950, cursor: 'pointer' }
 };
