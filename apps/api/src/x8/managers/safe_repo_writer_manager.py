@@ -21,18 +21,23 @@ class PatchProposal(BaseModel):
 
 class SafeRepoWriterManager:
     name = "safe_repo_writer"
-    version = "0.1.0"
+    version = "0.2.0"
 
     def __init__(self, workspace: WorkspaceManager) -> None:
         self.workspace = workspace
 
     def propose_update(self, path: str, proposed_content: str) -> PatchProposal:
-        current = self.workspace.read_file(path).content
+        try:
+            current = self.workspace.read_file(path).content
+            fromfile = f"a/{path}"
+        except FileNotFoundError:
+            current = ""
+            fromfile = "/dev/null"
         diff = "\n".join(
             difflib.unified_diff(
                 current.splitlines(),
                 proposed_content.splitlines(),
-                fromfile=f"a/{path}",
+                fromfile=fromfile,
                 tofile=f"b/{path}",
                 lineterm="",
             )
