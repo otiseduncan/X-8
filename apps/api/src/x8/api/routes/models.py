@@ -14,7 +14,28 @@ def _payload_shape(payload):
     if isinstance(payload, list):
         return {"type": "list", "length": len(payload)}
     if isinstance(payload, dict):
-        return {"type": "dict", "keys": list(payload.keys())[:20]}
+        shape = {"type": "dict", "keys": list(payload.keys())[:20]}
+        data = payload.get("data")
+        if isinstance(data, list):
+            shape["data_type"] = "list"
+            shape["data_length"] = len(data)
+            if data and isinstance(data[0], dict):
+                shape["first_data_keys"] = list(data[0].keys())[:20]
+        elif isinstance(data, dict):
+            shape["data_type"] = "dict"
+            shape["data_keys_preview"] = list(data.keys())[:20]
+            for nested_key in ("models", "items", "results"):
+                nested = data.get(nested_key)
+                if isinstance(nested, list):
+                    shape[f"data_{nested_key}_length"] = len(nested)
+                    if nested and isinstance(nested[0], dict):
+                        shape[f"first_data_{nested_key}_keys"] = list(nested[0].keys())[:20]
+        models = payload.get("models")
+        if isinstance(models, list):
+            shape["models_length"] = len(models)
+            if models and isinstance(models[0], dict):
+                shape["first_models_keys"] = list(models[0].keys())[:20]
+        return shape
     return {"type": type(payload).__name__}
 
 
@@ -70,12 +91,17 @@ def bridge_diagnostics(request: Request):
                 payload = adapter._json(path, timeout=8.0)
                 models = adapter._extract_models(payload) if hasattr(adapter, "_extract_models") else []
                 payload_error = adapter._payload_error(payload) if hasattr(adapter, "_payload_error") else ""
+                reachable_sparse = False
+                if hasattr(adapter, "_payload_has_success_shape"):
+                    reachable_sparse = bool(adapter._payload_has_success_shape(payload) and not models and getattr(adapter, "default_model", ""))
                 endpoints.append(
                     {
                         "path": path,
-                        "ok": bool(models),
+                        "ok": bool(models) or reachable_sparse,
                         "models_count": len(models),
                         "models_preview": models[:8],
+                        "reachable_sparse_catalog": reachable_sparse,
+                        "configured_default_usable": getattr(adapter, "default_model", "") if reachable_sparse else "",
                         "payload_shape": _payload_shape(payload),
                         "payload_error": payload_error,
                     }
@@ -89,6 +115,7 @@ def bridge_diagnostics(request: Request):
             "bridge_base_url_configured": bool(getattr(adapter, "base_url", "")),
             "auth_configured": bool(getattr(adapter, "secret", "")),
             "default_model": getattr(adapter, "default_model", ""),
+            "model_discovery_note": getattr(adapter, "last_model_discovery_note", ""),
             "endpoints": endpoints,
         }
     ok, models, reason = adapter.models()
