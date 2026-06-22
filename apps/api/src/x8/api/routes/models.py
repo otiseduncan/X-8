@@ -35,8 +35,20 @@ def _payload_shape(payload):
             shape["models_length"] = len(models)
             if models and isinstance(models[0], dict):
                 shape["first_models_keys"] = list(models[0].keys())[:20]
+        message = payload.get("message")
+        if isinstance(message, dict):
+            shape["message_keys"] = list(message.keys())[:20]
+        choices = payload.get("choices")
+        if isinstance(choices, list):
+            shape["choices_length"] = len(choices)
+            if choices and isinstance(choices[0], dict):
+                shape["first_choice_keys"] = list(choices[0].keys())[:20]
         return shape
     return {"type": type(payload).__name__}
+
+
+def _safe_preview(value: str, limit: int = 400) -> str:
+    return " ".join((value or "")[:limit].split())
 
 
 @router.get("/models/status", response_model=ResultEnvelope[ModelStatus])
@@ -128,4 +140,69 @@ def bridge_diagnostics(request: Request):
         "fallback_models_ok": ok,
         "models_preview": models[:8],
         "reason": reason,
+    }
+
+
+@router.get("/models/bridge-chat-diagnostics")
+def bridge_chat_diagnostics(
+    request: Request,
+    model: str = Query("", max_length=180),
+    prompt: str = Query("Reply with XV8_READY only.", max_length=240),
+):
+    """Run targeted sanitized completion probes against the model bridge."""
+    settings = request.app.state.settings
+    adapter = build_adapter(settings)
+    selected = (model or selected_chat_model(settings)).strip()
+    attempts = []
+    if not (hasattr(adapter, "_json") and hasattr(adapter, "_completion_attempts")):
+        return {
+            "ok": False,
+            "provider": provider_name(),
+            "reason": "Selected adapter does not expose bridge diagnostics.",
+        }
+
+    candidate_models = adapter._candidate_models(selected) if hasattr(adapter, "_candidate_models") else [selected]
+    targeted_paths = {"/ollama/api/chat", "/ollama/api/generate", "/api/chat/completions", "/api/v1/chat/completions"}
+    for candidate in candidate_models[:6]:
+        for path, body in adapter._completion_attempts(candidate, prompt):
+            if path not in targeted_paths:
+                continue
+            try:
+                payload = adapter._json(path, method="POST", body=body, timeout=30.0)
+                content = adapter._content(payload) if hasattr(adapter, "_content") else ""
+                payload_error = adapter._payload_error(payload) if hasattr(adapter, "_payload_error") else ""
+                item = {
+                    "model": candidate,
+                    "path": path,
+                    "ok": bool(content),
+                    "content_preview": _safe_preview(content),
+                    "payload_shape": _payload_shape(payload),
+                    "payload_error": payload_error,
+                }
+                attempts.append(item)
+                if content:
+                    return {
+                        "ok": True,
+                        "provider": provider_name(),
+                        "selected_model": selected,
+                        "working_model": candidate,
+                        "working_path": path,
+                        "attempts": attempts,
+                    }
+            except Exception as exc:
+                error = adapter._error(exc) if hasattr(adapter, "_error") else str(exc)
+                attempts.append(
+                    {
+                        "model": candidate,
+                        "path": path,
+                        "ok": False,
+                        "error": error[:1000],
+                    }
+                )
+    return {
+        "ok": False,
+        "provider": provider_name(),
+        "selected_model": selected,
+        "candidate_models": candidate_models[:6],
+        "attempts": attempts,
     }
