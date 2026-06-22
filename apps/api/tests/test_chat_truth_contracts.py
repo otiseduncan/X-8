@@ -37,13 +37,15 @@ def unavailable_kernel(tmp_path, context_max_messages: int = 20) -> XV8Kernel:
 def test_chat_answers_identity_without_model() -> None:
     payload = client().post("/api/chat", json={"message": "what is your name"}).json()
     assert payload["status"] == "passed"
-    assert payload["data"]["assistant_message"]["content"] == "My name is XV8."
+    content = payload["data"]["assistant_message"]["content"]
+    assert "My name is Xoduz, pronounced Exodus." in content
+    assert "XV8 local assistant" in content
 
 
 def test_chat_answers_simple_greeting_without_model_or_limitation_card() -> None:
     payload = client().post("/api/chat", json={"message": "hello"}).json()
     assert payload["status"] == "passed"
-    assert payload["data"]["assistant_message"]["content"] == "Hello. I'm XV8."
+    assert payload["data"]["assistant_message"]["content"] == "Hello. I'm Xoduz, pronounced Exodus."
     assert payload["data"]["assistant_message"]["cards"] == []
     assert "assistant model is unavailable" not in str(payload).lower()
 
