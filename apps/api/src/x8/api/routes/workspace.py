@@ -1,3 +1,7 @@
+import re
+from pathlib import PurePosixPath
+from urllib.parse import quote
+
 from pydantic import BaseModel
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, Response
@@ -9,6 +13,7 @@ from x8.managers.safe_repo_writer_manager import PatchProposal, SafeRepoWriterMa
 from x8.managers.workspace_manager import FileEntry, FileRead, WorkspaceManager
 
 router = APIRouter(prefix="/api", tags=["workspace"])
+ASSET_ATTR = re.compile(r"(src|href)=([\"'])([^\"']+)([\"'])", re.IGNORECASE)
 
 
 class ProjectScopedRequest(BaseModel):
@@ -42,6 +47,22 @@ def project_registry(request: Request) -> ProjectRegistryManager:
 def workspace_manager(request: Request, project_id: str | None = None) -> WorkspaceManager:
     project = project_registry(request).get_project(project_id)
     return WorkspaceManager(project.root)
+
+
+def rewrite_preview_assets(html: str, current_path: str, project_id: str | None = None) -> str:
+    base_dir = PurePosixPath(current_path.replace("\\", "/")).parent
+
+    def repl(match: re.Match[str]) -> str:
+      attr, quote_char, value, closing = match.groups()
+      if value.startswith(("http://", "https://", "//", "data:", "mailto:", "#", "/")):
+          return match.group(0)
+      resolved = str((base_dir / value).as_posix()).lstrip("./")
+      params = f"path={quote(resolved)}"
+      if project_id:
+          params += f"&project_id={quote(project_id)}"
+      return f"{attr}={quote_char}/api/workspace/preview?{params}{closing}"
+
+    return ASSET_ATTR.sub(repl, html)
 
 
 @router.get("/projects", response_model=ResultEnvelope[list[ProjectRoot]])
@@ -94,7 +115,7 @@ def preview(path: str, request: Request, project_id: str | None = None):
         return FileResponse(str(target))
     content = target.read_text(encoding="utf-8")
     if suffix in {".html", ".htm"}:
-        return HTMLResponse(content)
+        return HTMLResponse(rewrite_preview_assets(content, path, project_id))
     if suffix == ".svg":
         return Response(content, media_type="image/svg+xml")
     if suffix == ".json":
