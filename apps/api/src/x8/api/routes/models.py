@@ -3,7 +3,8 @@ from fastapi import APIRouter, Query, Request
 from x8.contracts.base import ResultEnvelope
 from x8.contracts.chat import ModelStatus
 from x8.contracts.receipts import Receipt
-from x8.managers.model_manager import ModelReadinessManager, OllamaAdapter
+from x8.managers.brain_bridge_factory import build_adapter, provider_name, selected_chat_model
+from x8.managers.model_manager import ModelReadinessManager
 from x8.storage.postgres_store import PostgresStore
 
 router = APIRouter(prefix="/api", tags=["models"])
@@ -13,10 +14,10 @@ router = APIRouter(prefix="/api", tags=["models"])
 def model_status(request: Request, probe: bool = Query(False, description="Run an actual XV8_READY generation probe.")) -> ResultEnvelope[ModelStatus]:
     settings = request.app.state.settings
     status = ModelReadinessManager(
-        OllamaAdapter(settings.ollama_base_url),
-        settings.default_chat_model,
+        build_adapter(settings),
+        selected_chat_model(settings),
         settings.fallback_chat_model,
-        ollama_mode=settings.ollama_mode,
+        ollama_mode=f"{provider_name()}:{settings.ollama_mode}",
         reasoning_model=settings.reasoning_model,
         code_model=settings.code_model,
         embedding_model=settings.embedding_model,
@@ -26,7 +27,7 @@ def model_status(request: Request, probe: bool = Query(False, description="Run a
     PostgresStore(settings.database_url).insert_model_status(status.model_dump())
     status_label = "ready" if status.model_ready else "unavailable"
     action = "model_status_probe" if probe else "model_status_check"
-    summary = "Ollama model readiness probed." if probe else "Ollama model availability checked without generation."
+    summary = "Brain bridge model readiness probed." if probe else "Brain bridge model availability checked without generation."
     return ResultEnvelope(
         ok=True,
         status=status_label,
@@ -39,6 +40,7 @@ def model_status(request: Request, probe: bool = Query(False, description="Run a
                 summary=summary,
                 metadata={
                     "probe": probe,
+                    "provider": provider_name(),
                     "selected_model": status.selected_model,
                     "fallback_used": status.fallback_used,
                     "failure_reason": status.failure_reason,
