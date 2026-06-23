@@ -12,12 +12,38 @@ from x8.managers.brain_bridge_adapter import env_first
 from x8.managers.brain_bridge_factory import build_adapter, selected_chat_model
 from x8.managers.memory_manager import MemoryManager
 
-
 MODEL_OWNED_PROVIDERS = {"openwebui", "owui", "brainbridge"}
+GREETING_TEXT = {"hi", "hi xv8", "hi xoduz", "hello", "hello xv8", "hello xoduz", "hey", "hey xv8", "hey xoduz", "good morning", "good afternoon", "good evening"}
+IDENTITY_TEXT = {"who are you", "who are you?"}
 
 
 def provider() -> str:
     return env_first("X8_CHAT_PROVIDER", "CHAT_PROVIDER", default="openwebui").strip().lower().replace("-", "").replace("_", "")
+
+
+class OpenWebUIBridgeKernel(XV8Kernel):
+    """Kernel variant for model-owned Open Web UI chat.
+
+    Normal greeting and identity turns must not be treated as proof that the
+    model works. If the bridge is ready, the prompt goes to the model. If the
+    bridge is not ready, the answer is an explicit unavailable status.
+    """
+
+    def _deterministic_response(self, request, lane: str, bundle, selection=None):
+        lower = request.user_message.lower().strip()
+        if lower in GREETING_TEXT or lower in IDENTITY_TEXT or "what is your name" in lower:
+            if getattr(selection, "model_ready", False):
+                return None
+            reason = getattr(selection, "reason_if_unavailable", "") or "Open Web UI brain bridge is not ready."
+            return (
+                "Kernel identity is available, but model-owned chat must use the Open Web UI brain bridge. The bridge is not ready: " + reason,
+                "unavailable",
+                [reason],
+            )
+        return super()._deterministic_response(request, lane, bundle, selection)
+
+    def _x8_memory_capture_allowed(self, lane: str) -> bool:
+        return False
 
 
 def build_bridge_kernel(request) -> XV8Kernel:
@@ -28,10 +54,6 @@ def build_bridge_kernel(request) -> XV8Kernel:
         "context_max_memory_items": settings.context_max_memory_items,
         "context_max_knowledge_items": settings.context_max_knowledge_items,
     }
-
-    # OpenWebUI owns conversational memory. X8 may still assemble deterministic
-    # operator context, but local X8 conversational memory is disabled unless an
-    # explicit operator asks for it outside the model-owned lane.
     brain = BrainContextAssembler(
         settings.knowledge_root,
         limits,
@@ -67,14 +89,8 @@ def build_bridge_kernel(request) -> XV8Kernel:
         retrieval_min_score=settings.memory_retrieval_min_score,
     )
     continuity_manager = BrainContinuityManager(settings.database_url)
-    return XV8Kernel(context, ModelRouter(adapter, profiles), brain_manager=brain_manager, continuity_manager=continuity_manager)
+    return OpenWebUIBridgeKernel(context, ModelRouter(adapter, profiles), brain_manager=brain_manager, continuity_manager=continuity_manager)
 
 
 def apply_runtime_patch() -> None:
-    """Deprecated compatibility shim.
-
-    The chat route now calls build_bridge_kernel directly. This function remains
-    as a no-op so older imports do not break, but it must not monkey-patch core
-    chat routing.
-    """
     return None
