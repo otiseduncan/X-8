@@ -46,8 +46,7 @@ REPAIR_TRIGGERS = (
     "repair the failing test",
     "repair the proof repo",
     "fix the failing test",
-    "validate and repair",
-)
+    "validate and repair",`r`n    "fix it",`r`n    "apply it",`r`n    "repair it",`r`n    "fix this",`r`n    "apply the fix",`r`n)
 
 PUSH_TRIGGERS = (
     "push the new repo",
@@ -55,8 +54,7 @@ PUSH_TRIGGERS = (
     "create the github repo and push",
     "create github repo and push",
     "push it to github",
-    "push it to the repo",
-)
+    "push it to the repo",`r`n    "push to a new repo",`r`n    "push to new repo",`r`n    "now push to a new repo",`r`n    "create a new repo and push",`r`n)
 
 
 def is_live_repo_proof_request(message: str) -> bool:
@@ -412,3 +410,4 @@ def _normalize(message: str) -> str:
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
