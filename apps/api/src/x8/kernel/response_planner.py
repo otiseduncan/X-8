@@ -1,11 +1,6 @@
 class ResponsePlanner:
     LANES = {
-        "self_build": (
-            "self-build",
-            "self build",
-            "self-build proposal",
-            "repair loop",
-            "fix xoduz",
+        "conversation_repair": (
             "fix conversation",
             "fixing x",
             "communicate correctly",
@@ -18,6 +13,16 @@ class ResponsePlanner:
             "correcting the language",
             "expand the system prompt",
             "update the system prompt",
+        ),
+        "self_build": (
+            "self-build",
+            "self build",
+            "self-build proposal",
+            "repair loop",
+            "patch xoduz",
+            "patch proposal",
+            "apply self-build",
+            "apply the patch",
         ),
         "github_create_repo": (
             "create-repo",
@@ -86,6 +91,7 @@ class ResponsePlanner:
 
     PRECEDENCE = (
         "self_build",
+        "conversation_repair",
         "github_create_repo",
         "github_connect_init",
         "github_pull",
