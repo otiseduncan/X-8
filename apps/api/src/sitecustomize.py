@@ -1,13 +1,5 @@
-"""Runtime compatibility shims for container entrypoints.
+"""No runtime monkey patches.
 
-The kernel router can still classify a normal preference correction as code_help when
-phrases contain words such as "debugging". Brain auto-capture must still see those
-corrections so existing memory correction contracts keep working.
+X8 core routing, memory ownership, and model-provider selection must be handled
+through explicit application code and tests, not import-time compatibility shims.
 """
-
-try:
-    from x8.kernel import kernel as _kernel
-
-    _kernel.AUTO_CAPTURE_BLOCKED_LANES.discard("code_help")
-except Exception:
-    pass
