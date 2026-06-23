@@ -58,7 +58,7 @@ def model_status(request: Request, probe: bool = Query(False, description="Run a
         build_adapter(settings),
         selected_chat_model(settings),
         settings.fallback_chat_model,
-        ollama_mode=f"{provider_name()}:{settings.ollama_mode}",
+        ollama_mode=settings.ollama_mode,
         reasoning_model=settings.reasoning_model,
         code_model=settings.code_model,
         embedding_model=settings.embedding_model,
