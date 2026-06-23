@@ -7,6 +7,10 @@ services:
     environment:
       USE_OLLAMA_DOCKER: "false"
       OLLAMA_BASE_URL: ${OPENWEBUI_OLLAMA_BASE_URL:-${X8_OLLAMA_BASE_URL:-http://host.docker.internal:11434}}
+      # Keep OpenWebUI token/session signing stable across container recreates.
+      # Do not rotate this casually: existing bearer/session tokens can be rejected
+      # when the OpenWebUI signing secret changes.
+      WEBUI_SECRET_KEY: ${OPENWEBUI_SECRET_KEY:-${WEBUI_SECRET_KEY:-}}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
