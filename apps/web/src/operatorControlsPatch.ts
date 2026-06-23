@@ -104,6 +104,20 @@ function styleHeaderButton(button: HTMLButtonElement) {
   button.style.cursor = 'pointer';
 }
 
+function styleComposerButton(button: HTMLButtonElement) {
+  button.style.width = '42px';
+  button.style.minWidth = '42px';
+  button.style.alignSelf = 'stretch';
+  button.style.border = '1px solid rgba(125, 211, 252, 0.28)';
+  button.style.borderRadius = '14px';
+  button.style.padding = '0';
+  button.style.color = '#e0f2fe';
+  button.style.background = 'rgba(14, 165, 233, 0.12)';
+  button.style.fontWeight = '900';
+  button.style.fontSize = '18px';
+  button.style.cursor = 'pointer';
+}
+
 function addHeaderTranscriptControls() {
   if (document.querySelector('[data-x8-header-transcript-controls="true"]')) return;
   const cockpitButton = Array.from(document.querySelectorAll('button')).find((button) => button.textContent?.trim() === 'Open Cockpit') as HTMLButtonElement | undefined;
@@ -144,19 +158,7 @@ function addMicButton(form: HTMLFormElement, textarea: HTMLTextAreaElement) {
   button.textContent = '🎙';
   button.setAttribute('aria-label', 'Start microphone dictation');
   button.title = 'Microphone dictation';
-  button.style.width = '42px';
-  button.style.minWidth = '42px';
-  button.style.alignSelf = 'stretch';
-  button.style.border = '1px solid rgba(125, 211, 252, 0.28)';
-  button.style.borderRadius = '14px';
-  button.style.padding = '0';
-  button.style.color = '#e0f2fe';
-  button.style.background = 'rgba(14, 165, 233, 0.12)';
-  button.style.fontWeight = '900';
-  button.style.fontSize = '18px';
-  button.style.cursor = 'pointer';
-
-  form.style.gridTemplateColumns = 'minmax(0, 1fr) 42px auto';
+  styleComposerButton(button);
 
   let recognition: SpeechRecognitionLike | null = null;
   let listening = false;
@@ -168,7 +170,11 @@ function addMicButton(form: HTMLFormElement, textarea: HTMLTextAreaElement) {
     const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!Recognition) {
       button.textContent = '×';
-      window.setTimeout(() => { button.textContent = '🎙'; }, 1600);
+      button.title = 'Speech recognition is not available in this browser';
+      window.setTimeout(() => {
+        button.textContent = '🎙';
+        button.title = 'Microphone dictation';
+      }, 1800);
       return;
     }
     recognition = new Recognition();
@@ -207,6 +213,65 @@ function addMicButton(form: HTMLFormElement, textarea: HTMLTextAreaElement) {
   else form.appendChild(button);
 }
 
+function latestAssistantText() {
+  const articles = Array.from(document.querySelectorAll('article')).reverse();
+  const article = articles.find((item) => {
+    const text = item.textContent?.trim() || '';
+    return text.toLowerCase().startsWith('assistant') && !text.includes(WELCOME_TEXT) && !text.includes('Working…');
+  });
+  const raw = article?.textContent?.trim() || '';
+  return raw
+    .replace(/^assistant\s*·?\s*[^\n]*/i, '')
+    .replace(/^assistant\s*/i, '')
+    .trim();
+}
+
+function addSpeakButton(form: HTMLFormElement) {
+  if (form.querySelector('[data-x8-speak-button="true"]')) return;
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.dataset.x8SpeakButton = 'true';
+  button.textContent = '🔊';
+  button.setAttribute('aria-label', 'Read latest assistant response aloud');
+  button.title = 'Read latest assistant response aloud';
+  styleComposerButton(button);
+
+  button.onclick = () => {
+    if (!('speechSynthesis' in window)) {
+      button.textContent = '×';
+      button.title = 'Speech synthesis is not available in this browser';
+      window.setTimeout(() => {
+        button.textContent = '🔊';
+        button.title = 'Read latest assistant response aloud';
+      }, 1800);
+      return;
+    }
+    if (window.speechSynthesis.speaking) {
+      window.speechSynthesis.cancel();
+      button.textContent = '🔊';
+      return;
+    }
+    const text = latestAssistantText();
+    if (!text) {
+      button.textContent = '×';
+      window.setTimeout(() => { button.textContent = '🔊'; }, 1600);
+      return;
+    }
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = 'en-US';
+    utterance.rate = 1;
+    utterance.onstart = () => { button.textContent = '■'; };
+    utterance.onend = () => { button.textContent = '🔊'; };
+    utterance.onerror = () => { button.textContent = '🔊'; };
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(utterance);
+  };
+
+  const sendButton = form.querySelector('button[type="submit"]');
+  if (sendButton) form.insertBefore(button, sendButton);
+  else form.appendChild(button);
+}
+
 function removeMisplacedTranscriptControls() {
   document.querySelectorAll('[data-x8-transcript-controls="true"]').forEach((node) => node.remove());
 }
@@ -217,14 +282,85 @@ function hideStarterAssistantBox() {
   });
 }
 
+function injectChatLayoutStyles() {
+  if (document.querySelector('[data-x8-chat-layout-patch="true"]')) return;
+  const style = document.createElement('style');
+  style.dataset.x8ChatLayoutPatch = 'true';
+  style.textContent = `
+    html, body, #root {
+      height: 100%;
+      max-height: 100%;
+      overflow: hidden;
+    }
+    body {
+      overscroll-behavior: none;
+    }
+    #root > main {
+      height: 100vh !important;
+      max-height: 100vh !important;
+      overflow: hidden !important;
+    }
+    #root > main > section {
+      min-height: 0 !important;
+      overflow: hidden !important;
+    }
+    section[aria-live="polite"] {
+      min-height: 0 !important;
+      overflow-y: auto !important;
+      overscroll-behavior: contain;
+      scroll-behavior: smooth;
+      padding-bottom: 12px !important;
+    }
+    form[data-x8-composer-locked="true"] {
+      position: sticky !important;
+      bottom: 0 !important;
+      z-index: 30 !important;
+      box-shadow: 0 -18px 34px rgba(0, 0, 0, 0.28) !important;
+      backdrop-filter: blur(12px);
+    }
+    form[data-x8-composer-locked="true"] textarea {
+      max-height: 150px !important;
+      resize: none !important;
+    }
+  `;
+  document.head.appendChild(style);
+}
+
+function lockComposer(form: HTMLFormElement, textarea: HTMLTextAreaElement) {
+  form.dataset.x8ComposerLocked = 'true';
+  form.style.gridTemplateColumns = 'minmax(0, 1fr) 42px 42px auto';
+  form.style.alignItems = 'stretch';
+  textarea.style.resize = 'none';
+  textarea.style.maxHeight = '150px';
+  textarea.style.overflowY = 'auto';
+}
+
+function scrollTimelineToBottom() {
+  const timeline = document.querySelector('section[aria-live="polite"]') as HTMLElement | null;
+  if (!timeline) return;
+  const scroll = () => {
+    timeline.scrollTop = timeline.scrollHeight;
+    const last = timeline.lastElementChild as HTMLElement | null;
+    last?.scrollIntoView({ block: 'end', inline: 'nearest' });
+  };
+  scroll();
+  window.requestAnimationFrame(scroll);
+  window.setTimeout(scroll, 90);
+  window.setTimeout(scroll, 280);
+}
+
 function mountControls() {
+  injectChatLayoutStyles();
   removeMisplacedTranscriptControls();
   hideStarterAssistantBox();
   addHeaderTranscriptControls();
   const textarea = document.querySelector('textarea') as HTMLTextAreaElement | null;
   const form = textarea?.closest('form') as HTMLFormElement | null;
   if (!textarea || !form) return;
+  lockComposer(form, textarea);
   addMicButton(form, textarea);
+  addSpeakButton(form);
+  scrollTimelineToBottom();
 }
 
 export function installOperatorControlsPatch() {
@@ -233,7 +369,7 @@ export function installOperatorControlsPatch() {
   patchChatSessionFetch();
   mountControls();
   const observer = new MutationObserver(mountControls);
-  observer.observe(document.body, { childList: true, subtree: true });
+  observer.observe(document.body, { childList: true, subtree: true, characterData: true });
 }
 
 if (typeof window !== 'undefined') installOperatorControlsPatch();
