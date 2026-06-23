@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 import os
@@ -398,7 +398,7 @@ def _proof_card(repo_name: str, timestamp: str, phase: str) -> str:
   <text x="60" y="148" fill="#fca5a5" font-family="Consolas, monospace" font-size="24">{safe_phase}</text>
   <text x="60" y="206" fill="#ffffff" font-family="Consolas, monospace" font-size="22">REPO: {safe_repo}</text>
   <text x="60" y="258" fill="#d4d4d8" font-family="Consolas, monospace" font-size="20">UTC: {safe_timestamp}</text>
-  <text x="60" y="312" fill="#22c55e" font-family="Consolas, monospace" font-size="18">EMPTY SANDBOX → LOCAL REPAIR → APPROVAL → NEW GITHUB REPO → PUSH → VERIFY</text>
+  <text x="60" y="312" fill="#22c55e" font-family="Consolas, monospace" font-size="18">EMPTY SANDBOX â†’ LOCAL REPAIR â†’ APPROVAL â†’ NEW GITHUB REPO â†’ PUSH â†’ VERIFY</text>
 </svg>
 '''
 
@@ -409,3 +409,6 @@ def _xml(value: str) -> str:
 
 def _normalize(message: str) -> str:
     return re.sub(r"\s+", " ", (message or "").strip().lower())
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
