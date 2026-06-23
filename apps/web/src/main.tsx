@@ -1,6 +1,7 @@
 import React, { Suspense } from 'react';
 import ReactDOM from 'react-dom/client';
 import './styles.css';
+import './operatorControlsPatch';
 
 const ChatApp = React.lazy(() => import('./app/App').then((module) => ({ default: module.App })));
 const CockpitApp = React.lazy(() => import('./app/CockpitWindow').then((module) => ({ default: module.CockpitWindow })));
