@@ -2,7 +2,11 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from x8.api.routes import approvals, artifacts, attachments, audit, avatar, brain, capabilities, chat, config_import, continuity, docker_commands, github, health, images, integrations, local_bridge, memory, models, operator, receipts, search, self_build, sessions, speech, team, workspace
+from x8.brain_bridge_runtime import apply_runtime_patch
 from x8.settings import Settings
+
+
+apply_runtime_patch()
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
