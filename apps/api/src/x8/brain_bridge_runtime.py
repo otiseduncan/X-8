@@ -2,44 +2,72 @@ from __future__ import annotations
 
 import importlib
 
-from x8.managers.brain_bridge_adapter import BrainBridgeAdapter, bridge_config, env_first
+from x8.brain.continuity_manager import BrainContinuityManager
+from x8.brain.embedding_client import OllamaEmbeddingClient
+from x8.brain.memory_manager import BrainMemoryManager
+from x8.kernel.brain_context import BrainContextAssembler
+from x8.kernel.context_assembler import KernelContextAssembler
+from x8.kernel.kernel import XV8Kernel
+from x8.kernel.model_router import ModelProfileManager, ModelRouter
+from x8.kernel.prompt_builder import KernelPromptBuilder
+from x8.managers.brain_bridge_adapter import env_first
+from x8.managers.brain_bridge_factory import build_adapter, selected_chat_model
+from x8.managers.memory_manager import MemoryManager
 
 
 def provider() -> str:
     return env_first("X8_CHAT_PROVIDER", "CHAT_PROVIDER", default="openwebui").strip().lower().replace("-", "").replace("_", "")
 
 
+def build_bridge_kernel(request) -> XV8Kernel:
+    settings = request.app.state.settings
+    limits = {
+        "context_max_messages": settings.context_max_messages,
+        "context_max_attachment_chars": settings.context_max_attachment_chars,
+        "context_max_memory_items": settings.context_max_memory_items,
+        "context_max_knowledge_items": settings.context_max_knowledge_items,
+    }
+    brain = BrainContextAssembler(
+        settings.knowledge_root,
+        limits,
+        MemoryManager(settings.memory_storage_path) if settings.memory_enabled else None,
+    )
+    context = KernelContextAssembler(brain, KernelPromptBuilder())
+    adapter = build_adapter(settings)
+    profiles = ModelProfileManager(
+        selected_chat_model(settings),
+        settings.fallback_chat_model,
+        settings.code_model,
+        settings.fast_model,
+        settings.embedding_model,
+        settings.reasoning_model,
+        f"{provider()}:{settings.ollama_mode}",
+        getattr(adapter, "base_url", settings.ollama_base_url),
+    )
+    brain_manager = BrainMemoryManager(
+        settings.database_url,
+        memory_enabled=settings.brain_memory_enabled and settings.memory_enabled,
+        global_enabled=settings.brain_memory_global_enabled,
+        project_enabled=settings.brain_memory_project_enabled,
+        session_enabled=settings.brain_memory_session_enabled,
+        auto_capture_enabled=settings.memory_auto_capture_enabled,
+        auto_capture_min_confidence=settings.memory_auto_capture_min_confidence,
+        auto_capture_max_per_turn=settings.memory_auto_capture_max_per_turn,
+        auto_capture_receipts_enabled=settings.memory_auto_capture_receipts_enabled,
+        semantic_retrieval_enabled=settings.memory_semantic_retrieval_enabled,
+        embedding_enabled=settings.memory_embedding_enabled,
+        embedding_client=OllamaEmbeddingClient(settings.ollama_base_url, settings.embedding_model),
+        embedding_model=settings.embedding_model,
+        retrieval_max_results=settings.memory_retrieval_max_results,
+        retrieval_min_score=settings.memory_retrieval_min_score,
+    )
+    continuity_manager = BrainContinuityManager(settings.database_url)
+    return XV8Kernel(context, ModelRouter(adapter, profiles), brain_manager=brain_manager, continuity_manager=continuity_manager)
+
+
 def apply_runtime_patch() -> None:
     if provider() not in {"openwebui", "owui", "brainbridge"}:
         return
     chat = importlib.import_module("x8.api.routes.chat")
-    if getattr(chat, "_brain_bridge_runtime", False):
-        return
-    original_adapter = chat.OllamaAdapter
-    original_profiles = chat.ModelProfileManager
-
-    class AdapterFactory:
-        def __new__(cls, base_url: str, *args, **kwargs):
-            fallback_model = env_first("X8_FALLBACK_CHAT_MODEL", default="qwen3:1.7b")
-            default_model = env_first("X8_DEFAULT_CHAT_MODEL", default="qwen3:8b")
-            config = bridge_config()
-            fallback = original_adapter(base_url, fallback_model=fallback_model)
-            params = {
-                "base_url": str(config["base_url"]),
-                "default_model": str(config["model"] or default_model),
-                "system_prompt": str(config["system_prompt"]),
-                "fallback_adapter": fallback,
-                "fallback_model": fallback_model,
-                "timeout_seconds": float(config["timeout"]),
-            }
-            params["se" + "cret"] = str(config["se" + "cret"])
-            return BrainBridgeAdapter(**params)
-
-    class ProfileFactory(original_profiles):
-        def __init__(self, default_chat: str, fallback_chat: str, code: str = "", fast: str = "", embedding: str = "", reasoning: str = "", ollama_mode: str = "host_ollama_bridge", ollama_base_url: str = "") -> None:
-            config = bridge_config()
-            super().__init__(str(config["model"] or default_chat), fallback_chat, code, fast, embedding, reasoning, f"{provider()}:{ollama_mode}", ollama_base_url)
-
-    chat.OllamaAdapter = AdapterFactory
-    chat.ModelProfileManager = ProfileFactory
+    chat._kernel = build_bridge_kernel
     chat._brain_bridge_runtime = True
