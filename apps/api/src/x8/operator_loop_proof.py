@@ -18,6 +18,17 @@ DEFAULT_BRANCH = "x8/operator-proof-20260623-01"
 PROOF_FILE_RELATIVE = Path("proof/X8_OPERATOR_LOOP_PROOF.md")
 BEFORE_RECEIPT_NAME = "operator-proof-before-push.json"
 AFTER_RECEIPT_NAME = "operator-proof-after-repair.json"
+GITHUB_TOKEN_ENV_KEYS = (
+    "X8_GITHUB_TOKEN",
+    "X8_GITHUB_PAT",
+    "X8_GH_TOKEN",
+    "GITHUB_TOKEN",
+    "GH_TOKEN",
+    "GITHUB_PAT",
+    "GITHUB_API_KEY",
+    "CODEX_GITHUB_TOKEN",
+    "GIT_TOKEN",
+)
 
 
 @dataclass
@@ -132,13 +143,13 @@ def run_operator_loop_proof(message: str, selection: Any | None = None) -> Opera
             "sandbox_path": sandbox_host_dir,
             "container_sandbox_path": str(sandbox_dir),
             "branch": branch,
-            "created_file_path": str(PROOF_FILE_RELATIVE).replace("\\", "/"),
+            "created_file_path": _repo_rel(PROOF_FILE_RELATIVE),
             "git_status": pre_commit_status,
             "timestamp": _now(),
         }
         _write_json(before_receipt_path, before_receipt)
 
-        runner.run(["add", str(PROOF_FILE_RELATIVE).replace("\\", "/")])
+        runner.run(["add", _repo_rel(PROOF_FILE_RELATIVE)])
         runner.run(["commit", "-m", "proof: add X8 operator loop proof artifact"])
         first_commit_sha = runner.run(["rev-parse", "HEAD"]).stdout.strip()
         runner.run(["push", "-u", "--force-with-lease", "origin", branch], timeout=90)
@@ -156,7 +167,7 @@ def run_operator_loop_proof(message: str, selection: Any | None = None) -> Opera
         repaired += f"PULLED_COMMIT_SHA={pulled_commit_sha}\n"
         proof_path.write_text(repaired, encoding="utf-8")
 
-        runner.run(["add", str(PROOF_FILE_RELATIVE).replace("\\", "/")])
+        runner.run(["add", _repo_rel(PROOF_FILE_RELATIVE)])
         runner.run(["commit", "-m", "repair: complete X8 operator loop proof"])
         repair_commit_sha = runner.run(["rev-parse", "HEAD"]).stdout.strip()
         runner.run(["push", "origin", branch], timeout=90)
@@ -167,7 +178,7 @@ def run_operator_loop_proof(message: str, selection: Any | None = None) -> Opera
             "first_commit_sha": first_commit_sha,
             "pulled_commit_sha": pulled_commit_sha,
             "repair_commit_sha": repair_commit_sha,
-            "repo_file_path": str(PROOF_FILE_RELATIVE).replace("\\", "/"),
+            "repo_file_path": _repo_rel(PROOF_FILE_RELATIVE),
             "sandbox_receipt_paths": {
                 "before_push": before_receipt_host_path,
                 "after_repair": after_receipt_host_path,
@@ -185,7 +196,7 @@ def run_operator_loop_proof(message: str, selection: Any | None = None) -> Opera
 
         message = _pass_message(
             branch=branch,
-            repo_file_path=str(PROOF_FILE_RELATIVE).replace("\\", "/"),
+            repo_file_path=_repo_rel(PROOF_FILE_RELATIVE),
             before_receipt_path=before_receipt_host_path,
             after_receipt_path=after_receipt_host_path,
             first_commit_sha=first_commit_sha,
@@ -318,16 +329,37 @@ def _host_repo_root(repo_root: Path) -> str:
     return str(repo_root).replace("\\", "/")
 
 
+def _repo_rel(path: Path) -> str:
+    return str(path).replace("\\", "/")
+
+
+def _github_token() -> tuple[str, str]:
+    for key in GITHUB_TOKEN_ENV_KEYS:
+        value = (os.getenv(key) or "").strip()
+        if value:
+            return key, value
+    return "", ""
+
+
 def _git_env() -> dict[str, str]:
-    env = os.environ.copy() | {"GIT_TERMINAL_PROMPT": "0"}
-    token = (os.getenv("X8_GITHUB_TOKEN") or "").strip()
+    env = os.environ.copy() | {
+        "GIT_TERMINAL_PROMPT": "0",
+        "GCM_INTERACTIVE": "Never",
+        "GIT_ASKPASS": "/bin/false",
+    }
+    source, token = _github_token()
     if token:
         basic = base64.b64encode(f"x-access-token:{token}".encode("utf-8")).decode("ascii")
+        start = int(env.get("GIT_CONFIG_COUNT") or "0")
         env.update(
             {
-                "GIT_CONFIG_COUNT": "1",
-                "GIT_CONFIG_KEY_0": "http.https://github.com/.extraheader",
-                "GIT_CONFIG_VALUE_0": f"AUTHORIZATION: basic {basic}",
+                "GIT_CONFIG_COUNT": str(start + 3),
+                f"GIT_CONFIG_KEY_{start}": "http.https://github.com/.extraheader",
+                f"GIT_CONFIG_VALUE_{start}": f"AUTHORIZATION: basic {basic}",
+                f"GIT_CONFIG_KEY_{start + 1}": "credential.helper",
+                f"GIT_CONFIG_VALUE_{start + 1}": "",
+                f"GIT_CONFIG_KEY_{start + 2}": "x8.authSource",
+                f"GIT_CONFIG_VALUE_{start + 2}": source,
             }
         )
     return env
@@ -354,10 +386,16 @@ def _extract_branch(message: str) -> str:
 
 
 def _redact(value: str) -> str:
-    token = os.getenv("X8_GITHUB_TOKEN") or ""
-    if token:
-        value = value.replace(token, "[redacted]")
-    return re.sub(r"gh[pousr]_[A-Za-z0-9_]+", "[redacted-github-token]", value or "")
+    for _, token in [_github_token()]:
+        if token:
+            value = value.replace(token, "[redacted]")
+    for key in GITHUB_TOKEN_ENV_KEYS:
+        token = os.getenv(key) or ""
+        if token:
+            value = value.replace(token, "[redacted]")
+    value = re.sub(r"gh[pousr]_[A-Za-z0-9_]+", "[redacted-github-token]", value or "")
+    value = re.sub(r"(x-access-token:)[^@\s]+", r"\1[redacted]", value)
+    return value
 
 
 def _format_command(command: list[str]) -> str:
@@ -398,11 +436,18 @@ def _pass_message(
 
 
 def _fail_message(exc: OperatorProofFailure, branch: str) -> str:
+    details = dict(exc.payload)
+    source, _ = _github_token()
+    if source:
+        details.setdefault("github_auth_source", source)
+    else:
+        details.setdefault("github_auth_source", "not available in API container env")
+        details.setdefault("checked_env_names", list(GITHUB_TOKEN_ENV_KEYS))
     payload = {
         "result": "FAIL",
         "branch": branch,
         "error": exc.message,
         "command_failure": exc.record.as_failure() if exc.record else None,
-        "details": exc.payload,
+        "details": details,
     }
     return "FAIL\n" + json.dumps(payload, indent=2, sort_keys=True)
