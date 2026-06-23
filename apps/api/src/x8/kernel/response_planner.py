@@ -1,6 +1,24 @@
 class ResponsePlanner:
     LANES = {
-        "self_build": ("self-build", "self build", "self-build proposal", "repair loop", "fix xoduz", "fix conversation", "language issues", "expand the system prompt", "update the system prompt"),
+        "self_build": (
+            "self-build",
+            "self build",
+            "self-build proposal",
+            "repair loop",
+            "fix xoduz",
+            "fix conversation",
+            "fixing x",
+            "communicate correctly",
+            "conversational aspect",
+            "conversation ready",
+            "conversationally ready",
+            "language issues",
+            "language issues on x",
+            "correct the language",
+            "correcting the language",
+            "expand the system prompt",
+            "update the system prompt",
+        ),
         "github_create_repo": (
             "create-repo",
             "create repo",
