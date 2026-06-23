@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 TRIGGER_PHRASE = "run the full x8 operator loop proof"
 DEFAULT_RUN_ID = "X8-OPERATOR-PROOF-20260623-01"
@@ -222,8 +223,9 @@ class _GitRunner:
     def run(self, args: list[str], *, timeout: int = 45, allow_global: bool = False) -> CommandRecord:
         if not allow_global:
             _validate_git_args(args)
+        effective_args = self._with_authenticated_remote(args)
         completed = subprocess.run(
-            ["git", *args],
+            ["git", *effective_args],
             cwd=self.repo_root,
             capture_output=True,
             text=True,
@@ -232,7 +234,7 @@ class _GitRunner:
             env=_git_env(),
         )
         record = CommandRecord(
-            command=["git", *args],
+            command=["git", *effective_args],
             cwd=str(self.repo_root),
             returncode=completed.returncode,
             stdout=_redact(completed.stdout),
@@ -253,6 +255,19 @@ class _GitRunner:
             env=_git_env(),
         )
         return completed.returncode == 0
+
+    def _with_authenticated_remote(self, args: list[str]) -> list[str]:
+        if not args or args[0] not in {"fetch", "pull", "push"}:
+            return list(args)
+        if "origin" not in args:
+            return list(args)
+        _, token = _github_token()
+        if not token:
+            return list(args)
+        authenticated = _authenticated_origin_url(self.repo_root, token)
+        replaced = list(args)
+        replaced[replaced.index("origin")] = authenticated
+        return replaced
 
 
 def _validate_git_args(args: list[str]) -> None:
@@ -341,6 +356,56 @@ def _github_token() -> tuple[str, str]:
     return "", ""
 
 
+def _origin_url(repo_root: Path) -> str:
+    completed = subprocess.run(
+        ["git", "remote", "get-url", "origin"],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+        env=os.environ.copy() | {"GIT_TERMINAL_PROMPT": "0"},
+    )
+    if completed.returncode != 0:
+        raise OperatorProofFailure(
+            "Could not read origin remote URL for operator proof.",
+            record=CommandRecord(
+                command=["git", "remote", "get-url", "origin"],
+                cwd=str(repo_root),
+                returncode=completed.returncode,
+                stdout=_redact(completed.stdout),
+                stderr=_redact(completed.stderr),
+            ),
+        )
+    origin = completed.stdout.strip()
+    if not origin:
+        raise OperatorProofFailure("Origin remote URL is empty for operator proof.")
+    return origin
+
+
+def _authenticated_origin_url(repo_root: Path, token: str) -> str:
+    origin = _origin_url(repo_root)
+    clean = _strip_existing_credentials(_ssh_to_https(origin))
+    if not clean.startswith("https://github.com/"):
+        raise OperatorProofFailure(
+            "Origin remote is not a supported GitHub HTTPS remote for operator proof.",
+            payload={"origin_remote": _redact(origin)},
+        )
+    encoded_token = quote(token, safe="")
+    return clean.replace("https://github.com/", f"https://x-access-token:{encoded_token}@github.com/", 1)
+
+
+def _ssh_to_https(origin: str) -> str:
+    match = re.match(r"^git@github\.com:(?P<path>.+)$", origin)
+    if match:
+        return f"https://github.com/{match.group('path')}"
+    return origin
+
+
+def _strip_existing_credentials(origin: str) -> str:
+    return re.sub(r"^https://[^/@]+@github\.com/", "https://github.com/", origin)
+
+
 def _git_env() -> dict[str, str]:
     env = os.environ.copy() | {
         "GIT_TERMINAL_PROMPT": "0",
@@ -355,7 +420,7 @@ def _git_env() -> dict[str, str]:
             {
                 "GIT_CONFIG_COUNT": str(start + 3),
                 f"GIT_CONFIG_KEY_{start}": "http.https://github.com/.extraheader",
-                f"GIT_CONFIG_VALUE_{start}": f"AUTHORIZATION: basic {basic}",
+                f"GIT_CONFIG_VALUE_{start}": f"Authorization: Basic {basic}",
                 f"GIT_CONFIG_KEY_{start + 1}": "credential.helper",
                 f"GIT_CONFIG_VALUE_{start + 1}": "",
                 f"GIT_CONFIG_KEY_{start + 2}": "x8.authSource",
@@ -389,17 +454,20 @@ def _redact(value: str) -> str:
     for _, token in [_github_token()]:
         if token:
             value = value.replace(token, "[redacted]")
+            value = value.replace(quote(token, safe=""), "[redacted]")
     for key in GITHUB_TOKEN_ENV_KEYS:
         token = os.getenv(key) or ""
         if token:
             value = value.replace(token, "[redacted]")
+            value = value.replace(quote(token, safe=""), "[redacted]")
     value = re.sub(r"gh[pousr]_[A-Za-z0-9_]+", "[redacted-github-token]", value or "")
     value = re.sub(r"(x-access-token:)[^@\s]+", r"\1[redacted]", value)
+    value = re.sub(r"https://x-access-token:[^@\s]+@github\.com/", "https://x-access-token:[redacted]@github.com/", value)
     return value
 
 
 def _format_command(command: list[str]) -> str:
-    return " ".join(shlex.quote(part) for part in command)
+    return _redact(" ".join(shlex.quote(part) for part in command))
 
 
 def _pass_message(
