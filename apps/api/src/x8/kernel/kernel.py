@@ -14,6 +14,7 @@ from x8.kernel.safety_gate import SafetyGate
 from x8.kernel.tool_decision import ToolDecisionEngine
 
 UNAVAILABLE = "The assistant model is unavailable right now.\nNo model response was generated.\nCheck Settings > Model + Runtime."
+MODEL_OWNED_LANES = {"normal_chat", "conversation_repair", "reasoning", "code_help", "prompt_generation", "settings_request", "model_status_request"}
 
 
 class XV8Kernel:
@@ -76,12 +77,12 @@ class XV8Kernel:
         if continuity_result and continuity_result.handled:
             cards.extend(continuity_result.cards)
             extra_receipts.extend(continuity_result.receipts)
-        if self.brain_manager and not lane.startswith("brain_"):
+        if self.brain_manager and self._x8_memory_capture_allowed(lane):
             auto_capture = self.brain_manager.auto_capture(request.user_message, lane=lane, session_id=request.session_id or "")
             if auto_capture.handled:
                 cards.extend(auto_capture.cards)
                 extra_receipts.extend(auto_capture.receipts)
-        if self.continuity_manager and not lane.startswith("brain_"):
+        if self.continuity_manager and self._x8_memory_capture_allowed(lane):
             continuity_capture = self.continuity_manager.auto_capture(request.user_message, lane=lane, session_id=request.session_id or "")
             if continuity_capture.handled:
                 cards.extend(continuity_capture.cards)
@@ -186,6 +187,11 @@ class XV8Kernel:
         if lane != "brain_continuity" or not self.continuity_manager:
             return None
         return self.continuity_manager.handle_chat_command(request.user_message, session_id=request.session_id or "")
+
+    def _x8_memory_capture_allowed(self, lane: str) -> bool:
+        if lane.startswith("brain_"):
+            return False
+        return lane not in MODEL_OWNED_LANES
 
     def _cards(self, lane: str, status: str, limitations: list[str], request: KernelRequest) -> list[ResponseCard]:
         cards: list[ResponseCard] = []
