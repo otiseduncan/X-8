@@ -1,7 +1,7 @@
-from fastapi import FastAPI
+﻿from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from x8.api.routes import approvals, artifacts, attachments, audit, avatar, brain, brain_health, capabilities, chat, config_import, continuity, docker_commands, github, health, images, integrations, local_bridge, memory, models, operator, receipts, search, self_build, sessions, speech, team, visual_git_proof, workspace
+from x8.api.routes import approvals, artifacts, attachments, audit, avatar, brain, brain_health, capabilities, chat, config_import, continuity, docker_commands, live_repo_proof_ops, github, health, images, integrations, local_bridge, memory, models, operator, receipts, search, self_build, sessions, speech, team, visual_git_proof, workspace
 from x8.settings import Settings
 
 
@@ -20,6 +20,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         health.router,
         capabilities.router,
         integrations.router,
+        live_repo_proof_ops.router,
         github.router,
         workspace.router,
         docker_commands.router,
@@ -48,3 +49,4 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     ):
         app.include_router(router)
     return app
+
