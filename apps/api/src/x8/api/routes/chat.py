@@ -5,6 +5,7 @@ from x8.contracts.base import ResultEnvelope
 from x8.contracts.chat import AttachmentReference, ChatRequest, ChatResponse, ChatRoleMessage, PromptReceipt
 from x8.contracts.receipts import Receipt
 from x8.kernel.contracts import KernelRequest
+from x8.operator_loop_proof import is_operator_loop_proof_request, run_operator_loop_proof
 from x8.storage.postgres_store import PostgresStore
 
 router = APIRouter(prefix="/api", tags=["chat"])
@@ -30,6 +31,49 @@ def chat(payload: ChatRequest, request: Request) -> ResultEnvelope[ChatResponse]
             attachment = AttachmentReference(**row)
             attachments.append(attachment)
             store.link_attachment(user_message_id, attachment.attachment_id)
+
+    if is_operator_loop_proof_request(payload.message):
+        proof_result = run_operator_loop_proof(payload.message)
+        assistant_message_id = store.insert_message(session_id, "assistant", proof_result.message, [])
+        receipt = PromptReceipt(
+            action_type="operator_loop_proof",
+            status=proof_result.status,
+            model="x8-operator-proof",
+            limitations=proof_result.limitations,
+        )
+        store.insert_receipt(
+            {
+                "receipt_id": receipt.receipt_id,
+                "session_id": session_id,
+                "message_id": assistant_message_id,
+                "action_type": receipt.action_type,
+                "status": receipt.status,
+                "model": receipt.model,
+                "limitations": receipt.limitations,
+                "metadata": {"user_message_id": user_message_id, "operator_loop_proof": True, "openwebui_brain_path": False},
+                "created_at": receipt.created_at,
+            }
+        )
+        envelope_receipt = Receipt(
+            id=receipt.receipt_id,
+            action=receipt.action_type,
+            status=receipt.status,
+            summary="Operator loop proof executed." if receipt.status == "passed" else "Operator loop proof failed.",
+            metadata={"session_id": session_id, "operator_loop_proof": True, "openwebui_brain_path": False},
+        )
+        return ResultEnvelope(
+            ok=receipt.status == "passed",
+            status=receipt.status,
+            message="Operator loop proof completed." if receipt.status == "passed" else "Operator loop proof failed.",
+            data=ChatResponse(
+                session_id=session_id,
+                message_id=assistant_message_id,
+                assistant_message=ChatRoleMessage(role="assistant", content=proof_result.message, cards=[]),
+                receipt=receipt,
+                attachments=attachments,
+            ),
+            receipts=[envelope_receipt],
+        )
 
     session = store.get_session(session_id)
     kernel_response = build_bridge_kernel(request).handle(
