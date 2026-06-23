@@ -1,7 +1,9 @@
-"""Model-facing brain bridge adapter for X8.
+"""OpenWebUI-owned model bridge for X8.
 
-This adapter lets X8 call a model-access layer as the primary chat provider
-while preserving direct Ollama as the fallback runtime.
+This module is intentionally strict: when X8 is configured for the
+OpenWebUI brain path, X8 must not silently fall back to a direct Ollama
+conversation and pretend the OpenWebUI brain worked. Direct Ollama remains a
+separate provider path, not a hidden rescue path for model-owned chat.
 """
 
 from __future__ import annotations
@@ -61,9 +63,10 @@ def bridge_config() -> dict[str, str | float]:
             "X8_OPENWEBUI_SYSTEM_PROMPT",
             "OPENWEBUI_SYSTEM_PROMPT",
             default=(
-                "You are Xoduz, pronounced Exodus, the model-facing intelligence layer for X8. "
-                "Use supplied X8 context only when directly relevant. Be direct, practical, and honest. "
-                "X8 handles tools, file writes, project roots, Git, Docker, PowerShell, memory records, and safety gates."
+                "You are Xoduz, pronounced Exodus, the OpenWebUI brain/model layer for X8. "
+                "OpenWebUI owns conversational memory, persona, preferences, and natural recall. "
+                "X8 owns deterministic operator state, approvals, receipts, sandbox writes, GitHub operations, and safety gates. "
+                "Be direct, practical, and honest. Do not claim tool actions happened unless X8 receipts prove them."
             ),
         ),
     }
@@ -94,6 +97,7 @@ class BrainBridgeAdapter:
         self.timeout_seconds = timeout_seconds
         self.last_generation_result = BridgeResult(ok=False)
         self.last_model_discovery_note = ""
+        self.last_model_discovery_errors: list[str] = []
 
     def _headers(self) -> dict[str, str]:
         headers = {"Content-Type": "application/json", "Accept": "application/json"}
@@ -180,23 +184,14 @@ class BrainBridgeAdapter:
                 return
             if not isinstance(value, dict):
                 return
-
-            # Some OpenWebUI versions return model maps like
-            # {"data": {"qwen3:14b": {...}}} rather than a flat list.
             if parent_key in {"data", "models", "model", "model_info", "model_infos", "items", "results"}:
                 for possible_model_key in value.keys():
                     add(possible_model_key)
-
             for key in ("id", "name", "model", "model_name", "title"):
                 add(value.get(key))
-
             for key in ("data", "models", "items", "results", "model_infos", "model_info"):
                 if key in value:
                     walk(value[key], key)
-
-            # OpenWebUI and OpenAI-compatible APIs have changed response shapes
-            # across versions. Walk nested dict/list values conservatively so a
-            # payload like {"data": {"models": [...]}} is still recognized.
             for key, nested in value.items():
                 if isinstance(nested, (dict, list)):
                     walk(nested, key)
@@ -204,17 +199,10 @@ class BrainBridgeAdapter:
         walk(payload)
         return models
 
-    def _payload_has_success_shape(self, payload: dict[str, Any] | list[Any]) -> bool:
+    def _payload_has_catalog_shape(self, payload: dict[str, Any] | list[Any]) -> bool:
         if isinstance(payload, list):
             return True
-        if not isinstance(payload, dict):
-            return False
-        if self._payload_error(payload):
-            return False
-        # OpenWebUI often returns {"data": ...} even when the nested model
-        # catalog is hidden from API users. Treat this as a reachable provider
-        # and let a real completion call validate the configured model.
-        return any(key in payload for key in ("data", "models", "items", "results"))
+        return isinstance(payload, dict) and any(key in payload for key in ("data", "models", "items", "results"))
 
     def _candidate_models(self, selected_model: str) -> list[str]:
         candidates: list[str] = []
@@ -234,35 +222,43 @@ class BrainBridgeAdapter:
 
     def models(self) -> tuple[bool, list[str], str]:
         if not self.base_url:
-            return self._fallback_models("Brain bridge base URL is not configured.")
+            return False, [], "OpenWebUI bridge base URL is not configured."
+        if not self.secret:
+            return False, [], "OpenWebUI API key is not configured."
+
         errors: list[str] = []
-        reachable_sparse_paths: list[str] = []
-        for path in ("/api/models", "/api/v1/models", "/v1/models", "/ollama/api/tags"):
+        reachable = False
+        authenticated = False
+        saw_catalog_shape = False
+        for path in ("/api/models", "/api/v1/models", "/ollama/api/tags"):
             try:
                 payload = self._json(path, timeout=8.0)
+                reachable = True
+                authenticated = True
                 models = self._extract_models(payload)
                 if models:
-                    self.last_model_discovery_note = f"models discovered from {path}"
+                    self.last_model_discovery_note = f"OpenWebUI models discovered from {path}."
+                    self.last_model_discovery_errors = []
                     return True, models, ""
+                if self._payload_has_catalog_shape(payload):
+                    saw_catalog_shape = True
                 payload_error = self._payload_error(payload)
-                if not payload_error and self._payload_has_success_shape(payload):
-                    reachable_sparse_paths.append(path)
-                errors.append(f"{path}: {payload_error or 'no models returned'}")
+                errors.append(f"{path}: {payload_error or 'authenticated but no models returned'}")
+            except urllib.error.HTTPError as exc:
+                if exc.code in {401, 403}:
+                    reachable = True
+                    errors.append(f"{path}: OpenWebUI authentication failed ({self._error(exc)})")
+                else:
+                    errors.append(f"{path}: {self._error(exc)}")
             except (urllib.error.URLError, TimeoutError, ValueError, OSError) as exc:
                 errors.append(f"{path}: {self._error(exc)}")
-        sparse_candidates = self._candidate_models(self.default_model)
-        if reachable_sparse_paths and sparse_candidates:
-            self.last_model_discovery_note = "OpenWebUI reachable but model catalog is sparse; using configured model candidates."
-            return True, sparse_candidates, self.last_model_discovery_note
-        return self._fallback_models("; ".join(errors) or "Brain bridge model list unavailable.")
 
-    def _fallback_models(self, reason: str) -> tuple[bool, list[str], str]:
-        if not self.fallback_adapter:
-            return False, [], reason
-        ok, models, fallback_reason = self.fallback_adapter.models()
-        if ok:
-            return True, models, f"Brain bridge unavailable ({reason}); using direct Ollama fallback."
-        return False, [], f"Brain bridge unavailable ({reason}); fallback unavailable ({fallback_reason})."
+        self.last_model_discovery_errors = errors
+        if reachable and not authenticated:
+            return False, [], "; ".join(errors) or "OpenWebUI is reachable but rejected authentication."
+        if authenticated and saw_catalog_shape:
+            return False, [], "OpenWebUI is reachable and authenticated, but it exposes zero models. Connect OpenWebUI to the Ollama backend that has the models. " + "; ".join(errors)
+        return False, [], "; ".join(errors) or "OpenWebUI model catalog unavailable."
 
     def _messages(self, prompt: str) -> list[dict[str, str]]:
         messages: list[dict[str, str]] = []
@@ -309,57 +305,52 @@ class BrainBridgeAdapter:
         return [
             ("/api/chat/completions", openai_body),
             ("/api/v1/chat/completions", openai_body),
-            ("/v1/chat/completions", openai_body),
             ("/ollama/api/chat", ollama_chat_body),
-            ("/api/chat", ollama_chat_body),
             ("/ollama/api/generate", ollama_generate_body),
-            ("/api/generate", ollama_generate_body),
         ]
 
     def generate_with_metrics(self, model: str, prompt: str, timeout_seconds: float | None = None) -> BridgeResult:
-        selected_model = model or self.default_model
         effective_timeout = float(timeout_seconds if timeout_seconds is not None else self.timeout_seconds)
         started = time.perf_counter()
-        if self.base_url and selected_model:
-            errors: list[str] = []
-            for candidate_model in self._candidate_models(selected_model):
-                for path, body in self._completion_attempts(candidate_model, prompt):
-                    try:
-                        payload = self._json(path, method="POST", body=body, timeout=effective_timeout)
-                        content = self._content(payload)
-                        elapsed_ms = int((time.perf_counter() - started) * 1000)
-                        if content:
-                            result = BridgeResult(ok=True, content=content, model=candidate_model, timeout_seconds=effective_timeout, total_generation_ms=elapsed_ms)
-                            self.last_generation_result = result
-                            return result
-                        payload_error = self._payload_error(payload)
-                        errors.append(f"{candidate_model} {path}: {payload_error or 'empty response'}")
-                    except (urllib.error.URLError, TimeoutError, ValueError, OSError) as exc:
-                        errors.append(f"{candidate_model} {path}: {self._error(exc)}")
-            primary_reason = "; ".join(errors) or "Brain bridge completion failed."
-            if "Model not found" in primary_reason or "was not found" in primary_reason:
-                primary_reason += " Configure OPENWEBUI_MODEL or OPENWEBUI_MODEL_ALIASES with an exact model ID visible to OpenWebUI, or connect OpenWebUI to the Ollama backend that has the model."
-        else:
-            primary_reason = "Brain bridge base URL or model is not configured."
-        result = self._fallback_generate(prompt, selected_model, effective_timeout, primary_reason)
-        self.last_generation_result = result
-        return result
+        selected_model = (model or self.default_model).strip()
+        reachable, available_models, reason = self.models()
+        if not reachable:
+            result = BridgeResult(ok=False, failure_reason=reason, model=selected_model, timeout_seconds=effective_timeout)
+            self.last_generation_result = result
+            return result
+        if selected_model not in available_models:
+            preview = ", ".join(available_models[:12]) or "none"
+            result = BridgeResult(
+                ok=False,
+                failure_reason=f"Selected OpenWebUI model '{selected_model}' is not available. Available OpenWebUI models: {preview}.",
+                model=selected_model,
+                timeout_seconds=effective_timeout,
+            )
+            self.last_generation_result = result
+            return result
 
-    def _fallback_generate(self, prompt: str, selected_model: str, timeout: float, reason: str) -> BridgeResult:
-        if not self.fallback_adapter:
-            return BridgeResult(ok=False, failure_reason=reason, model=selected_model, timeout_seconds=timeout)
-        fallback_model = self.fallback_model or selected_model
-        fallback = self.fallback_adapter.generate_with_metrics(fallback_model, prompt, timeout_seconds=timeout)
+        errors: list[str] = []
+        for path, body in self._completion_attempts(selected_model, prompt):
+            try:
+                payload = self._json(path, method="POST", body=body, timeout=effective_timeout)
+                content = self._content(payload)
+                elapsed_ms = int((time.perf_counter() - started) * 1000)
+                if content:
+                    result = BridgeResult(ok=True, content=content, model=selected_model, timeout_seconds=effective_timeout, total_generation_ms=elapsed_ms)
+                    self.last_generation_result = result
+                    return result
+                payload_error = self._payload_error(payload)
+                errors.append(f"{path}: {payload_error or 'empty response'}")
+            except (urllib.error.URLError, TimeoutError, ValueError, OSError) as exc:
+                errors.append(f"{path}: {self._error(exc)}")
         result = BridgeResult(
-            ok=fallback.ok,
-            content=fallback.content,
-            failure_reason=(f"Brain bridge primary failed: {reason}" + (f" Fallback: {fallback.failure_reason}" if fallback.failure_reason else "")),
-            model=fallback.model or fallback_model,
-            timeout_seconds=fallback.timeout_seconds,
-            timed_out=fallback.timed_out,
-            fallback_used=True,
-            total_generation_ms=fallback.total_generation_ms,
+            ok=False,
+            failure_reason="OpenWebUI completion failed for the selected model. " + "; ".join(errors),
+            model=selected_model,
+            timeout_seconds=effective_timeout,
+            total_generation_ms=int((time.perf_counter() - started) * 1000),
         )
+        self.last_generation_result = result
         return result
 
     def generate(self, model: str, prompt: str) -> tuple[bool, str, str]:
