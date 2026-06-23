@@ -5,6 +5,7 @@ from x8.contracts.base import ResultEnvelope
 from x8.contracts.chat import AttachmentReference, ChatRequest, ChatResponse, ChatRoleMessage, PromptReceipt
 from x8.contracts.receipts import Receipt
 from x8.kernel.contracts import KernelRequest
+from x8.live_repo_proof import is_live_repo_proof_request, run_live_repo_proof
 from x8.operator_loop_proof import is_operator_loop_proof_request, run_operator_loop_proof
 from x8.storage.postgres_store import PostgresStore
 from x8.visual_git_proof_lab import is_visual_git_proof_lab_request, run_visual_git_proof_lab
@@ -61,6 +62,32 @@ def _visual_approval_card(action: str = "initial-push") -> dict[str, object]:
     }
 
 
+def _live_repo_approval_card(result) -> dict[str, object]:
+    return {
+        "type": "approval",
+        "title": "Authorize X8 brand-new GitHub repo creation and push",
+        "status": "awaiting_approval",
+        "summary": "Review the repaired IDE-visible files first. Approval creates the new GitHub repo and pushes the local repair.",
+        "payload": {
+            "operation": "github-proof-lab",
+            "repo_name": result.repo_name,
+            "owner": "otiseduncan",
+            "visibility": "private",
+            "project_path": result.project_path,
+            "validation_path": result.validation_path,
+            "github_repo": result.github_repo,
+            "local_ide_workspace": result.host_workspace,
+            "cockpit_url": "http://localhost:6022",
+            "actions": [
+                f"Create brand-new GitHub repo: https://github.com/otiseduncan/{result.repo_name}",
+                f"Commit and push the repaired IDE-visible workspace: {result.host_workspace}",
+                "Clone/pull the pushed repo into a separate validation folder and verify the fixed test.",
+            ],
+            "warning": "No GitHub repo creation or push has run yet. Approval authorizes create-repo, push, and pull-back verification.",
+        },
+    }
+
+
 def _visual_chat_response(
     *,
     session_id: str,
@@ -87,8 +114,8 @@ def _visual_chat_response(
                 id=receipt.receipt_id,
                 action=receipt.action_type,
                 status=receipt.status,
-                summary="Visual proof lab staged for operator approval." if status == "awaiting_approval" else "Visual proof lab command executed.",
-                metadata={"session_id": session_id, "visual_git_proof_lab": True, "openwebui_brain_path": False},
+                summary="Proof workflow staged for operator approval." if status == "awaiting_approval" else "Proof workflow command executed.",
+                metadata={"session_id": session_id, receipt.action_type: True, "openwebui_brain_path": False},
             )
         ],
     )
@@ -148,6 +175,41 @@ def chat(payload: ChatRequest, request: Request) -> ResultEnvelope[ChatResponse]
                 attachments=attachments,
             ),
             receipts=[envelope_receipt],
+        )
+
+    if is_live_repo_proof_request(payload.message):
+        result = run_live_repo_proof(payload.message)
+        cards: list[dict[str, object]] = []
+        if result.status == "awaiting_approval":
+            cards = [_live_repo_approval_card(result)]
+        assistant_message_id = store.insert_message(session_id, "assistant", result.message, cards)
+        receipt = PromptReceipt(
+            action_type="live_repo_proof",
+            status=result.status,
+            model="x8-live-repo-proof",
+            limitations=result.limitations,
+        )
+        store.insert_receipt(
+            {
+                "receipt_id": receipt.receipt_id,
+                "session_id": session_id,
+                "message_id": assistant_message_id,
+                "action_type": receipt.action_type,
+                "status": receipt.status,
+                "model": receipt.model,
+                "limitations": receipt.limitations,
+                "metadata": {"user_message_id": user_message_id, "live_repo_proof": True, "repo_name": result.repo_name, "openwebui_brain_path": False},
+                "created_at": receipt.created_at,
+            }
+        )
+        return _visual_chat_response(
+            session_id=session_id,
+            assistant_message_id=assistant_message_id,
+            text=result.message,
+            status=result.status,
+            attachments=attachments,
+            cards=cards,
+            receipt=receipt,
         )
 
     if is_visual_git_proof_lab_request(payload.message) or _visual_push_intent(payload.message) or _visual_repair_intent(payload.message):
