@@ -7,11 +7,7 @@ services:
     environment:
       USE_OLLAMA_DOCKER: "false"
       OLLAMA_BASE_URL: ${OPENWEBUI_OLLAMA_BASE_URL:-${X8_OLLAMA_BASE_URL:-http://host.docker.internal:11434}}
-      # Do not set WEBUI_SECRET_KEY here unless the operator explicitly adds it
-      # to .env. Passing an empty or new signing secret can invalidate existing
-      # OpenWebUI bearer/session tokens even when the token value itself did not
-      # change. Existing development keys should remain owned by OpenWebUI's
-      # persisted data store.
+      WEBUI_SECRET_KEY: ${WEBUI_SECRET_KEY:?Run scripts/Pin-OpenWebUIAuth.ps1 first.}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
