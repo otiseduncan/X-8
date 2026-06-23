@@ -11,6 +11,12 @@ docker compose run --rm web-tests
 docker compose run --rm e2e-tests
 ```
 
+For the focused conversation authority proof while iterating:
+
+```bash
+docker compose -f compose.yaml run --rm --build api-tests python -m pytest tests/test_conversation_readiness.py tests/test_conversation_authority.py
+```
+
 ## Covered Checks
 
 - Docker stack configuration.
@@ -25,3 +31,5 @@ docker compose run --rm e2e-tests
 - Repo write denial without approval.
 - File-size guard behavior.
 - Browser smoke through Playwright.
+- Conversation repair routes to a conversational lane, not GitHub pull or self-build.
+- Model-owned conversation lanes do not inject X8 memory or markdown knowledge into every turn.
