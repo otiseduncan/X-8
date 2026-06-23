@@ -1,6 +1,6 @@
 class ResponsePlanner:
     LANES = {
-        "self_build": ("self-build", "self build", "self-build proposal", "repair loop"),
+        "self_build": ("self-build", "self build", "self-build proposal", "repair loop", "fix xoduz", "fix conversation", "language issues", "expand the system prompt", "update the system prompt"),
         "github_create_repo": (
             "create-repo",
             "create repo",
@@ -12,7 +12,7 @@ class ResponsePlanner:
             "make a private repo named",
         ),
         "github_connect_init": ("connect this repo", "connect remote", "initialize this as a repo", "init repo"),
-        "github_pull": ("pull latest", "git pull", "pull from github"),
+        "github_pull": ("pull latest", "git pull", "pull from github", "ready to pull"),
         "github_push": (
             "push this repo",
             "prepare to push",
@@ -56,12 +56,12 @@ class ResponsePlanner:
         ),
         "image_generation": ("image", "generate picture", "generate image"),
         "web_search": ("search", "searxng", "web research"),
-        "repo_inspection": ("open readme", "read file", "show file", "check the repo", "repo status"),
-        "approval_required_action": ("edit file", "apply patch", "delete"),
+        "repo_inspection": ("open readme", "read file", "show file", "check the repo", "repo status", "examine the repo", "what is usable", "what's left", "production ready"),
+        "approval_required_action": ("edit file", "apply patch"),
         "attachment_question": ("attachment", "attached", "use this"),
         "model_status_request": ("what model", "model status", "using"),
         "reasoning": ("reason through", "deep plan", "think deeply", "architecture plan"),
-        "code_help": ("code", "function", "bug", "python", "typescript"),
+        "code_help": ("code", "function", "bug", "python", "typescript", "natural language", "conversation quality", "tone"),
         "prompt_generation": ("write a prompt", "prompt for"),
         "settings_request": ("settings", "configure"),
     }
