@@ -22,6 +22,7 @@ services:
       x8-local-bridge:
         condition: service_started
     volumes:
+      - ./apps/api/src:/app/src:ro
       - ./knowledge:/app/knowledge:ro
       - .:/workspace
       - "${X8_PROJECTS_HOST_ROOT:-../xoduz-sandbox}:/projects"
@@ -115,6 +116,7 @@ services:
       X8_WORKSPACE_HOST_ROOT: ${X8_WORKSPACE_HOST_ROOT:-../xoduz-sandbox}
       X8_PROJECTS_HOST_ROOT: ${X8_PROJECTS_HOST_ROOT:-../xoduz-sandbox}
     volumes:
+      - ./apps/api/src:/app/src:ro
       - .:/workspace:ro
       - "X:/XV7/xv7:/imports/x7:ro"
       - "X:/X-V-6.1:/imports/x6:ro"
@@ -144,10 +146,15 @@ services:
       dockerfile: docker/api/Dockerfile
     command: ["pytest", "tests"]
     env_file: .env.example
+    environment:
+      X8_WORKSPACE_ROOT: /workspace
+      X8_WORKSPACE_HOST_ROOT: /workspace
+      X8_PROJECTS_HOST_ROOT: /workspace
     depends_on:
       x8-postgres:
         condition: service_healthy
     volumes:
+      - ./apps/api/src:/app/src:ro
       - ./apps/api/tests:/app/tests:ro
       - .:/workspace
       - "${X8_PROJECTS_HOST_ROOT:-../xoduz-sandbox}:/projects"
