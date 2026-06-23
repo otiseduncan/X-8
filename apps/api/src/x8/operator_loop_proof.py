@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import os
@@ -60,9 +61,14 @@ def is_operator_loop_proof_request(message: str) -> bool:
 def run_operator_loop_proof(message: str, selection: Any | None = None) -> OperatorProofResult:
     run_id = _extract_run_id(message) or DEFAULT_RUN_ID
     branch = _extract_branch(message) or DEFAULT_BRANCH
-    repo_root = _repo_root()
-    host_repo_root = (os.getenv("X8_WORKSPACE_HOST_ROOT") or str(repo_root)).replace("\\", "/")
-    sandbox_host_root = (os.getenv("X8_PROJECTS_HOST_ROOT") or "/projects").replace("\\", "/")
+
+    try:
+        repo_root = _repo_root()
+    except OperatorProofFailure as exc:
+        return OperatorProofResult(message=_fail_message(exc, branch), status="failed", limitations=[exc.message])
+
+    host_repo_root = _host_repo_root(repo_root)
+    sandbox_host_root = (os.getenv("X8_PROJECTS_HOST_ROOT") or "X:/xoduz-sandbox").replace("\\", "/")
     sandbox_container_root = Path("/projects") if Path("/projects").exists() else Path(sandbox_host_root)
     sandbox_dir = sandbox_container_root / "x8-proof" / run_id
     sandbox_host_dir = f"{sandbox_host_root.rstrip('/')}/x8-proof/{run_id}"
@@ -85,7 +91,7 @@ def run_operator_loop_proof(message: str, selection: Any | None = None) -> Opera
         if initial_status:
             raise OperatorProofFailure(
                 "Repository is dirty before proof run. Refusing to create proof branch from an unclean tree.",
-                payload={"initial_branch": initial_branch, "initial_status_short": initial_status},
+                payload={"initial_branch": initial_branch, "initial_status_short": initial_status, "repo_root": str(repo_root)},
             )
 
         runner.run(["fetch", "origin", "main"], timeout=90)
@@ -212,7 +218,7 @@ class _GitRunner:
             text=True,
             timeout=timeout,
             check=False,
-            env=os.environ.copy() | {"GIT_TERMINAL_PROMPT": "0"},
+            env=_git_env(),
         )
         record = CommandRecord(
             command=["git", *args],
@@ -233,7 +239,7 @@ class _GitRunner:
             text=True,
             timeout=20,
             check=False,
-            env=os.environ.copy() | {"GIT_TERMINAL_PROMPT": "0"},
+            env=_git_env(),
         )
         return completed.returncode == 0
 
@@ -258,11 +264,73 @@ def _validate_git_args(args: list[str]) -> None:
 
 
 def _repo_root() -> Path:
-    configured = os.getenv("X8_WORKSPACE_ROOT") or "/workspace"
-    root = Path(configured)
-    if not root.exists():
-        root = Path("/workspace")
-    return root.resolve()
+    candidates: list[Path] = []
+    for raw in (
+        os.getenv("X8_REPO_ROOT"),
+        os.getenv("X8_OPERATOR_REPO_ROOT"),
+        os.getenv("X8_WORKSPACE_REPO_ROOT"),
+        os.getenv("X8_DOCKER_PRESET_WORKDIR"),
+        os.getenv("X8_WORKSPACE_ROOT"),
+        "/workspace",
+        Path.cwd(),
+    ):
+        if not raw:
+            continue
+        path = Path(str(raw)).expanduser()
+        if path not in candidates:
+            candidates.append(path)
+
+    for candidate in candidates:
+        root = _git_toplevel(candidate)
+        if root:
+            return root
+
+    raise OperatorProofFailure(
+        "Could not locate mounted Git repository for operator proof.",
+        payload={"candidate_paths": [str(path) for path in candidates]},
+    )
+
+
+def _git_toplevel(candidate: Path) -> Path | None:
+    if not candidate.exists():
+        return None
+    completed = subprocess.run(
+        ["git", "rev-parse", "--show-toplevel"],
+        cwd=candidate,
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+        env=os.environ.copy() | {"GIT_TERMINAL_PROMPT": "0"},
+    )
+    if completed.returncode != 0:
+        return None
+    root = completed.stdout.strip()
+    return Path(root).resolve() if root else None
+
+
+def _host_repo_root(repo_root: Path) -> str:
+    configured = (os.getenv("X8_REPO_HOST_ROOT") or "").strip()
+    if configured:
+        return configured.replace("\\", "/")
+    if repo_root == Path("/workspace"):
+        return "X:/X 8"
+    return str(repo_root).replace("\\", "/")
+
+
+def _git_env() -> dict[str, str]:
+    env = os.environ.copy() | {"GIT_TERMINAL_PROMPT": "0"}
+    token = (os.getenv("X8_GITHUB_TOKEN") or "").strip()
+    if token:
+        basic = base64.b64encode(f"x-access-token:{token}".encode("utf-8")).decode("ascii")
+        env.update(
+            {
+                "GIT_CONFIG_COUNT": "1",
+                "GIT_CONFIG_KEY_0": "http.https://github.com/.extraheader",
+                "GIT_CONFIG_VALUE_0": f"AUTHORIZATION: basic {basic}",
+            }
+        )
+    return env
 
 
 def _now() -> str:
