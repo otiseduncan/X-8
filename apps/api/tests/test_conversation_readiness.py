@@ -31,11 +31,13 @@ def test_self_build_still_requires_explicit_patch_language() -> None:
     assert planner.classify("patch proposal") == "self_build"
 
 
-def test_repo_review_routes_to_inspection() -> None:
+def test_repo_review_and_git_pull_have_separate_language() -> None:
     planner = ResponsePlanner()
     assert planner.classify("examine the repo") == "repo_inspection"
     assert planner.classify("production ready") == "repo_inspection"
-    assert planner.classify("ready to pull") == "github_pull"
+    assert planner.classify("ready to pull") == "normal_chat"
+    assert planner.classify("git pull") == "github_pull"
+    assert planner.classify("pull latest") == "github_pull"
 
 
 def test_chat_conversation_repair_does_not_become_github_pull_or_self_build() -> None:
