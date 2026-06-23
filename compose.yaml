@@ -6,6 +6,19 @@ services:
     env_file: .env.example
     environment:
       PYTHONPATH: /app/src
+      X8_CHAT_PROVIDER: ${X8_CHAT_PROVIDER:-openwebui}
+      X8_OPEN_WEBUI_BASE_URL: ${X8_OPEN_WEBUI_BASE_URL:-http://host.docker.internal:3000}
+      X8_OPENWEBUI_BASE_URL: ${X8_OPENWEBUI_BASE_URL:-http://host.docker.internal:3000}
+      OPENWEBUI_BASE_URL: ${OPENWEBUI_BASE_URL:-http://host.docker.internal:3000}
+      X8_OPEN_WEBUI_API_KEY: ${X8_OPEN_WEBUI_API_KEY:-}
+      X8_OPENWEBUI_API_KEY: ${X8_OPENWEBUI_API_KEY:-}
+      OPENWEBUI_API_KEY: ${OPENWEBUI_API_KEY:-}
+      X8_OPEN_WEBUI_MODEL: ${X8_OPEN_WEBUI_MODEL:-qwen3:8b}
+      X8_OPENWEBUI_MODEL: ${X8_OPENWEBUI_MODEL:-qwen3:8b}
+      OPENWEBUI_MODEL: ${OPENWEBUI_MODEL:-qwen3:8b}
+      X8_OPEN_WEBUI_MODEL_ALIASES: ${X8_OPEN_WEBUI_MODEL_ALIASES:-qwen3:14b;qwen3:8b;qwen3:1.7b}
+      X8_OPENWEBUI_MODEL_ALIASES: ${X8_OPENWEBUI_MODEL_ALIASES:-qwen3:14b;qwen3:8b;qwen3:1.7b}
+      OPENWEBUI_MODEL_ALIASES: ${OPENWEBUI_MODEL_ALIASES:-qwen3:14b;qwen3:8b;qwen3:1.7b}
       X8_GITHUB_TOKEN: ${X8_GITHUB_TOKEN:-}
       X8_GITHUB_OWNER: ${X8_GITHUB_OWNER:-otiseduncan}
       X8_GITHUB_DEFAULT_VISIBILITY: ${X8_GITHUB_DEFAULT_VISIBILITY:-private}
@@ -158,6 +171,19 @@ services:
       X8_WORKSPACE_ROOT: /workspace
       X8_WORKSPACE_HOST_ROOT: /workspace
       X8_PROJECTS_HOST_ROOT: /workspace
+      X8_CHAT_PROVIDER: ${X8_CHAT_PROVIDER:-openwebui}
+      X8_OPEN_WEBUI_BASE_URL: ${X8_OPEN_WEBUI_BASE_URL:-http://host.docker.internal:3000}
+      X8_OPENWEBUI_BASE_URL: ${X8_OPENWEBUI_BASE_URL:-http://host.docker.internal:3000}
+      OPENWEBUI_BASE_URL: ${OPENWEBUI_BASE_URL:-http://host.docker.internal:3000}
+      X8_OPEN_WEBUI_API_KEY: ${X8_OPEN_WEBUI_API_KEY:-}
+      X8_OPENWEBUI_API_KEY: ${X8_OPENWEBUI_API_KEY:-}
+      OPENWEBUI_API_KEY: ${OPENWEBUI_API_KEY:-}
+      X8_OPEN_WEBUI_MODEL: ${X8_OPEN_WEBUI_MODEL:-qwen3:8b}
+      X8_OPENWEBUI_MODEL: ${X8_OPENWEBUI_MODEL:-qwen3:8b}
+      OPENWEBUI_MODEL: ${OPENWEBUI_MODEL:-qwen3:8b}
+      X8_OPEN_WEBUI_MODEL_ALIASES: ${X8_OPEN_WEBUI_MODEL_ALIASES:-qwen3:14b;qwen3:8b;qwen3:1.7b}
+      X8_OPENWEBUI_MODEL_ALIASES: ${X8_OPENWEBUI_MODEL_ALIASES:-qwen3:14b;qwen3:8b;qwen3:1.7b}
+      OPENWEBUI_MODEL_ALIASES: ${OPENWEBUI_MODEL_ALIASES:-qwen3:14b;qwen3:8b;qwen3:1.7b}
     depends_on:
       x8-postgres:
         condition: service_healthy
