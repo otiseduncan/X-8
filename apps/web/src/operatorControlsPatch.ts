@@ -20,6 +20,7 @@ declare global {
 }
 
 const SESSION_KEY = 'x8-chat-session-id';
+const WELCOME_TEXT = 'Ready. Exodus avatar restored. Ask me what you want to build, inspect, search, preview, or fix.';
 
 function getChatData(payload: unknown): Record<string, unknown> {
   if (!payload || typeof payload !== 'object') return {};
@@ -57,8 +58,11 @@ function patchChatSessionFetch() {
 
 function transcriptText() {
   const articles = Array.from(document.querySelectorAll('article'));
-  if (!articles.length) return document.body.innerText || '';
-  return articles.map((article) => article.textContent?.trim() || '').filter(Boolean).join('\n\n---\n\n');
+  const rows = articles
+    .filter((article) => !article.textContent?.includes(WELCOME_TEXT))
+    .map((article) => article.textContent?.trim() || '')
+    .filter(Boolean);
+  return rows.length ? rows.join('\n\n---\n\n') : 'No chat messages yet.';
 }
 
 async function copyTranscript() {
@@ -90,48 +94,46 @@ function downloadTranscript() {
   URL.revokeObjectURL(url);
 }
 
-function addTranscriptControls(form: HTMLFormElement) {
-  const host = form.parentElement;
-  if (!host || host.querySelector('[data-x8-transcript-controls="true"]')) return;
-  const row = document.createElement('div');
-  row.dataset.x8TranscriptControls = 'true';
-  row.style.display = 'flex';
-  row.style.flexWrap = 'wrap';
-  row.style.gap = '8px';
-  row.style.alignItems = 'center';
-  row.style.border = '1px solid rgba(125, 211, 252, 0.22)';
-  row.style.borderRadius = '14px';
-  row.style.padding = '8px 10px';
-  row.style.background = 'rgba(5, 7, 13, 0.88)';
+function styleHeaderButton(button: HTMLButtonElement) {
+  button.style.border = '1px solid rgba(125, 211, 252, 0.28)';
+  button.style.borderRadius = '999px';
+  button.style.padding = '8px 12px';
+  button.style.color = '#e0f2fe';
+  button.style.background = 'rgba(14, 165, 233, 0.12)';
+  button.style.fontWeight = '800';
+  button.style.cursor = 'pointer';
+}
 
-  const label = document.createElement('strong');
-  label.textContent = 'Transcript';
-  label.style.marginRight = 'auto';
+function addHeaderTranscriptControls() {
+  if (document.querySelector('[data-x8-header-transcript-controls="true"]')) return;
+  const cockpitButton = Array.from(document.querySelectorAll('button')).find((button) => button.textContent?.trim() === 'Open Cockpit') as HTMLButtonElement | undefined;
+  const headerActions = cockpitButton?.parentElement;
+  if (!headerActions) return;
 
   const copy = document.createElement('button');
   copy.type = 'button';
+  copy.dataset.x8HeaderTranscriptControls = 'true';
   copy.textContent = 'Copy Transcript';
   copy.setAttribute('aria-label', 'Copy transcript');
   copy.onclick = () => { void copyTranscript(); };
+  styleHeaderButton(copy);
 
   const download = document.createElement('button');
   download.type = 'button';
   download.textContent = 'Download Transcript';
   download.setAttribute('aria-label', 'Download transcript');
   download.onclick = downloadTranscript;
+  styleHeaderButton(download);
 
-  for (const button of [copy, download]) {
-    button.style.border = '1px solid rgba(125, 211, 252, 0.28)';
-    button.style.borderRadius = '999px';
-    button.style.padding = '7px 10px';
-    button.style.color = '#e0f2fe';
-    button.style.background = 'rgba(14, 165, 233, 0.12)';
-    button.style.fontWeight = '800';
-    button.style.cursor = 'pointer';
-  }
+  headerActions.insertBefore(copy, cockpitButton);
+  headerActions.insertBefore(download, cockpitButton);
+}
 
-  row.append(label, copy, download);
-  host.insertBefore(row, form);
+function setTextareaValue(textarea: HTMLTextAreaElement, value: string) {
+  const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set;
+  setter?.call(textarea, value);
+  textarea.dispatchEvent(new Event('input', { bubbles: true }));
+  textarea.dispatchEvent(new Event('change', { bubbles: true }));
 }
 
 function addMicButton(form: HTMLFormElement, textarea: HTMLTextAreaElement) {
@@ -139,16 +141,22 @@ function addMicButton(form: HTMLFormElement, textarea: HTMLTextAreaElement) {
   const button = document.createElement('button');
   button.type = 'button';
   button.dataset.x8MicButton = 'true';
-  button.textContent = '🎙 Mic';
-  button.setAttribute('aria-label', 'Start microphone');
+  button.textContent = '🎙';
+  button.setAttribute('aria-label', 'Start microphone dictation');
   button.title = 'Microphone dictation';
+  button.style.width = '42px';
+  button.style.minWidth = '42px';
+  button.style.alignSelf = 'stretch';
   button.style.border = '1px solid rgba(125, 211, 252, 0.28)';
   button.style.borderRadius = '14px';
-  button.style.padding = '10px 12px';
+  button.style.padding = '0';
   button.style.color = '#e0f2fe';
   button.style.background = 'rgba(14, 165, 233, 0.12)';
   button.style.fontWeight = '900';
+  button.style.fontSize = '18px';
   button.style.cursor = 'pointer';
+
+  form.style.gridTemplateColumns = 'minmax(0, 1fr) 42px auto';
 
   let recognition: SpeechRecognitionLike | null = null;
   let listening = false;
@@ -159,8 +167,8 @@ function addMicButton(form: HTMLFormElement, textarea: HTMLTextAreaElement) {
     }
     const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!Recognition) {
-      button.textContent = 'Mic unavailable';
-      window.setTimeout(() => { button.textContent = '🎙 Mic'; }, 1800);
+      button.textContent = '×';
+      window.setTimeout(() => { button.textContent = '🎙'; }, 1600);
       return;
     }
     recognition = new Recognition();
@@ -169,24 +177,24 @@ function addMicButton(form: HTMLFormElement, textarea: HTMLTextAreaElement) {
     recognition.lang = 'en-US';
     recognition.onstart = () => {
       listening = true;
-      button.textContent = '● Stop Mic';
-      button.setAttribute('aria-label', 'Stop microphone');
+      button.textContent = '■';
+      button.setAttribute('aria-label', 'Stop microphone dictation');
       button.style.background = 'rgba(127, 29, 29, 0.5)';
       button.style.color = '#fecaca';
     };
     recognition.onresult = (event) => {
       const spoken = Array.from(event.results).map((result) => result[0]?.transcript || '').join(' ').trim();
       if (spoken) {
-        textarea.value = [textarea.value.trim(), spoken].filter(Boolean).join(' ');
-        textarea.dispatchEvent(new Event('input', { bubbles: true }));
+        const nextValue = [textarea.value.trim(), spoken].filter(Boolean).join(' ');
+        setTextareaValue(textarea, nextValue);
         textarea.focus();
       }
     };
     recognition.onerror = () => undefined;
     recognition.onend = () => {
       listening = false;
-      button.textContent = '🎙 Mic';
-      button.setAttribute('aria-label', 'Start microphone');
+      button.textContent = '🎙';
+      button.setAttribute('aria-label', 'Start microphone dictation');
       button.style.background = 'rgba(14, 165, 233, 0.12)';
       button.style.color = '#e0f2fe';
       textarea.focus();
@@ -195,15 +203,27 @@ function addMicButton(form: HTMLFormElement, textarea: HTMLTextAreaElement) {
   };
 
   const sendButton = form.querySelector('button[type="submit"]');
-  if (sendButton?.parentElement && sendButton.parentElement !== form) sendButton.parentElement.insertBefore(button, sendButton);
+  if (sendButton) form.insertBefore(button, sendButton);
   else form.appendChild(button);
 }
 
+function removeMisplacedTranscriptControls() {
+  document.querySelectorAll('[data-x8-transcript-controls="true"]').forEach((node) => node.remove());
+}
+
+function hideStarterAssistantBox() {
+  document.querySelectorAll('article').forEach((article) => {
+    if (article.textContent?.includes(WELCOME_TEXT)) article.remove();
+  });
+}
+
 function mountControls() {
+  removeMisplacedTranscriptControls();
+  hideStarterAssistantBox();
+  addHeaderTranscriptControls();
   const textarea = document.querySelector('textarea') as HTMLTextAreaElement | null;
   const form = textarea?.closest('form') as HTMLFormElement | null;
   if (!textarea || !form) return;
-  addTranscriptControls(form);
   addMicButton(form, textarea);
 }
 
