@@ -10,13 +10,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from x8.operator_loop_proof import CommandRecord, OperatorProofFailure, _GitRunner, _format_command
+from x8.operator_loop_proof import CommandRecord, OperatorProofFailure, _GitRunner, _format_command, _git_env, _redact
 
 LAB_REPO_FULL_NAME = "otiseduncan/x8-git-proof-lab"
 LAB_REPO_NAME = "x8-git-proof-lab"
 LAB_REMOTE_URL = "https://github.com/otiseduncan/x8-git-proof-lab.git"
 LAB_BRANCH = "main"
 README_RELATIVE = Path("README.md")
+CARD_RELATIVE = Path("proof/live-proof-card.svg")
 PROOF_RELATIVE = Path("proof/X8_VISUAL_OPERATOR_PROOF.md")
 STATUS_RELATIVE = Path("proof/status.json")
 STEPS_RELATIVE = Path("proof/SCREEN_RECORDING_STEPS.md")
@@ -28,6 +29,11 @@ PREPARE_TRIGGERS = (
     "prepare visual x8 git proof lab",
     "start the visual x8 git proof lab",
     "start visual x8 git proof lab",
+    "update the proof lab readme live",
+    "update proof lab readme live",
+    "update the proof lab readme",
+    "new timestamp and proof card",
+    "live timestamp and proof card",
 )
 APPROVE_PUSH_TRIGGERS = (
     "approve visual x8 git proof lab push",
@@ -108,6 +114,7 @@ def _prepare_local_write() -> VisualProofResult:
     files = _proof_files(workspace.container_path)
     files["proof"].parent.mkdir(parents=True, exist_ok=True)
     files["readme"].write_text(_readme(run_id, timestamp, "LOCAL_FILE_WRITTEN_BY_X_AWAITING_APPROVAL"), encoding="utf-8")
+    files["card"].write_text(_proof_card(run_id, timestamp, "AWAITING OTIS APPROVAL"), encoding="utf-8")
     files["proof"].write_text(_proof(run_id, timestamp, "LOCAL_WRITE", "NOT_REPAIRED_YET"), encoding="utf-8")
     files["steps"].write_text(_steps(), encoding="utf-8")
     _write_json(
@@ -135,7 +142,7 @@ def _prepare_local_write() -> VisualProofResult:
             "workspace_host_path": workspace.host_path,
             "workspace_container_path": str(workspace.container_path),
             "git_status_short": status_short,
-            "files_written": [_rel(README_RELATIVE), _rel(PROOF_RELATIVE), _rel(STATUS_RELATIVE), _rel(STEPS_RELATIVE)],
+            "files_written": [_rel(README_RELATIVE), _rel(CARD_RELATIVE), _rel(PROOF_RELATIVE), _rel(STATUS_RELATIVE), _rel(STEPS_RELATIVE)],
             "approval_command": "Approve visual X8 git proof lab push",
             "timestamp": _now(),
         },
@@ -149,11 +156,11 @@ def _prepare_local_write() -> VisualProofResult:
             f"local_ide_workspace: {workspace.host_path}\n"
             f"container_workspace: {workspace.container_path}\n"
             f"run_id: {run_id}\n"
-            f"files_written: {_rel(README_RELATIVE)}, {_rel(PROOF_RELATIVE)}, {_rel(STATUS_RELATIVE)}, {_rel(STEPS_RELATIVE)}\n"
+            f"files_written: {_rel(README_RELATIVE)}, {_rel(CARD_RELATIVE)}, {_rel(PROOF_RELATIVE)}, {_rel(STATUS_RELATIVE)}, {_rel(STEPS_RELATIVE)}\n"
             f"git_status_short: {status_short}\n"
             f"receipt_path: {_host_receipt_path(receipt_path)}\n"
             "next_command: Approve visual X8 git proof lab push\n"
-            "recording_instruction: Open the local_ide_workspace in VS Code before approving the push."
+            "recording_instruction: Show the newly created local_ide_workspace before approving the push."
         ),
         status="awaiting_approval",
     )
@@ -166,7 +173,7 @@ def _approve_initial_push() -> VisualProofResult:
     receipt_dir = _receipt_dir(run_id)
     receipt_dir.mkdir(parents=True, exist_ok=True)
 
-    _require_files(workspace.container_path, [README_RELATIVE, PROOF_RELATIVE, STATUS_RELATIVE, STEPS_RELATIVE])
+    _require_files(workspace.container_path, [README_RELATIVE, CARD_RELATIVE, PROOF_RELATIVE, STATUS_RELATIVE, STEPS_RELATIVE])
     status_before = runner.run(["status", "--short"]).stdout.strip()
     if not status_before:
         raise VisualProofFailure(
@@ -174,7 +181,7 @@ def _approve_initial_push() -> VisualProofResult:
             payload={"workspace_host_path": workspace.host_path},
         )
 
-    runner.run(["add", _rel(README_RELATIVE), _rel(PROOF_RELATIVE), _rel(STATUS_RELATIVE), _rel(STEPS_RELATIVE)])
+    runner.run(["add", _rel(README_RELATIVE), _rel(CARD_RELATIVE), _rel(PROOF_RELATIVE), _rel(STATUS_RELATIVE), _rel(STEPS_RELATIVE)])
     runner.run(["commit", "-m", "proof: X8 writes visual proof lab files"])
     first_commit_sha = runner.run(["rev-parse", "HEAD"]).stdout.strip()
     runner.run(["push", "-u", "origin", LAB_BRANCH], timeout=90)
@@ -204,7 +211,7 @@ def _approve_initial_push() -> VisualProofResult:
             f"first_commit_sha: {first_commit_sha}\n"
             f"receipt_path: {_host_receipt_path(receipt_path)}\n"
             "next_command: Approve visual X8 git proof lab repair push\n"
-            "recording_instruction: Refresh GitHub now and show README.md plus proof/X8_VISUAL_OPERATOR_PROOF.md."
+            "recording_instruction: Refresh GitHub now and show README.md plus proof/live-proof-card.svg."
         ),
         status="passed",
     )
@@ -224,8 +231,9 @@ def _approve_repair_push() -> VisualProofResult:
 
     timestamp = _now()
     files = _proof_files(workspace.container_path)
-    _require_files(workspace.container_path, [README_RELATIVE, PROOF_RELATIVE, STATUS_RELATIVE])
+    _require_files(workspace.container_path, [README_RELATIVE, CARD_RELATIVE, PROOF_RELATIVE, STATUS_RELATIVE])
     files["readme"].write_text(_readme(run_id, timestamp, "REPAIRED_BY_X_AFTER_PULL"), encoding="utf-8")
+    files["card"].write_text(_proof_card(run_id, timestamp, "REPAIRED AFTER PULL"), encoding="utf-8")
     original = files["proof"].read_text(encoding="utf-8")
     repaired = original.replace("REPAIR_STATUS=NOT_REPAIRED_YET", "REPAIR_STATUS=REPAIRED_BY_X_AFTER_PULL")
     if repaired == original:
@@ -244,7 +252,7 @@ def _approve_repair_push() -> VisualProofResult:
         },
     )
 
-    runner.run(["add", _rel(README_RELATIVE), _rel(PROOF_RELATIVE), _rel(STATUS_RELATIVE)])
+    runner.run(["add", _rel(README_RELATIVE), _rel(CARD_RELATIVE), _rel(PROOF_RELATIVE), _rel(STATUS_RELATIVE)])
     runner.run(["commit", "-m", "repair: X8 repairs visual proof lab after pull"])
     repair_commit_sha = runner.run(["rev-parse", "HEAD"]).stdout.strip()
     runner.run(["push", "origin", LAB_BRANCH], timeout=90)
@@ -289,9 +297,14 @@ def _ensure_lab_workspace() -> LabWorkspace:
     workspace = _workspace_paths()
     workspace.container_path.parent.mkdir(parents=True, exist_ok=True)
     if not (workspace.container_path / ".git").exists():
-        workspace.container_path.mkdir(parents=True, exist_ok=True)
-        _raw_git(["init", "-b", LAB_BRANCH], cwd=workspace.container_path)
-        _raw_git(["remote", "add", "origin", LAB_REMOTE_URL], cwd=workspace.container_path)
+        if workspace.container_path.exists() and any(workspace.container_path.iterdir()):
+            raise VisualProofFailure(
+                "Visual proof lab folder exists but is not a Git repo. Delete it or move it before starting a clean proof.",
+                payload={"workspace_host_path": workspace.host_path, "workspace_container_path": str(workspace.container_path)},
+            )
+        if workspace.container_path.exists():
+            workspace.container_path.rmdir()
+        _raw_git(["clone", "--branch", LAB_BRANCH, LAB_REMOTE_URL, str(workspace.container_path)], cwd=workspace.container_path.parent, timeout=90)
     else:
         _raw_git(["remote", "set-url", "origin", LAB_REMOTE_URL], cwd=workspace.container_path)
     return workspace
@@ -329,15 +342,15 @@ def _sync_main_when_possible(runner: _GitRunner) -> None:
 
 
 def _raw_git(args: list[str], *, cwd: Path, timeout: int = 45) -> CommandRecord:
-    completed = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, timeout=timeout, check=False, env=os.environ.copy() | {"GIT_TERMINAL_PROMPT": "0"})
-    record = CommandRecord(command=["git", *args], cwd=str(cwd), returncode=completed.returncode, stdout=completed.stdout, stderr=completed.stderr)
+    completed = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, timeout=timeout, check=False, env=_git_env())
+    record = CommandRecord(command=["git", *args], cwd=str(cwd), returncode=completed.returncode, stdout=_redact(completed.stdout), stderr=_redact(completed.stderr))
     if record.returncode != 0:
         raise VisualProofFailure("Git command failed.", record=record)
     return record
 
 
 def _proof_files(root: Path) -> dict[str, Path]:
-    return {"readme": root / README_RELATIVE, "proof": root / PROOF_RELATIVE, "status": root / STATUS_RELATIVE, "steps": root / STEPS_RELATIVE}
+    return {"readme": root / README_RELATIVE, "card": root / CARD_RELATIVE, "proof": root / PROOF_RELATIVE, "status": root / STATUS_RELATIVE, "steps": root / STEPS_RELATIVE}
 
 
 def _require_files(root: Path, files: list[Path]) -> None:
@@ -350,24 +363,61 @@ def _readme(run_id: str, timestamp: str, phase: str) -> str:
     return "\n".join([
         "# X8 Git Proof Lab",
         "",
+        "![X8 Live Proof Card](proof/live-proof-card.svg)",
+        "",
         "This repository exists so X can prove a visible Git workflow on camera.",
         "",
         f"RUN_ID={run_id}",
         f"LAST_UPDATED_UTC={timestamp}",
         f"VISIBLE_PHASE={phase}",
+        "PROOF_CARD=proof/live-proof-card.svg",
         "PROOF_FILE=proof/X8_VISUAL_OPERATOR_PROOF.md",
         "STATUS_FILE=proof/status.json",
         "",
-        "## Screen-recording proof checklist",
+        "## What this recording proves",
         "",
-        "1. X writes these files locally into the IDE-visible proof lab workspace.",
-        "2. Otis reviews the local files in the IDE.",
-        "3. Otis approves the initial push.",
-        "4. X pushes to GitHub so the file appears on refresh.",
-        "5. Otis approves the repair push.",
-        "6. X pulls, repairs the file, and pushes the repair commit.",
+        "1. X receives an operator command through chat or voice.",
+        "2. X creates/clones a fresh local IDE-visible workspace under `X:/xoduz-sandbox`.",
+        "3. X writes this README and proof files before any push approval.",
+        "4. Otis reviews the local files in the IDE/cockpit.",
+        "5. Otis approves the initial push.",
+        "6. X pushes to GitHub so the README and proof card appear on refresh.",
+        "7. X pulls from GitHub, repairs the proof, and pushes the repair after approval.",
         "",
     ])
+
+
+def _proof_card(run_id: str, timestamp: str, phase: str) -> str:
+    safe_run_id = run_id.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    safe_timestamp = timestamp.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    safe_phase = phase.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    return f'''<svg xmlns="http://www.w3.org/2000/svg" width="960" height="360" viewBox="0 0 960 360" role="img" aria-label="X8 live Git proof card">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#050505"/>
+      <stop offset="45%" stop-color="#18181b"/>
+      <stop offset="100%" stop-color="#7f1d1d"/>
+    </linearGradient>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="7" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  <rect width="960" height="360" rx="34" fill="url(#bg)"/>
+  <rect x="24" y="24" width="912" height="312" rx="26" fill="rgba(255,255,255,0.035)" stroke="#ef4444" stroke-width="2"/>
+  <circle cx="820" cy="86" r="44" fill="#ef4444" opacity="0.85" filter="url(#glow)"/>
+  <circle cx="866" cy="132" r="22" fill="#f97316" opacity="0.75" filter="url(#glow)"/>
+  <text x="60" y="92" fill="#ffffff" font-family="Segoe UI, Arial, sans-serif" font-size="44" font-weight="800">X8 LIVE GIT PROOF</text>
+  <text x="60" y="144" fill="#fca5a5" font-family="Consolas, monospace" font-size="24">README UPDATED BY X</text>
+  <text x="60" y="194" fill="#ffffff" font-family="Consolas, monospace" font-size="22">PHASE: {safe_phase}</text>
+  <text x="60" y="238" fill="#d4d4d8" font-family="Consolas, monospace" font-size="20">RUN: {safe_run_id}</text>
+  <text x="60" y="278" fill="#d4d4d8" font-family="Consolas, monospace" font-size="20">UTC: {safe_timestamp}</text>
+  <text x="60" y="318" fill="#22c55e" font-family="Consolas, monospace" font-size="18">LOCAL WRITE FIRST • APPROVAL REQUIRED • GITHUB PUSH SECOND</text>
+</svg>
+'''
 
 
 def _proof(run_id: str, timestamp: str, phase: str, repair_status: str) -> str:
@@ -381,6 +431,7 @@ def _proof(run_id: str, timestamp: str, phase: str, repair_status: str) -> str:
         "USER_APPROVAL_REQUIRED=TRUE",
         f"REPAIR_STATUS={repair_status}",
         "VISUAL_TARGET_REPO=otiseduncan/x8-git-proof-lab",
+        "PROOF_CARD=proof/live-proof-card.svg",
         "",
     ])
 
@@ -389,14 +440,14 @@ def _steps() -> str:
     return "\n".join([
         "# Screen Recording Steps",
         "",
-        "1. Open X chat, VS Code, and the GitHub repo page side by side.",
-        "2. Run: `Run the visual X8 git proof lab`.",
-        "3. Open the local proof lab folder in VS Code.",
-        "4. Confirm README.md and proof/X8_VISUAL_OPERATOR_PROOF.md were written locally before any push.",
-        "5. Run: `Approve visual X8 git proof lab push`.",
-        "6. Refresh GitHub and show the new commit/files.",
-        "7. Run: `Approve visual X8 git proof lab repair push`.",
-        "8. Refresh GitHub and show the repair commit and repaired status.",
+        "1. Start with the sandbox proof folder deleted or absent.",
+        "2. Open X chat, the 6022 cockpit, and the GitHub repo page side by side.",
+        "3. Tell X: `X, update the proof lab README live with a new timestamp and proof card. Do not push yet.`",
+        "4. Show X creating/cloning the local proof lab folder and writing README.md plus proof/live-proof-card.svg.",
+        "5. Tell X: `Push it to the repo.`",
+        "6. Approve the push only after the approval card appears.",
+        "7. Refresh GitHub and show the README timestamp and proof card.",
+        "8. Approve the repair push, refresh GitHub, and show the repaired status.",
         "",
     ])
 
