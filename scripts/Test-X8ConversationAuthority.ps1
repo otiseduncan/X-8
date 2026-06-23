@@ -13,4 +13,9 @@ docker compose -f $ComposeFile run --rm --build api-tests python -m pytest `
     tests/test_kernel_authority_boundaries.py `
     tests/test_prompt_authority_contract.py
 
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "Conversation authority proof failed." -ForegroundColor Red
+    exit $LASTEXITCODE
+}
+
 Write-Host "Conversation authority proof completed." -ForegroundColor Green
