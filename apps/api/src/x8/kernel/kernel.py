@@ -17,6 +17,18 @@ UNAVAILABLE = "The assistant model is unavailable right now.\nNo model response 
 AUTO_CAPTURE_BLOCKED_LANES = {"conversation_repair", "reasoning", "code_help", "prompt_generation", "settings_request", "model_status_request"}
 
 
+def _unavailable_message(reason: str | None = None) -> str:
+    clean_reason = (reason or "").strip()
+    if not clean_reason:
+        return UNAVAILABLE
+    return (
+        f"{UNAVAILABLE}\n\n"
+        "Bridge failure:\n"
+        f"{clean_reason}\n\n"
+        "Run /api/brain/health?probe=true or scripts/Test-X8BrainBridge.ps1 for the full bridge check."
+    )
+
+
 class XV8Kernel:
     def __init__(
         self,
@@ -118,12 +130,14 @@ class XV8Kernel:
 
     def _respond(self, selection, prompt: str) -> tuple[str, str, list[str]]:
         if not selection.model_ready:
-            return UNAVAILABLE, "unavailable", [selection.reason_if_unavailable]
+            reason = selection.reason_if_unavailable or "Model router selected no ready model."
+            return _unavailable_message(reason), "unavailable", [reason]
         ok, content, reason = self.model_router.generate(selection, prompt)
         if ok and content:
             self.events.emit("model_response_received")
             return content, "passed", []
-        return UNAVAILABLE, "unavailable", [reason or "Model returned an empty response."]
+        reason = reason or "Model returned an empty response."
+        return _unavailable_message(reason), "unavailable", [reason]
 
     def _deterministic_response(self, request: KernelRequest, lane: str, bundle, selection=None) -> tuple[str, str, list[str]] | None:
         lower = request.user_message.lower().strip()
@@ -196,7 +210,14 @@ class XV8Kernel:
     def _cards(self, lane: str, status: str, limitations: list[str], request: KernelRequest) -> list[ResponseCard]:
         cards: list[ResponseCard] = []
         if limitations:
-            cards.append(ResponseCard(type="info", title="Kernel limitations", status=status, summary="Some context or model capabilities were unavailable.", payload={"limitations": limitations}))
+            unavailable = status == "unavailable"
+            cards.append(ResponseCard(
+                type="info",
+                title="Bridge failure" if unavailable else "Kernel limitations",
+                status=status,
+                summary=limitations[0] if unavailable else "Some context or model capabilities were unavailable.",
+                payload={"limitations": limitations},
+            ))
         if lane == "github_status":
             cards.append(ResponseCard(type="receipt", title="GitHub Ops status", status="ready", summary="Local git and GitHub auth status should be loaded through GitHub Ops without mutation.", payload={"provider": "github_ops", "operation": "status", "read_only": True, "github_write_ran": False}))
         if lane == "github_create_repo":
